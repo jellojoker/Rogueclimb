@@ -17,7 +17,7 @@ New-Item -ItemType Directory -Force "$stage\plugins\PeakRoguelike" | Out-Null
 $manifest = [ordered]@{
     name           = "Rogue_Climb"
     version_number = $Version
-    website_url    = "https://github.com/jellojoker/rogueclimb"
+    website_url    = "https://github.com/jellojoker/Rogueclimb"
     description    = "A roguelike for PEAK: crate picks, item trees that evolve and fuse, relics, coloured suns and blood moons. Early test build."
     dependencies   = @("BepInEx-BepInExPack_PEAK-5.4.75301")
 }
