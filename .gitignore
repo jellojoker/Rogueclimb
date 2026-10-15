@@ -1,0 +1,18 @@
+# Build output
+artifacts/
+bin/
+obj/
+*.user
+Config.Build.user.props
+
+# Local builds and rollbacks
+backups/
+dist/
+
+# Music ships in the Thunderstore package only (Darren Curtis's terms, not MIT)
+*.mp3
+*.ogg
+*.wav
+
+# Never commit the game's decompiled code
+decompiled/

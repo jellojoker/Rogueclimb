@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>netstandard2.1</TargetFramework>
+        <AssemblyName>PeakRoguelike</AssemblyName>
+        <AssemblyTitle>PEAK Roguelike</AssemblyTitle>
+        <Version>0.10.7</Version>
+        <RootNamespace>PeakRoguelike</RootNamespace>
+    </PropertyGroup>
+    <!--
+      Game references come from Directory.Build.targets (reads your PEAK install).
+      Card art is embedded into the DLL so the mod is a single file.
+      Regenerate the art with tools/cut_cards.ps1.
+    -->
+    <ItemGroup>
+        <EmbeddedResource Include="Assets\*.png" LogicalName="PeakRoguelike.Assets.%(Filename)%(Extension)" />
+    </ItemGroup>
+</Project>

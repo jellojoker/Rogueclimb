@@ -1,0 +1,26 @@
+# Rogue Climb
+
+A roguelike mod for PEAK. Crates, statues and amulets turn every climb into a run.
+
+> **Early test build.** Things will break and numbers will change. Every player in the lobby
+> needs the mod (same version).
+
+## What's in it
+
+- **Crate picks** - open luggage and pick one card. Items level up through their own trees,
+  evolve into new items, and finally fuse into legendary gear.
+- **Fusions** - combine maxed items into Jetpacks, Faerie Lanterns, Chain Launchers, Rescue
+  Claws and more, each with its own twist.
+- **Relics** - bind the statue amulets for powers that fire as you climb. Strong, but dangerous.
+- **Coloured suns** - each biome's sun takes the colour of its amulet, and it changes the climb.
+- **Blood moons** - the moon remembers who takes the relics.
+- **Pockets** - backpacks and fanny packs become extra pockets.
+
+## Credits
+
+- Music: "It's In The Fog" by Darren Curtis (@DarrenCurtisMusic)
+- Meteor showers: built with reference to True Final Ascent by CptPICHU - thank you!
+
+## License
+
+Code: MIT (see LICENSE). The music is not covered by the MIT license.
