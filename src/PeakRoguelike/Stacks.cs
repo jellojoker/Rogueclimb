@@ -63,8 +63,86 @@ internal class Stacks : MonoBehaviourPunCallbacks
                  || prefab.GetComponent<Action_Consume>() || prefab.GetComponent<Action_ConsumeAndSpawn>()
                  || prefab.GetComponents<Action_ReduceUses>().Any(a => a.consumeOnFullyUsed))
             k = StackKind.Count;
-        if (Items.Find(Trees.BaseRole(TreeId.Rope)) != null) kinds[prefab.itemID] = k; // only once the item database is up
+        // Only what a crate can give stacks: wild food (berries, coconuts, mushrooms) never does.
+        if (k != StackKind.None && ModConfig.StackCrateOnly.Value && !FromCrates(prefab)) k = StackKind.None;
+        if (Items.Find(Trees.BaseRole(TreeId.Rope)) != null)
+        {
+            kinds[prefab.itemID] = k; // only once the item database is up
+            if (!stackListLogged && Items.Database.Any())
+            {
+                stackListLogged = true;
+                var all = Items.Database.Where(i => i != null && i != prefab).Select(i => (i, KindOf(i))).Append((prefab, k));
+                Plugin.Log.LogInfo("Stackable: " + string.Join(", ", all.Where(x => x.Item2 != StackKind.None).Select(x => x.Item1.gameObject.name).OrderBy(n => n)));
+            }
+        }
         return k;
+    }
+
+    private static bool stackListLogged;
+
+    private static readonly SpawnPool Luggage = ((SpawnPool[])Enum.GetValues(typeof(SpawnPool)))
+        .Where(p => p.ToString().StartsWith("Luggage")).Aggregate((SpawnPool)0, (a, b) => a | b);
+
+    /// <summary>Can come out of a crate or luggage: in a luggage spawn pool, a tree item, an earned item, sunscreen or antidote.</summary>
+    private static bool FromCrates(Item prefab) =>
+        (prefab.GetComponent<LootData>() is { } loot && (loot.spawnLocations & Luggage) != 0)
+        || ItemLevels.KindOf(prefab) != null || Items.IsEarnedOnly(prefab) || Items.IsSunscreen(prefab) || Items.IsAntidote(prefab);
+
+    // --- the green sun: nothing new joins a stack ------------------------------------------------
+
+    /// <summary>
+    /// The green sun is on and this player doesn't carry Generosity: nothing new stacks. Safe ground
+    /// doesn't spare it (picking things up at a campfire would dodge it).
+    /// </summary>
+    internal static bool GreenBlocks(Player? p)
+    {
+        if (p == null || !ModConfig.Suns.Value || !ModConfig.SunGreenNoStack.Value || Suns.Current != RelicGem.Generosity) return false;
+        var owner = p.photonView != null ? p.photonView.Owner : null;
+        return !(ModConfig.Relics.Value && owner != null && RunState.RelicsOf(owner).Any(r => r.gem == RelicGem.Generosity));
+    }
+
+    private bool wasGreen;
+    private float nextGreenCheck;
+
+    /// <summary>The green sun let go (sunset, night, its relic taken): same items in your pockets merge back.</summary>
+    private void GreenTick()
+    {
+        if (Time.time < nextGreenCheck) return;
+        nextGreenCheck = Time.time + 0.5f;
+        bool green = GreenBlocks(Player.localPlayer);
+        if (wasGreen && !green) MergeBack();
+        wasGreen = green;
+    }
+
+    private static void MergeBack()
+    {
+        var p = Player.localPlayer;
+        var me = Character.localCharacter;
+        if (!On || p == null || me == null || me.data.dead) return;
+        try
+        {
+            byte? held = me.refs.items.currentSelectedSlot.IsSome ? me.refs.items.currentSelectedSlot.Value : null;
+            int merged = 0;
+            for (int i = 0; i < p.itemSlots.Length; i++)
+            for (int j = i + 1; j < p.itemSlots.Length; j++)
+            {
+                ItemSlot a = p.itemSlots[i], b = p.itemSlots[j];
+                if (a == null || b == null || a.IsEmpty() || b.IsEmpty() || a.prefab == null || b.prefab == null) continue;
+                if (a.prefab.itemID != b.prefab.itemID || !Stackable(a.prefab, a.data) || !Stackable(b.prefab, b.data)) continue;
+                if (ItemLevels.IsSecondPath(a.data) != ItemLevels.IsSecondPath(b.data)) continue;
+                // Keep the one in hand; the other pocket empties.
+                var (keep, gone) = held == b.itemSlotID ? (b, a) : (a, b);
+                int sum = Count(keep.data) + Count(gone.data);
+                if (sum > Cap(keep)) continue;
+                SetCount(keep.data.guid, sum, $"{keep.prefab.gameObject.name} merged back after the green sun");
+                int mine = ItemLevels.Stamp(keep.data), theirs = ItemLevels.Stamp(gone.data);
+                if (theirs > mine && mine > 0) ItemLevels.StampAs(keep.data.guid, theirs, "merged stack took the better level");
+                p.EmptySlot(Optionable<byte>.Some(gone.itemSlotID));
+                merged++;
+            }
+            if (merged > 0) Plugin.Log.LogInfo($"Stack: green sun gone - merged {merged} pocket(s) back into stacks.");
+        }
+        catch (Exception e) { Plugin.Log.LogWarning($"Stack merge-back failed: {e.Message}"); }
     }
 
     /// <summary>Fusions are one-of-a-kind prizes: they never stack (Sugar-Rush is a marked Energy Drink).</summary>
@@ -186,6 +264,12 @@ internal class Stacks : MonoBehaviourPunCallbacks
             if (!On || !PhotonNetwork.IsMasterClient) return true;
             if (!ItemDatabase.TryGetItem(itemID, out var prefab) || prefab == null || KindOf(prefab) == StackKind.None
                 || IsFusion(prefab, instanceData)) return true;
+            if (GreenBlocks(__instance))
+            {
+                if (JoinSlot(__instance, itemID, 1, instanceData) != null)
+                    Plugin.Log.LogInfo($"Stack: green sun - {prefab.gameObject.name} takes its own pocket.");
+                return true;
+            }
             int adding = Count(instanceData);
             var into = JoinSlot(__instance, itemID, adding, instanceData);
             if (into == null)
@@ -216,7 +300,7 @@ internal class Stacks : MonoBehaviourPunCallbacks
     [HarmonyPostfix, HarmonyPatch(typeof(Player), nameof(Player.HasEmptySlot))]
     private static void RoomInStack(Player __instance, ushort itemID, ref bool __result)
     {
-        if (__result || !On || !ItemDatabase.TryGetItem(itemID, out var prefab) || prefab is Backpack) return;
+        if (__result || !On || GreenBlocks(__instance) || !ItemDatabase.TryGetItem(itemID, out var prefab) || prefab is Backpack) return;
         try { __result = JoinSlot(__instance, itemID, 1) != null; }
         catch { /* leave it to the game */ }
     }
@@ -348,6 +432,7 @@ internal class Stacks : MonoBehaviourPunCallbacks
     /// <summary>Host: a stack on the ground (dropped, thrown, left by the dead) becomes a pile of single items.</summary>
     private void Update()
     {
+        try { GreenTick(); } catch (Exception e) { Plugin.Log.LogWarning($"Stack green check failed: {e.Message}"); }
         if (!On || !PhotonNetwork.IsMasterClient || Time.time < nextSpill) return;
         nextSpill = Time.time + 0.5f;
         try

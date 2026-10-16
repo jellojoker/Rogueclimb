@@ -91,12 +91,21 @@ internal class Relics : MonoBehaviour
         Player p = Player.localPlayer;
         if (me == null || p == null) { wasDead = false; return; }
 
-        if (me.data.dead && !wasDead) DropOnDeath(me);
+        if (me.data.dead && !wasDead) { deathAt = Time.time; DropOnDeath(me); }
+        // Raised by the Book of Bones after dying to a dark rite (your own skull, or someone's dagger):
+        // the bones bring back a gift.
+        if (!me.data.dead && wasDead && me.data.isSkeleton && Mathf.Abs(riteDeathAt - deathAt) < 6f)
+        {
+            Plugin.Log.LogInfo("Raised as bones after a dark rite - a random relic.");
+            QueueRandom("RAISED FROM THE BONES", "The rite remembers you");
+            riteDeathAt = -999f;
+        }
         wasDead = me.data.dead;
         // Testing: the dead don't choose shared relics - let the host's moon go on without them.
         if (me.data.dead) while (sharedOffers.Count > 0) { sharedOffers.Dequeue(); Net.SharedDone(); }
         if (ChoiceScreen.IsOpen || me.data.dead || me.data.passedOut) return;
         if (sharedOffers.Count > 0) { OfferShared(sharedOffers.Dequeue()); return; }
+        if (randomOffers.Count > 0) { OfferRandom(randomOffers.Dequeue()); return; }
 
         // With all three pockets full, a picked-up item rides in your hand (tempFullSlot) - an
         // amulet there never offered its relic until you juggled it into a pocket.
@@ -218,6 +227,65 @@ internal class Relics : MonoBehaviour
         sharedOffers.Enqueue(gem);
     }
 
+    // --- random relics from the dark rites: one card, a colour you don't carry, a cursed copy ---
+
+    private static float deathAt = -999f, riteDeathAt = -999f;
+    private static readonly Queue<(RelicDef relic, string title, string subtitle)> randomOffers = new();
+
+    /// <summary>This scout is about to die to a dark rite (their own skull, or the dagger fed to them).</summary>
+    internal static void MarkRiteDeath() => riteDeathAt = Time.time;
+
+    /// <summary>Queue a random relic for the local scout: any colour they don't carry yet. Nothing if they carry all four.</summary>
+    internal static void QueueRandom(string title, string subtitle)
+    {
+        if (!ModConfig.Relics.Value) return;
+        var pool = All.Where(r => !RunState.Relics.ContainsKey(r.Gem) && !randomOffers.Any(o => o.relic.Gem == r.Gem)).ToList();
+        if (pool.Count == 0) { Plugin.Log.LogInfo($"{title}: no colour left to give."); return; }
+        var relic = pool[Random.Range(0, pool.Count)];
+        randomOffers.Enqueue((relic, title, subtitle));
+        Plugin.Log.LogInfo($"{title}: random relic {relic.Name} queued.");
+    }
+
+    private void OfferRandom((RelicDef relic, string title, string subtitle) offer)
+    {
+        var relic = offer.relic;
+        // Picked up that colour since: roll again.
+        if (RunState.Relics.ContainsKey(relic.Gem)) { QueueRandom(offer.title, offer.subtitle); return; }
+        var amulet = Amulet(relic.Gem);
+        ChoiceScreen.Show(new ScreenSpec
+        {
+            Title = offer.title,
+            Subtitle = offer.subtitle,
+            Warning = ModConfig.BloodMoon.Value && ModConfig.BmWarning.Value ? "The moon remembers who takes it." : "",
+            Confirm = "BIND",
+            BackHint = "Not yet",
+            Cards = new List<CardSpec>
+            {
+                new CardSpec
+                {
+                    Style = CardStyle.Relic,
+                    Gem = relic.Gem,
+                    Title = relic.Name,
+                    Heading = "Cursed copy",
+                    Body = relic.Desc + "\nShatters if you die.",
+                    Tag = relic.Trigger.ToString(),
+                    Icon = amulet != null ? Items.Icon(amulet) : null,
+                },
+            },
+            StillValid = () => Player.localPlayer != null,
+            OnConfirm = _ =>
+            {
+                if (RunState.Relics.ContainsKey(relic.Gem)) { QueueRandom(offer.title, offer.subtitle); return; }
+                RunState.SetRelic(relic.Gem, relic.Trigger, isCursed: true);
+                Hud.Banner(GemName(relic.Gem).ToUpperInvariant(), relic.Name, GemColor(relic.Gem));
+                Plugin.Log.LogInfo($"{offer.title}: bound cursed {relic.Name}.");
+            },
+            // There's no refusing it: it asks again.
+            OnBack = () => randomOffers.Enqueue(offer),
+            OnCancelled = () => randomOffers.Enqueue(offer),
+        });
+    }
+
     private void OfferShared(RelicGem gem)
     {
         // Already carrying this colour (a cursed copy can still be traded up).
@@ -316,16 +384,17 @@ internal class Relics : MonoBehaviour
     {
         bool skull = Items.IsSkull(item), dagger = Items.IsDagger(item);
         if (!skull && !dagger) return;
-        if (skull) RunState.UsedSkull = true;
+        if (skull) { RunState.UsedSkull = true; MarkRiteDeath(); } // the skull takes its user
         if (dagger) RunState.UsedDagger = true;
         if (Time.time - lastRite < 5f) return;
         lastRite = Time.time;
         string who = Character.localCharacter?.characterName ?? "A scout";
-        // The skull's sacrifice: everyone else gets a cursed copy of each of your real relics.
+        // The skull's sacrifice: everyone else gets a cursed copy of each of your real relics,
+        // and a random relic on top (sent even when you carry none).
         if (skull && ModConfig.CursedCopies.Value && ModConfig.Relics.Value)
         {
             string list = string.Join(";", RunState.Relics.Where(kv => !RunState.IsCursed(kv.Key)).Select(kv => $"{kv.Key}:{kv.Value}"));
-            if (list.Length > 0) Net.SkullCopies(who, list);
+            Net.SkullCopies(who, list);
         }
         Net.DarkRite(who);
     }
@@ -348,6 +417,7 @@ internal class Relics : MonoBehaviour
             Plugin.Log.LogInfo($"{who}'s skull: cursed copy of {Get(g, t).Name}.");
         }
         if (got > 0) Hud.Banner(who.ToUpperInvariant() + "'S SACRIFICE", got == 1 ? "A CURSED RELIC" : "CURSED RELICS", new Color(0.55f, 0.35f, 0.75f));
+        QueueRandom(who.ToUpperInvariant() + "'S SACRIFICE", "The skull gives");
     }
 
     /// <summary>
@@ -363,8 +433,9 @@ internal class Relics : MonoBehaviour
                 options.Add((r.gem, r.trigger, RunState.Relics.ContainsKey(r.gem)));
         foreach (var kv in RunState.Relics.Where(kv => !RunState.IsCursed(kv.Key)))
             if (!options.Any(o => o.gem == kv.Key)) options.Add((kv.Key, kv.Value, true));
-        if (options.Count == 0) return;
         string name = victim.characterName ?? "your victim";
+        // Nothing to take, nothing to feed: the dagger gives one of its own.
+        if (options.Count == 0) { QueueRandom("THE DAGGER DRINKS", $"{name} carried nothing"); return; }
         ChoiceScreen.Show(new ScreenSpec
         {
             Title = "THE DAGGER DRINKS",
@@ -741,6 +812,25 @@ internal static class RelicPatches
     {
         try { if (feeder != null && feeder.IsLocal) Relics.DaggerKill(fedCharacter); }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Dagger relic choice failed: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// The dagger's blessing reaches every client. Its victim remembers dying to a rite (for the Book
+    /// of Bones); everyone else gets the vanilla heal at full strength - no sun cuts it.
+    /// </summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(RitualDaggerFeedBehavior), "RPC_RitualDaggerBuff")]
+    private static void DaggerBuffBegin(int excludeID)
+    {
+        var me = Character.localCharacter;
+        if (me != null && me.photonView != null && me.photonView.ViewID == excludeID) Relics.MarkRiteDeath();
+        SunCaps.RelicFiring++;
+    }
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(RitualDaggerFeedBehavior), "RPC_RitualDaggerBuff")]
+    private static System.Exception? DaggerBuffEnd(System.Exception? __exception)
+    {
+        SunCaps.RelicFiring = Mathf.Max(0, SunCaps.RelicFiring - 1);
+        return __exception;
     }
 
     /// <summary>The dagger is used on someone else (secondary use) - still counts as "used" for the dark rites.</summary>

@@ -54,6 +54,7 @@ internal static class ModConfig
     public static ConfigEntry<float> BmScoutmasterSpawnMin = null!, BmScoutmasterSpawnMax = null!, BmScoutmasterSpawnHeight = null!,
         BmScoutmasterStuck = null!, BmScoutmasterRecover = null!;
     public static ConfigEntry<float> BmZombieNear = null!;
+    public static ConfigEntry<int> BmZombiesPerScout = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
 
@@ -70,7 +71,8 @@ internal static class ModConfig
     public static ConfigEntry<int> SunGreenRainCount = null!;
 
     // --- storage -------------------------------------------------------------------------
-    public static ConfigEntry<bool> Storage = null!, Stacking = null!, StackByLevel = null!;
+    public static ConfigEntry<bool> Storage = null!, Stacking = null!, StackByLevel = null!, StackCrateOnly = null!, SunGreenNoStack = null!;
+    public static ConfigEntry<int> SunGreenShoreWeight = null!;
     public static ConfigEntry<int> MaxPockets = null!, BackpackPockets = null!, FannypackPockets = null!;
 
     // --- ambiance ------------------------------------------------------------------------
@@ -95,8 +97,9 @@ internal static class ModConfig
         BmWaveLength = cfg.Bind("BloodMoon", "WaveLength", 60f, "How long a tier 1 blood moon lasts (s).");
         BmRelicAura = cfg.Bind("BloodMoon", "RelicAura", 24f, "The Scoutmaster and the tornado go after relic holders and anyone within this many metres of one (24 = vanilla's buddy distance). A holder with someone this close is 'grouped' (the tornado slows).");
         BmScoutmaster = cfg.Bind("BloodMoon", "Scoutmaster", true, "1 relic: the Scoutmaster hunts relic holders.");
-        BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: a zombie rises beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
+        BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: zombies rise beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
         BmZombieNear = cfg.Bind("BloodMoon", "ZombieDistance", 4f, "How far (m, +-25%) from its scout each blood moon zombie rises.");
+        BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 2, "How many zombies rise beside each marked scout (spread evenly around them).");
         BmTornado = cfg.Bind("BloodMoon", "Tornado", true, "3 relics: a tornado that heads for relic holders (sand on Mesa, snow on Alpine).");
         BmGlassMeteors = cfg.Bind("BloodMoon", "GlassMeteors", true, "4 relics, Gloom runs (Gloom + Citadel): a shower of purple glass - a direct hit adds glass.");
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
@@ -136,10 +139,12 @@ internal static class ModConfig
         SpawnRadius = cfg.Bind("Suns", "SpawnSafeRadius", 30f, "Safe radius (m) around the plane crash where the run starts.");
         SummitRadius = cfg.Bind("Suns", "SummitSafeRadius", 25f, "Safe radius (m) around the summit.");
         SunGreenHunger = cfg.Bind("Suns", "GreenHunger", 1.6f, "Green sun: hunger rate multiplier, on top of the ascent's own (Ascent 2+ is x1.6, so x2.56 there).");
-        SunGreenRainEvery = cfg.Bind("Suns", "GreenFoodRainEvery", 50f, "Green sun: seconds between food storms (wild food of every biome so far; 0 = off).");
+        SunGreenRainEvery = cfg.Bind("Suns", "GreenFoodRainEvery", 120f, "Green sun: seconds between food storms (wild food of every biome so far; 0 = off).");
         SunGreenRainCount = cfg.Bind("Suns", "GreenFoodPerStorm", 20, "Green sun: pieces of food that fall around each scout per storm.");
         SunGreenShowerSeconds = cfg.Bind("Suns", "GreenStormSeconds", 5f, "Green sun: how long each food storm lasts.");
-        SunGreenFoodLife = cfg.Bind("Suns", "GreenFoodLifetime", 40f, "Green sun: rained food left on the ground vanishes after this many seconds (pocket it to keep it).");
+        SunGreenFoodLife = cfg.Bind("Suns", "GreenFoodLifetime", 20f, "Green sun: rained food left on the ground vanishes after this many seconds (pocket it to keep it).");
+        SunGreenNoStack = cfg.Bind("Suns", "GreenNoStacking", true, "Green sun: nothing new joins a stack (existing stacks stay and can be used); singles merge back at sunset or when the relic is taken.");
+        SunGreenShoreWeight = cfg.Bind("Suns", "GreenShoreWeight", 1, "Green sun on the Shore: extra weight per item (on top of the ascent's own +1 from Ascent 3).");
         SunFadeSeconds = cfg.Bind("Suns", "FadeSeconds", 5f, "Seconds for a sun's colour to fade in or out.");
         SunRedJump = cfg.Bind("Suns", "RedJumpLaunch", 0.7f, "Red sun: jump launch-height multiplier (on top of the heavier gravity).");
         SunRedGravity = cfg.Bind("Suns", "RedGravity", 1.6f, "Red sun: gravity multiplier on scouts - lower, shorter jumps, faster falls.");
@@ -158,6 +163,7 @@ internal static class ModConfig
         FannypackPockets = cfg.Bind("Storage", "FannypackPockets", 1, "Pockets a fanny pack adds.");
         Stacking = cfg.Bind("Storage", "Stacking", true, "The same item picked up again joins its pocket (up to 3): food, pitons, bandages and drinks count up; spools, lanterns and multi-use items bring their next copy when one runs out; gliders glide longer. A dropped stack spills into a pile. Fusions never stack.");
         StackByLevel = cfg.Bind("Storage", "StackByLevel", true, "A tree item stacks only as high as its level, but always to at least 2 (level 1-2 = 2, level 3 = 3). Off = everything stacks to 3.");
+        StackCrateOnly = cfg.Bind("Storage", "CrateItemsOnly", true, "Only items that can come out of a crate or luggage (and tree items, evolutions, earned items) stack. Wild food - berries, coconuts, mushrooms - never does.");
 
         MenuMusic = cfg.Bind("Ambiance", "MenuMusic", true, "Play the blood moon song on the main menu instead of the game's menu music.");
         MenuSky = cfg.Bind("Ambiance", "MenuSky", 1f, "How blood red the main menu's sky is, with a red moon in it (0 = vanilla).");
@@ -231,6 +237,13 @@ internal static class ModConfig
             SunSkyBlend.Value = 0.8f;
             defaults.Value = 1;
             Plugin.Log.LogInfo("Config: blood moons every night and on pickup, sunlight colour 100%, sky colour 80% (new defaults).");
+        }
+        if (defaults.Value < 2)
+        {
+            SunGreenRainEvery.Value = 120f;
+            SunGreenFoodLife.Value = 20f;
+            defaults.Value = 2;
+            Plugin.Log.LogInfo("Config: green sun food storms every 120s, rained food gone after 20s (new defaults).");
         }
     }
 }

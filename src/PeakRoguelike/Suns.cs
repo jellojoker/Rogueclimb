@@ -14,7 +14,8 @@ namespace PeakRoguelike;
 /// cycles day by day through the colours of the relics the squad carries (none carried, no sun).
 ///
 ///   yellow (Ambition)   stamina drains faster; on the Shore, running dry trips you
-///   green  (Generosity) every bite fills the same small share, hunger climbs faster
+///   green  (Generosity) every bite fills the same small share, hunger climbs faster, nothing new stacks;
+///                       on the Shore everything you carry weighs more
 ///   red    (Initiative) slow sprint, short climbing lunge; on the Shore also low jumps, hard landings
 ///   blue   (Tenacity)   every ailment hits double, items wear twice as fast, ropes and pitons give
 ///
@@ -40,6 +41,19 @@ internal class Suns : MonoBehaviour
     private static bool On => ModConfig.Suns.Value;
     /// <summary>The Shore's suns hit harder: red keeps its full weight, yellow trips you.</summary>
     internal static bool OnShore => InRun && Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore;
+
+    /// <summary>Green on the Shore: items weigh more (switched with the sun, read every weight update).</summary>
+    internal static bool GreenShoreWeight { get; private set; }
+
+    private void WeightTick()
+    {
+        bool heavy = Green && OnShore && ModConfig.SunGreenShoreWeight.Value != 0;
+        if (heavy == GreenShoreWeight) return;
+        GreenShoreWeight = heavy;
+        Plugin.Log.LogInfo(heavy ? $"Green sun on the Shore: items weigh +{ModConfig.SunGreenShoreWeight.Value}." : "Green sun weight lifted.");
+        var me = Character.localCharacter;
+        if (me != null) me.refs.afflictions.UpdateWeight();
+    }
 
     // A relic beats its own sun: carrying it, that sun can't touch you.
     private static bool Hits(RelicGem gem) => On && Current == gem && !Sanctuary.SunSpared && !(ModConfig.Relics.Value && RunState.Relics.ContainsKey(gem));
@@ -78,6 +92,8 @@ internal class Suns : MonoBehaviour
         if (Blend <= 0f && Current == null) Shown = null;
         try { ColdLight(); }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Suns cold light: {e.Message}"); }
+        try { WeightTick(); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Suns weight: {e.Message}"); }
         if (Time.time < nextPoll) return;
         nextPoll = Time.time + 0.5f;
         try
@@ -100,14 +116,30 @@ internal class Suns : MonoBehaviour
             && PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(RoomKey, out object raw) && raw is int i)
             v = i;
         Current = v >= 0 ? (RelicGem)v : null;
-        if (v == seen) return;
-        seen = v;
-        if (Current is { } gem)
+        if (v != seen)
         {
-            Plugin.Log.LogInfo($"Sun: {ColorName(gem)}.");
-            Hud.Banner("", $"THE SUN BURNS {ColorName(gem).ToUpperInvariant()}", Relics.GemColor(gem));
+            seen = v;
+            announce = Current;
+            Plugin.Log.LogInfo(Current is { } gem ? $"Sun: {ColorName(gem)}." : "Sun: normal.");
         }
-        else Plugin.Log.LogInfo("Sun: normal.");
+        Announce();
+    }
+
+    private RelicGem? announce;
+
+    /// <summary>
+    /// The sun is named the first time it can touch you: awake, off safe ground, no sunscreen.
+    /// (It used to play while the scouts still lay unconscious at the crash, and nobody saw it.)
+    /// </summary>
+    private void Announce()
+    {
+        if (announce is not { } gem) return;
+        if (Current != gem) { announce = null; return; }
+        var me = Character.localCharacter;
+        if (me == null || me.data.dead || Sanctuary.SunSpared || !IsDay) return;
+        announce = null;
+        Plugin.Log.LogInfo($"Sun: announced {ColorName(gem)} (first time it reaches you).");
+        Hud.Banner("", $"THE SUN BURNS {ColorName(gem).ToUpperInvariant()}", Relics.GemColor(gem));
     }
 
     internal static string ColorName(RelicGem g) => g switch
@@ -528,6 +560,18 @@ internal static class SunPatches
         if (stumbled || !Suns.Yellow || secs <= 0f || !Suns.OnShore || d.dead || !d.isGrounded || d.isClimbing || d.isRopeClimbing || d.isVineClimbing || d.fallSeconds > 0f) return;
         stumbled = true;
         __instance.photonView.RPC("RPCA_Fall", RpcTarget.All, secs, 0.4f);
+    }
+
+    // --- green on the Shore: everything you carry weighs more ---------------------------------------
+
+    /// <summary>
+    /// Every item weighs GreenShoreWeight more (on top of the ascent's own +1). Weight is only ever
+    /// added up for your own scout, so the local sun decides. (-1 modifier = a custom run without weight.)
+    /// </summary>
+    [HarmonyPostfix, HarmonyPatch(typeof(Item), nameof(Item.CarryWeight), MethodType.Getter)]
+    private static void Heavier(ref int __result)
+    {
+        if (Suns.GreenShoreWeight && Ascents.itemWeightModifier != -1) __result += ModConfig.SunGreenShoreWeight.Value;
     }
 
     // --- green: hunger ------------------------------------------------------------------------------

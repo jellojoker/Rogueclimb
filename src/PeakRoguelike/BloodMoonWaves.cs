@@ -108,10 +108,25 @@ internal static class Squad
         }
         return null;
     }
+
+    /// <summary>Like <see cref="GroundNear"/>, but in one direction (degrees around Y, ± spread).</summary>
+    public static Vector3? GroundToward(Vector3 around, float angle, float spread, float min, float max, float reach)
+    {
+        for (int i = 0; i < 12; i++)
+        {
+            float a = (angle + Random.Range(-spread, spread)) * Mathf.Deg2Rad;
+            float r = Random.Range(min, max);
+            var from = new Vector3(around.x + Mathf.Sin(a) * r, around.y + reach, around.z + Mathf.Cos(a) * r);
+            if (Physics.Raycast(from, Vector3.down, out var hit, reach * 2f, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore)
+                && hit.normal.y > 0.55f)
+                return hit.point + Vector3.up * 1.2f;
+        }
+        return null;
+    }
 }
 
 // =====================================================================================================
-// 2 relics - a zombie rises beside every scout carrying a relic, the skull or the dagger
+// 2 relics - zombies rise beside every scout carrying a relic, the skull or the dagger
 // =====================================================================================================
 
 internal static class BloodZombies
@@ -136,7 +151,7 @@ internal static class BloodZombies
     }
 
     /// <summary>
-    /// One zombie rises right beside every scout out in the open who carries a relic (copies
+    /// Zombies (ZombiesPerScout) rise right beside every scout out in the open who carries a relic (copies
     /// included), the Cursed Skull or the Ritual Dagger.
     /// </summary>
     public static void Spawn(float seconds)
@@ -145,27 +160,35 @@ internal static class BloodZombies
         if (marked.Count == 0) return;
         until = Time.time + seconds;
         float near = Mathf.Max(1f, ModConfig.BmZombieNear.Value) * Squad.M;
+        int each = Mathf.Max(1, ModConfig.BmZombiesPerScout.Value);
         int made = 0;
         foreach (var scout in marked)
         {
-            var pos = Squad.GroundNear(scout.Center, near * 0.75f, near * 1.25f, 4f * Squad.M)
-                      ?? Squad.GroundNear(scout.Center, near, near * 2f, 8f * Squad.M);
-            if (pos == null) continue;
-            try
+            // Spread evenly around the scout (two = opposite sides), so they're flanked, not walled in.
+            float start = Random.Range(0f, 360f);
+            for (int n = 0; n < each; n++)
             {
-                var go = PhotonNetwork.Instantiate(Prefab(), pos.Value, Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), 0);
-                var z = go.GetComponent<MushroomZombie>();
-                if (z == null) continue;
-                spawned.Add(z);
-                z.StartCoroutine(Wake(z));
-                made++;
-            }
-            catch (System.Exception e)
-            {
-                Plugin.Log.LogWarning($"Zombie spawn failed: {e.Message}");
-                break;
+                float angle = start + n * 360f / each;
+                var pos = Squad.GroundToward(scout.Center, angle, 360f / each * 0.4f, near * 0.75f, near * 1.25f, 4f * Squad.M)
+                          ?? Squad.GroundNear(scout.Center, near, near * 2f, 8f * Squad.M);
+                if (pos == null) continue;
+                try
+                {
+                    var go = PhotonNetwork.Instantiate(Prefab(), pos.Value, Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), 0);
+                    var z = go.GetComponent<MushroomZombie>();
+                    if (z == null) continue;
+                    spawned.Add(z);
+                    z.StartCoroutine(Wake(z));
+                    made++;
+                }
+                catch (System.Exception e)
+                {
+                    Plugin.Log.LogWarning($"Zombie spawn failed: {e.Message}");
+                    goto done;
+                }
             }
         }
+        done:
         Plugin.Log.LogInfo($"Blood moon: {made} zombie(s) rose beside {marked.Count} marked scout(s) ({seconds:0}s).");
     }
 

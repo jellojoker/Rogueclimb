@@ -9,7 +9,7 @@ public class Plugin : BaseUnityPlugin
 {
     public const string Id = "rey.PeakRoguelike";
     public const string Name = "Rogue Climb";
-    public const string Version = "0.12.1";
+    public const string Version = "0.12.3";
 
     internal static ManualLogSource Log = null!;
 

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.3
+- Green sun: nothing new stacks while it burns (stacks you have stay); singles merge back at sunset or when its relic is taken. Generosity carriers are spared.
+- Green sun on the Shore: everything you carry weighs 1 more.
+- Green sun food storms every 2 minutes (was 50s); rained food vanishes after 20s. Existing configs are updated once.
+- Only crate and luggage items stack - wild food (berries, coconuts, mushrooms) never does.
+
+## 0.12.2
+- The sun is named the first time it reaches you - awake, off the crash site or a campfire, no sunscreen.
+- Blood moon: two zombies rise beside each relic, skull or dagger carrier, on opposite sides.
+- Cursed Skull: every other scout also gets a random cursed relic (a colour they lack).
+- Ritual Dagger: a kill where neither side carries a relic gives the killer a random cursed relic. Its heal is never cut by a sun.
+- Raised by the Book of Bones after a skull or dagger death: a random cursed relic.
+
 ## 0.12.1
 - Blood moons rise every night once the squad holds a relic, and at once when a relic is taken.
 - Brighter, deeper sun colours: sunlight colour 100%, sky colour 80%. Existing configs are updated once.
