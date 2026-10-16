@@ -371,6 +371,9 @@ internal class Relics : MonoBehaviour
 
         DarkRite(item);
 
+        try { Xp.Used(item, character); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"XP use hook failed: {e.Message}"); }
+
         FireConsumeRelics(item, "Consumed");
     }
 

@@ -150,24 +150,7 @@ internal static class SunCaps
         if (!Live(c)) return 1f;
         var item = Using!;
         if (Suns.Blue && Relics.IsHealing(item)) return Cap(ModConfig.SunBlueHealCap);
-        if (Suns.Green && Relics.IsFood(item)) return Cap(ModConfig.SunGreenFoodCap);
         return 1f;
-    }
-
-    private static Item? fedBy;
-    private static int fedFrame = -1;
-
-    /// <summary>
-    /// Green sun: the hunger a bite of food takes away (-1 = not a green-sun bite). Every food
-    /// fills the same flat share; a second hunger effect of the same bite adds nothing.
-    /// </summary>
-    internal static float GreenBite(Character? c, CharacterAfflictions.STATUSTYPE type)
-    {
-        if (type != CharacterAfflictions.STATUSTYPE.Hunger || !Suns.Green || !Live(c) || !Relics.IsFood(Using!)) return -1f;
-        if (Using == fedBy && Time.frameCount == fedFrame) return 0f;
-        fedBy = Using;
-        fedFrame = Time.frameCount;
-        return Mathf.Max(0f, ModConfig.SunGreenBite.Value);
     }
 
     internal static float RushCap(Character? c) =>
@@ -179,15 +162,13 @@ internal static class SunCaps
 [HarmonyPatch]
 internal static class SunCapPatches
 {
-    // --- blue healing / green food: what an item takes away from you -----------------------------
+    // --- blue healing: what an item takes away from you -----------------------------------------
 
-    /// <summary>10% of what it would really have removed (a cure-all "removes 5" of everything); green-sun hunger is a flat bite.</summary>
+    /// <summary>10% of what it would really have removed (a cure-all "removes 5" of everything).</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(CharacterAfflictions), nameof(CharacterAfflictions.SubtractStatus))]
     private static void CapRelief(CharacterAfflictions __instance, CharacterAfflictions.STATUSTYPE statusType, ref float amount, bool decreasedNaturally)
     {
         if (decreasedNaturally || amount <= 0f || Suns.Sharing) return;
-        float bite = SunCaps.GreenBite(__instance.character, statusType);
-        if (bite >= 0f) { amount = bite; return; }
         float cap = SunCaps.ItemCap(__instance.character);
         if (cap >= 1f) return;
         amount = Mathf.Min(amount, __instance.GetCurrentStatus(statusType)) * cap;

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.4 - 0.12.7
+- XP: a gold bar beside your stamina. Each biome, climbing higher, opening crates and using up what crates give you each fill up to 2 levels; reaching the campfire fast adds a bonus. Every level is another crate pick, offered once you stand on flat ground.
+- The Scoutmaster changes with the moon. Tier 1: he hunts, and throws each scout once. Tier 2: he watches - don't stare back. Tier 3 and up: he only watches. He is always somewhere you can see him, and his throws carry less far.
+- Blue sun: everything that hurts you hurts 1.5x more. No more cold sunlight.
+- Green sun: items wear out twice as fast, ropes fray and pitons crack (was blue). No more food storms.
+- No sun changes hunger any more.
+- Yellow sun on the Shore: pushing on with no stamina makes you drowsy (no more slips).
+
 ## 0.12.3
 - Green sun: nothing new stacks while it burns (stacks you have stay); singles merge back at sunset or when its relic is taken. Generosity carriers are spared.
 - Green sun on the Shore: everything you carry weighs 1 more.

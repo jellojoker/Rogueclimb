@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Linq;
 using UnityEngine;
 
@@ -34,6 +35,14 @@ internal class ScoutmasterHunt : MonoBehaviour
     internal static void Steer(float seconds)
     {
         if (instance == null || !Photon.Pun.PhotonNetwork.IsMasterClient) return;
+        if (!Hunting)
+        {
+            // A new moon: everyone is fair game again.
+            instance.spent.Clear();
+            instance.stares.Clear();
+            instance.lungeAt = instance.holding = null;
+            Mode = HuntMode.Hunter;
+        }
         instance.until = Mathf.Max(instance.until, Time.time + seconds);
         instance.last = null;
         instance.arrive = true; // he steps in from out of sight on the first target
@@ -70,8 +79,21 @@ internal class ScoutmasterHunt : MonoBehaviour
         Plugin.Log.LogInfo($"Scoutmaster sped up x{ModConfig.BmScoutmasterSpeed.Value:0.##} for the hunt.");
     }
 
+    /// <summary>T1: he hunts. T2: he watches - stare at him too long and he charges. T3+: he only watches.</summary>
+    internal enum HuntMode { Hunter, Lunge, Observer }
+
+    /// <summary>Host: what he's doing right now (read by the Chase patches).</summary>
+    internal static HuntMode Mode { get; private set; } = HuntMode.Hunter;
+
+    /// <summary>Scouts he has thrown (or charged at) this moon: he only watches them from now on.</summary>
+    private readonly HashSet<Character> spent = new();
+    private Character? holding, lungeAt;
+    private float lungeUntil;
+    private readonly Dictionary<Character, float> stares = new();
+
     private void Update()
     {
+        if (Hunting && Photon.Pun.PhotonNetwork.IsMasterClient) Stares();
         if (Time.time < nextTick) return;
         nextTick = Time.time + 0.5f;
         Scoutmaster? sm = null;
@@ -86,7 +108,14 @@ internal class ScoutmasterHunt : MonoBehaviour
         // Mid-grab or mid-throw: never swap or clear his target - his throw coroutine reads it
         // every frame and dies on a null, leaving him clutching his prey forever.
         bool busy = Busy(sm);
-        if (wasBusy && !busy) Recover(sm, "threw his prey");
+        if (busy && sm.character.data.grabbedPlayer != null) holding = sm.character.data.grabbedPlayer;
+        if (wasBusy && !busy)
+        {
+            if (holding != null) Spend(holding, "was thrown");
+            if (holding == lungeAt) lungeAt = null;
+            holding = null;
+            Recover(sm, "threw his prey");
+        }
         wasBusy = busy;
         if (busy) return;
         // Catching his breath after a throw or a miss: the scouts get a gap.
@@ -97,9 +126,9 @@ internal class ScoutmasterHunt : MonoBehaviour
             if (sm.currentTarget != null) ResetStuck(sm, sm.currentTarget);
         }
 
-        // He hunts relic holders; anyone standing near one shares the danger. Scouts on safe
+        // He goes after relic holders; anyone standing near one shares the danger. Scouts on safe
         // ground (lit campfire / summit) are left alone. No relics in the squad (a dark rite): everyone.
-        bool awake(Character c) => !c.data.fullyPassedOut;
+        bool awake(Character c) => !c.data.fullyPassedOut && !c.data.dead;
         var prey = (Squad.AnyHolders() ? Squad.Holders() : Squad.Pursued()).Where(awake).ToList();
         var marked = Squad.Marked().Where(awake).ToList();
         var current = sm.currentTarget;
@@ -116,18 +145,34 @@ internal class ScoutmasterHunt : MonoBehaviour
             return;
         }
 
-        // A bodyguard he turned on stays his prey only until the next throw.
-        bool hunting = sm.targetForced && current != null
-            && (prey.Contains(current) || (current == standIn && marked.Contains(current)));
-        if (hunting)
+        // What the moon makes him tonight.
+        if (lungeAt != null && (Time.time >= lungeUntil || !marked.Contains(lungeAt)))
         {
-            CloserPrey(sm, current!, marked);
+            Spend(lungeAt, "outran his charge");
+            lungeAt = null;
+        }
+        var fresh = prey.Where(c => !spent.Contains(c)).ToList();
+        var mode = BloodMoon.Tier <= 1 && fresh.Count > 0 ? HuntMode.Hunter
+            : BloodMoon.Tier == 2 && lungeAt != null ? HuntMode.Lunge
+            : HuntMode.Observer;
+        if (mode != Mode) Plugin.Log.LogInfo($"Scoutmaster: {Mode} -> {mode} (tier {BloodMoon.Tier}).");
+        Mode = mode;
+        var pool = mode == HuntMode.Hunter ? fresh : mode == HuntMode.Lunge ? new List<Character> { lungeAt! } : prey;
+
+        // A bodyguard he turned on stays his prey only until the next throw.
+        bool onIt = sm.targetForced && current != null
+            && (pool.Contains(current) || (mode == HuntMode.Hunter && current == standIn && marked.Contains(current)));
+        if (onIt)
+        {
+            // His moonrise appearance found no ground: keep trying until he's in.
+            if (arrive && Appear(sm, current!)) { arrive = false; ResetStuck(sm, current!); return; }
+            if (mode == HuntMode.Hunter) CloserPrey(sm, current!, marked);
             Unstick(sm, current!);
             return;
         }
 
-        // Just threw someone (or lost them): move on to the next scout, nearest first.
-        var next = prey.Where(c => c != last || prey.Count == 1)
+        // Just threw someone (or lost them): on to the next scout, nearest first.
+        var next = pool.Where(c => c != last || pool.Count == 1)
             .OrderBy(c => Vector3.Distance(c.Center, Pos(sm)))
             .FirstOrDefault();
         if (next == null) return;
@@ -136,11 +181,64 @@ internal class ScoutmasterHunt : MonoBehaviour
         // would null his target for a moment.
         sm.view.RPC("RPCA_SetCurrentTarget", Photon.Pun.RpcTarget.All, next.photonView.ViewID, until - Time.time);
         HuntPatches.Target(sm) = next; // the RPC's setter skips it while the old target is still forced
-        Plugin.Log.LogInfo($"Scoutmaster hunting {next.characterName}.");
-        // The moon just rose: he appears out of sight and runs in.
-        if (arrive && Appear(sm, next)) arrive = false;
+        Plugin.Log.LogInfo($"Scoutmaster {(mode == HuntMode.Observer ? "watching" : "hunting")} {next.characterName}.");
+        // The moon just rose: he appears where they'll see him.
+        if (arrive)
+        {
+            if (Appear(sm, next)) arrive = false;
+            else Plugin.Log.LogWarning($"Scoutmaster: no ground to appear on near {next.characterName} - trying again.");
+        }
         ResetStuck(sm, next);
     }
+
+    private void Spend(Character c, string why)
+    {
+        if (!spent.Add(c)) return;
+        stares.Remove(c);
+        Plugin.Log.LogInfo($"Scoutmaster: {c.characterName} {why} - he only watches them for the rest of the moon.");
+    }
+
+    /// <summary>
+    /// T2, host, every frame: a scout who looks straight at him for StareLunge seconds draws his
+    /// charge (looking away starts the count over). He runs from where he stands - dodgeable.
+    /// </summary>
+    private void Stares()
+    {
+        if (BloodMoon.Tier != 2 || lungeAt != null || restUntil > 0f || !Scoutmaster.GetPrimaryScoutmaster(out var sm)
+            || sm == null || sm.character == null || Busy(sm))
+        {
+            stares.Clear();
+            return;
+        }
+        foreach (var c in Squad.Marked())
+        {
+            if (spent.Contains(c) || c.data.fullyPassedOut || !StaringAt(c, sm.character)) { stares.Remove(c); continue; }
+            float t = (stares.TryGetValue(c, out var s) ? s : 0f) + Time.deltaTime;
+            stares[c] = t;
+            if (t < ModConfig.BmStareLunge.Value) continue;
+            stares.Clear();
+            lungeAt = c;
+            lungeUntil = Time.time + ModConfig.BmLungeTime.Value;
+            nextTick = 0f; // retarget now
+            Plugin.Log.LogInfo($"Scoutmaster: {c.characterName} stared at him for {t:0.#}s - he charges.");
+            return;
+        }
+    }
+
+    /// <summary>Looking straight at him (near the middle of the screen, nothing in between).</summary>
+    internal static bool StaringAt(Character scout, Character him) =>
+        Vector3.Distance(scout.Head, him.Center) < 90f * Squad.M
+        && Vector3.Angle(scout.data.lookDirection, him.Center - scout.Head) < ModConfig.BmStareAngle.Value
+        && HelperFunctions.LineCheck(scout.Head, him.Center, HelperFunctions.LayerType.TerrainMap).transform == null;
+
+    /// <summary>He's in the scout's field of view with nothing in between.</summary>
+    internal static bool InView(Character scout, Character him) =>
+        Vector3.Angle(scout.data.lookDirection, him.Center - scout.Head) < 70f
+        && HelperFunctions.LineCheck(scout.Head, him.Center, HelperFunctions.LayerType.TerrainMap).transform == null;
+
+    /// <summary>Nothing solid between the scout and that spot (whether or not they're facing it).</summary>
+    private static bool ClearLine(Character scout, Vector3 spot) =>
+        HelperFunctions.LineCheck(scout.Head, spot + Vector3.up * 1.2f, HelperFunctions.LayerType.TerrainMap).transform == null;
 
     private bool arrive;
 
@@ -178,7 +276,7 @@ internal class ScoutmasterHunt : MonoBehaviour
     private void Recover(Scoutmaster sm, string why)
     {
         standIn = null;
-        float s = ModConfig.BmScoutmasterRecover.Value;
+        float s = BloodMoon.Tier <= 1 ? ModConfig.BmHunterRecover.Value : ModConfig.BmScoutmasterRecover.Value;
         if (s <= 0f) return;
         sm.chillForSeconds = s;
         TargetForcedUntil(sm) = Time.time; // free to pick someone new once he's recovered
@@ -190,6 +288,11 @@ internal class ScoutmasterHunt : MonoBehaviour
     internal static void MissedLunge(Scoutmaster sm)
     {
         if (instance == null || !Hunting || instance.restUntil > 0f) return;
+        if (Mode == HuntMode.Lunge && instance.lungeAt != null)
+        {
+            instance.Spend(instance.lungeAt, "dodged his charge");
+            instance.lungeAt = null;
+        }
         instance.Recover(sm, "missed his lunge");
     }
 
@@ -246,54 +349,76 @@ internal class ScoutmasterHunt : MonoBehaviour
     private Vector3 stuckPos;
     private float stuckSince;
 
+    private float farSince;
+
     private void ResetStuck(Scoutmaster sm, Character prey)
     {
         stuckPos = Pos(sm);
         stuckSince = Time.time;
+        farSince = Time.time;
     }
 
     /// <summary>
-    /// Out of his prey's sight he sprints to get them back in view. Sprinting without getting
-    /// anywhere (a wall, a cliff he can't climb) he appears again out of sight and runs in anew.
+    /// He's only frightening if he's seen, so he stays where his prey could see him: out of their
+    /// line of sight for ScoutmasterUnseen seconds (or too far off for ScoutmasterFarTime) he's
+    /// somewhere else in the open - picked while nobody is looking at it, so he's never seen moving.
     /// </summary>
     private void Unstick(Scoutmaster sm, Character prey)
     {
-        float limit = ModConfig.BmScoutmasterStuck.Value;
         var me = sm.character;
-        if (limit <= 0f || me == null) return;
+        if (me == null) return;
+        if (Busy(sm) || me.warping) { ResetStuck(sm, prey); return; }
         Vector3 pos = Pos(sm);
-        if (Busy(sm) || me.warping || CanSee(sm, prey) || Vector3.Distance(pos, stuckPos) > 2f * Squad.M)
-        {
-            ResetStuck(sm, prey);
-            return;
-        }
-        if (Time.time - stuckSince < limit) return;
-        Plugin.Log.LogInfo($"Scoutmaster stuck out of {prey.characterName}'s sight for {limit:0.#}s - appearing again.");
-        Appear(sm, prey);
+        float d = Vector3.Distance(pos, prey.Center);
+        bool inOpen = HelperFunctions.LineCheck(prey.Head, me.Center, HelperFunctions.LayerType.TerrainMap).transform == null;
+        float tooFar = Mode == HuntMode.Observer ? Band().max * 1.5f : ModConfig.BmScoutmasterFarDistance.Value * Squad.M;
+        if (inOpen) stuckSince = Time.time;
+        if (d <= tooFar) farSince = Time.time;
+        float unseen = ModConfig.BmScoutmasterUnseen.Value, far = ModConfig.BmScoutmasterFarTime.Value;
+        bool hidden = unseen > 0f && Time.time - stuckSince >= unseen;
+        bool away = far > 0f && Time.time - farSince >= (Mode == HuntMode.Observer ? unseen : far);
+        if (!hidden && !away) return;
+        if (Mode == HuntMode.Lunge) return; // mid-charge he runs it out
+        if (SomeoneSees(pos)) return;       // never vanish while someone is looking
+        Plugin.Log.LogInfo($"Scoutmaster {(hidden ? $"out of {prey.characterName}'s sight" : $"{d * CharacterStats.unitsToMeters:0}m from {prey.characterName}")} - appearing in the open.");
+        if (!Appear(sm, prey, near: true)) Plugin.Log.LogWarning("Scoutmaster: no ground to appear on - trying again.");
         ResetStuck(sm, prey);
     }
+
+    /// <summary>How far from his prey he shows himself (game units).</summary>
+    private static (float min, float max) Band(bool near = false) =>
+        Mode == HuntMode.Hunter
+            ? near ? (ModConfig.BmHunterAppearMin.Value * 0.6f * Squad.M, ModConfig.BmHunterAppearMin.Value * Squad.M)
+                   : (ModConfig.BmHunterAppearMin.Value * Squad.M, ModConfig.BmHunterAppearMax.Value * Squad.M)
+            : (ModConfig.BmWatchMin.Value * Squad.M, ModConfig.BmWatchMax.Value * Squad.M);
 
     /// <summary>He has his prey in his line of sight (nothing solid between his eyes and them).</summary>
     internal static bool CanSee(Scoutmaster sm, Character prey) =>
         sm.character != null && HelperFunctions.LineCheck(sm.character.Head, prey.Center, HelperFunctions.LayerType.TerrainMap).transform == null;
 
     /// <summary>
-    /// Out of every scout's sight, where the game's own teleport puts him: ScoutmasterSpawnMin-Max
-    /// from his prey, within ScoutmasterSpawnHeight of their height.
+    /// He steps into the open: a spot his prey has a clear line to (high ground preferred) that
+    /// nobody happens to be looking at right now - turn around and he's simply there.
+    /// Within ScoutmasterSpawnHeight of their height.
     /// </summary>
-    internal static bool Appear(Scoutmaster sm, Character prey)
+    internal static bool Appear(Scoutmaster sm, Character prey, bool near = false)
     {
-        float min = Mathf.Max(5f, ModConfig.BmScoutmasterSpawnMin.Value) * Squad.M;
-        float max = Mathf.Max(min / Squad.M + 1f, ModConfig.BmScoutmasterSpawnMax.Value) * Squad.M;
+        var (min, max) = Band(near);
+        min = Mathf.Max(5f * Squad.M, min);
+        max = Mathf.Max(min + 1f, max);
         float h = Mathf.Max(2f, ModConfig.BmScoutmasterSpawnHeight.Value) * Squad.M;
-        return WarpTo(sm, prey, min, max, -h, h);
+        bool ok = WarpTo(sm, prey, min, max, -h, h);
+        if (ok && Mode == HuntMode.Hunter) HuntPatches.Appeared();
+        return ok;
     }
 
     private static bool WarpTo(Scoutmaster sm, Character prey, float minFlat, float maxFlat, float minUp, float maxUp)
     {
         Vector3 c = prey.Center;
-        Vector3? seen = null;
-        for (int i = 0; i < 48; i++)
+        Vector3? open = null, hidden = null, seen = null;
+        float openUp = float.MinValue;
+        int found = 0;
+        for (int i = 0; i < 64 && found < 6; i++)
         {
             Vector2 d = Random.insideUnitCircle.normalized * Random.Range(minFlat, maxFlat);
             float top = c.y + maxUp + 30f * Squad.M;
@@ -303,11 +428,15 @@ internal class ScoutmasterHunt : MonoBehaviour
             if (up < minUp || up > maxUp || hit.normal.y < 0.45f) continue;
             Vector3 spot = hit.point + Vector3.up;
             if (SomeoneSees(spot)) { seen ??= spot; continue; }
-            Warp(sm, spot);
-            return true;
+            if (!ClearLine(prey, spot)) { hidden ??= spot; continue; }
+            found++;
+            if (up > openUp) { open = spot; openUp = up; }
         }
-        if (seen == null) return false;
-        Warp(sm, seen.Value); // nowhere hidden: better seen than stuck
+        // In the open if we can; else out of sight (he'll step out); else even in plain view rather than stuck.
+        var pick = open ?? hidden ?? seen;
+        if (pick == null) return false;
+        Warp(sm, pick.Value);
+        Plugin.Log.LogInfo($"Scoutmaster appears {(open != null ? "in the open" : hidden != null ? "out of sight (no open ground)" : "in plain view (nowhere else)")}, {Vector3.Distance(pick.Value, c) * CharacterStats.unitsToMeters:0}m from {prey.characterName}.");
         return true;
     }
 
@@ -369,28 +498,55 @@ internal static class HuntPatches
 
     /// <summary>
     /// His static filter and fear music both come from here (the music follows the "Myers
-    /// distance" this sets on his target). Under a blood moon our song plays alone: the static
-    /// fades out and the distance is never set, so his music fades too. Vanilla otherwise.
+    /// distance" this sets on his target). Under a blood moon our song plays alone: the distance
+    /// is never set, so his music fades, and the static only rises while you stare at him (T2).
+    /// Vanilla otherwise.
     /// </summary>
     [HarmonyLib.HarmonyPrefix, HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "DoVisuals")]
     private static bool QuietUnderBloodMoon(Scoutmaster __instance)
     {
-        if (!BloodMoon.Active) return true;
+        if (!BloodMoon.Active) { localStare = 0f; return true; }
+        // T2: looking straight at him, the static builds (no words - you learn to look away).
+        var me = Character.localCharacter;
+        bool staring = BloodMoon.Tier == 2 && me != null && !me.data.dead && __instance.character != null
+                       && ScoutmasterHunt.StaringAt(me, __instance.character);
+        localStare = staring ? localStare + Time.deltaTime : 0f;
+        float want = Mathf.Clamp01(localStare / Mathf.Max(0.5f, ModConfig.BmStareLunge.Value)) * ModConfig.BmStareStatic.Value;
         var mat = __instance.mat;
-        if (mat != null) mat.SetFloat(StaticStrength, Mathf.MoveTowards(mat.GetFloat(StaticStrength), 0f, Time.deltaTime));
+        if (mat != null) mat.SetFloat(StaticStrength, Mathf.MoveTowards(mat.GetFloat(StaticStrength), want, Time.deltaTime * (want > 0f ? 1.5f : 1f)));
         return false;
+    }
+
+    private static float localStare;
+
+    /// <summary>His throws carry him less far under a blood moon (damage untouched: the landing decides).</summary>
+    [HarmonyLib.HarmonyPrefix, HarmonyLib.HarmonyPatch(typeof(CharacterGrabbing), "Throw")]
+    private static void ShorterThrows(Character ___character, ref Vector3 force)
+    {
+        if (!BloodMoon.Active || ___character == null || !___character.data.isScoutmaster) return;
+        force *= Mathf.Max(0f, ModConfig.BmScoutmasterThrowForce.Value);
     }
 
     private static Character? sightOf;
     private static bool inSight, sprinted;
     private static float sightSince, stareUntil;
 
+    // T1: after he appears he waits to be seen, holds the look, then comes.
+    private static float appearedAt = -100f, goAt;
+    private static bool noticed = true;
+
+    internal static void Appeared()
+    {
+        appearedAt = Time.time;
+        noticed = false;
+    }
+
     /// <summary>
-    /// His pace on a hunt: out of his prey's sight and far off he sprints until he has them in
-    /// view; close by (a cave, a hole) he only walks, sight or not - he creeps in rather than
-    /// charging. Catching sight of them after a sprint he stops dead and stares a moment, then
-    /// walks. For a while after he gets them in view he can't grab - running up on someone is a
-    /// scare, not a catch - and never while a tornado has them. Runs before <see cref="Lunge"/>
+    /// His pace on a hunt. Watching (T2 between charges, T3+, or once he's spent his grabs) he
+    /// stands and stares. Charging (T2) he sprints straight in from where he stood. Hunting (T1)
+    /// he first waits to be noticed, then runs in from afar and walks the last stretch; catching
+    /// sight of them after a sprint he stops and stares a moment, and for a while after he gets
+    /// them in view he can't grab - never while a tornado has them. Runs before <see cref="Lunge"/>
     /// so a held-back reach isn't a miss.
     /// </summary>
     [HarmonyLib.HarmonyPostfix, HarmonyLib.HarmonyPriority(HarmonyLib.Priority.High), HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "Chase")]
@@ -399,6 +555,32 @@ internal static class HuntPatches
         var prey = __instance.currentTarget;
         var me = __instance.character;
         if (!ScoutmasterHunt.Hunting || prey == null || me == null || ScoutmasterHunt.Busy(__instance)) { sightOf = null; return; }
+        var input = me.input;
+        void Stand()
+        {
+            input.movementInput = Vector2.zero;
+            input.sprintIsPressed = false;
+            input.useSecondaryIsPressed = false;
+            input.jumpWasPressed = false;
+        }
+        switch (ScoutmasterHunt.Mode)
+        {
+            case ScoutmasterHunt.HuntMode.Observer:
+                Stand(); // Chase already turned him to face them
+                return;
+            case ScoutmasterHunt.HuntMode.Lunge:
+                input.sprintIsPressed = true;
+                if (BloodTornado.Carrying(prey)) input.useSecondaryIsPressed = false;
+                return;
+        }
+
+        if (!noticed)
+        {
+            if (ScoutmasterHunt.InView(prey, me)) { noticed = true; goAt = Time.time + ModConfig.BmScoutmasterStare.Value; }
+            else if (Time.time - appearedAt > ModConfig.BmNoticeWait.Value) { noticed = true; goAt = Time.time; }
+        }
+        if (!noticed || Time.time < goAt) { Stand(); return; }
+
         bool sees = ScoutmasterHunt.CanSee(__instance, prey);
         if (prey != sightOf) { sightOf = prey; inSight = false; sprinted = true; stareUntil = 0f; }
         if (sees && !inSight)
@@ -408,12 +590,12 @@ internal static class HuntPatches
             sprinted = false;
         }
         inSight = sees;
-        var input = me.input;
         bool far = Vector3.Distance(me.Center, prey.Center) > Mathf.Max(0f, ModConfig.BmScoutmasterSprintDistance.Value) * Squad.M;
-        input.sprintIsPressed = !sees && far;
+        // Far off he runs in, seen or not (walking 100m in plain sight, he never arrived); close up he walks.
+        input.sprintIsPressed = far;
         if (input.sprintIsPressed) sprinted = true;
         if (Time.time < stareUntil && !me.data.isClimbing) input.movementInput = Vector2.zero; // stops and stares (Chase already faces them)
-        bool grace = sees && Time.time - sightSince < ModConfig.BmScoutmasterGrabGrace.Value;
+        bool grace = sees && Time.time - sightSince < ModConfig.BmHunterGrace.Value;
         if (grace || Time.time < stareUntil || BloodTornado.Carrying(prey)) input.useSecondaryIsPressed = false;
     }
 

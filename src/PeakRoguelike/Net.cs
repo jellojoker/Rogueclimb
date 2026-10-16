@@ -45,6 +45,7 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     private const byte SharedDoneEvent = 193;
     private const byte CureAllSplashEvent = 194;
     private const byte PandoraRollEvent = 195;
+    private const byte XpFedEvent = 196;
 
     internal static void Install()
     {
@@ -149,6 +150,8 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
 
     /// <summary>We were fed / healed by this scout: their food or healing relics fire on both of us.</summary>
     public static void RelicFed(int feederActor, bool food, bool healing) => SendTo(feederActor, RelicFedEvent, new object[] { Me, food, healing });
+    /// <summary>XP for the scout who fed or bandaged us with a crate item.</summary>
+    public static void XpFed(int feederActor, int xp) => SendTo(feederActor, XpFedEvent, new object[] { Me, xp });
 
     /// <summary>One of our relics fires on this scout (effect + glass on their side).</summary>
     public static void RelicShare(int actor, RelicGem gem) => SendTo(actor, RelicShareEvent, new object[] { Me, (int)gem });
@@ -233,6 +236,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     break;
                 case SkullCopiesEvent when e.CustomData is object[] a:
                     Relics.ReceiveSkullCopies((string)a[0], (string)a[1]);
+                    break;
+                case XpFedEvent when e.CustomData is object[] a:
+                    Xp.ReceiveFed((int)a[1]);
                     break;
                 case RelicFedEvent when e.CustomData is object[] a:
                     Relics.ReceiveFed((int)a[0], (bool)a[1], (bool)a[2]);

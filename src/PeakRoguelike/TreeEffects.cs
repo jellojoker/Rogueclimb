@@ -94,16 +94,16 @@ internal static class Stats
         2 => 4f,
         _ => null,
     };
-    public static bool BlueRopeSnaps => BlueBreaks;
+    public static bool BlueRopeSnaps => GreenBreaks;
 
     // --- piton -----------------------------------------------------------------------------
 
     /// <summary>Total seconds a piton holds someone before it breaks (null = it never does).</summary>
-    public static float? PitonHoldSeconds(int lv) => ModConfig.TreePower.Value <= 0f && !BlueBreaks ? null : lv switch
+    public static float? PitonHoldSeconds(int lv) => ModConfig.TreePower.Value <= 0f && !GreenBreaks ? null : lv switch
     {
         <= 1 => 2f,
         2 => 4f,
-        _ => BlueBreaks ? Random.Range(8f, 12f) : null, // blue sun: even the best pitons give
+        _ => GreenBreaks ? Random.Range(8f, 12f) : null, // blue sun: even the best pitons give
     };
 
     /// <summary>What a piton's card promises (the blue sun's extra cracking isn't on the card).</summary>
@@ -114,7 +114,7 @@ internal static class Stats
         _ => null,
     };
 
-    private static bool BlueBreaks => Suns.Blue && ModConfig.SunBlueBreaks.Value;
+    private static bool GreenBreaks => Suns.Green && ModConfig.SunBlueBreaks.Value;
 
     // --- glider / balloons / lantern ---------------------------------------------------------
 

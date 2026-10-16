@@ -336,6 +336,7 @@ internal class Fusion : MonoBehaviour
         Character me = Character.localCharacter;
         if (me == null || recipe.Result == null || Items.Find(recipe.Result) is not { } result) return;
         if (recipe.Craft == CraftId.SugarRush) SugarRush.ExpectGrant();
+        Xp.ExpectCrateItem(result);
         GameUtils.instance.InstantiateAndGrab(result, me, recipe.Craft == CraftId.SugarRush ? SugarRushGrant.Marker : 0);
     }
 

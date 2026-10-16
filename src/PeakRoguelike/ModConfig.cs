@@ -85,6 +85,13 @@ internal static class ModConfig
     public static ConfigEntry<bool> DevShareRelics = null!, DevMoonEveryNight = null!, DevMoonOnPickup = null!;
     public static ConfigEntry<float> DevShareWait = null!;
     public static ConfigEntry<float> BmScoutmasterGrabGrace = null!, BmScoutmasterStare = null!, BmScoutmasterSprintDistance = null!;
+    public static ConfigEntry<float> BmScoutmasterFarDistance = null!, BmScoutmasterFarTime = null!, BmScoutmasterUnseen = null!, BmScoutmasterThrowForce = null!,
+        BmHunterAppearMin = null!, BmHunterAppearMax = null!, BmNoticeWait = null!, BmHunterGrace = null!, BmHunterRecover = null!,
+        BmWatchMin = null!, BmWatchMax = null!, BmStareLunge = null!, BmStareAngle = null!, BmStareStatic = null!, BmLungeTime = null!, SunYellowDrowsy = null!, SunBlueDamage = null!;
+    public static ConfigEntry<bool> Xp = null!;
+    public static ConfigEntry<int> XpPerCrate = null!, XpHealingUse = null!, XpFoodUse = null!, XpItemUse = null!, XpCampfire = null!;
+    public static ConfigEntry<float> XpCrateLevels = null!, XpItemLevels = null!, XpMinClimb = null!;
+    public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!;
     public static ConfigEntry<Key> FlyKey = null!;
     public static ConfigEntry<float> FlySpeed = null!;
 
@@ -117,7 +124,37 @@ internal static class ModConfig
         // New key (was ScoutmasterGrabGrace 2) so the old value doesn't stick around.
         BmScoutmasterGrabGrace = cfg.Bind("BloodMoon", "ScoutmasterSightGrace", 5f, "During a hunt, for this many seconds after he gets his prey in sight he can't grab - a sprint right up to someone is a scare, not a catch. He never grabs a scout a tornado is carrying.");
         BmScoutmasterStare = cfg.Bind("BloodMoon", "ScoutmasterStare", 2f, "Catching sight of his prey after a sprint, he stops and stares this many seconds before walking on.");
-        BmScoutmasterSprintDistance = cfg.Bind("BloodMoon", "ScoutmasterSprintDistance", 25f, "He only sprints when his prey is out of sight AND further than this (m); closer (a cave, a hole) he walks in.");
+        BmScoutmasterSprintDistance = cfg.Bind("BloodMoon", "ScoutmasterSprintDistance", 25f, "He sprints while his prey is further than this (m), seen or not; closer he walks in.");
+        BmScoutmasterFarDistance = cfg.Bind("BloodMoon", "ScoutmasterFarDistance", 60f, "During a hunt: still further than this (m) from his prey after ScoutmasterFarTime, he appears again out of sight...");
+        BmScoutmasterFarTime = cfg.Bind("BloodMoon", "ScoutmasterFarTime", 20f, "...after this many seconds (0 = never).");
+        BmScoutmasterUnseen = cfg.Bind("BloodMoon", "ScoutmasterUnseen", 4f, "During a hunt: out of his prey's line of sight this long, he appears somewhere in the open again - picked while nobody is looking at it (0 = never).");
+        BmScoutmasterThrowForce = cfg.Bind("BloodMoon", "ScoutmasterThrowForce", 0.6f, "How far his throws carry under a blood moon (share of vanilla's force; damage is untouched).");
+        BmHunterAppearMin = cfg.Bind("BloodMoon", "HunterAppearMin", 40f, "Tier 1 (he hunts): he appears in the open at least this far (m) from his prey...");
+        BmHunterAppearMax = cfg.Bind("BloodMoon", "HunterAppearMax", 60f, "...and at most this far.");
+        BmNoticeWait = cfg.Bind("BloodMoon", "HunterNoticeWait", 6f, "Tier 1: after appearing he stands until his prey sees him (then stares ScoutmasterStare seconds) or this many seconds pass, then comes.");
+        BmHunterGrace = cfg.Bind("BloodMoon", "HunterSightGrace", 3f, "Tier 1: seconds after he gets his prey in sight before he can grab.");
+        BmHunterRecover = cfg.Bind("BloodMoon", "HunterRecover", 3f, "Tier 1: seconds he rests after a throw or a miss.");
+        BmWatchMin = cfg.Bind("BloodMoon", "WatchMin", 25f, "Tier 2+ (he watches): he stands in the open at least this far (m) from who he watches...");
+        BmWatchMax = cfg.Bind("BloodMoon", "WatchMax", 40f, "...and at most this far.");
+        BmStareLunge = cfg.Bind("BloodMoon", "StareLunge", 5f, "Tier 2: look straight at him this many seconds (without looking away) and he charges from where he stands - once per scout per moon.");
+        BmStareAngle = cfg.Bind("BloodMoon", "StareAngle", 12f, "Tier 2: how close to the middle of your view (degrees) he must be to count as staring.");
+        BmStareStatic = cfg.Bind("BloodMoon", "StareStatic", 0.9f, "Tier 2: how strong his static gets as your stare runs out (0 = none).");
+        BmLungeTime = cfg.Bind("BloodMoon", "LungeTime", 8f, "Tier 2: how long a charge lasts before he gives up (it still counts as his one try).");
+        Xp = cfg.Bind("Xp", "Enabled", true, "A gold XP bar: per biome, climbing (new height only), crates and using up crate items each fill up to 2 levels; reaching camp adds the fast-clear bonus and 100. Each level opens a crate card pick once you stand on flat ground.");
+        XpBiomeMinutes = cfg.Bind("Xp", "BiomeMinutes", 10f, "The fast-clear bonus drains to nothing over this many minutes (starts when you leave camp).");
+        XpClimbLevels = cfg.Bind("Xp", "ClimbLevels", 2f, "Levels a whole biome's climb is worth (bottom to campfire).");
+        XpFastClearLevels = cfg.Bind("Xp", "FastClearLevels", 1f, "Levels the fast-clear bonus is worth with the full time left.");
+        XpMinClimb = cfg.Bind("Xp", "MinClimb", 50f, "A biome whose campfire is less than this many metres above its start pays its climb on arrival instead.");
+        XpCampfire = cfg.Bind("Xp", "CampfireXp", 100, "XP for reaching each campfire (and the summit), on top of the fast-clear bonus.");
+        XpPerCrate = cfg.Bind("Xp", "PerCrate", 100, "XP for each crate you claim from...");
+        XpCrateLevels = cfg.Bind("Xp", "CrateLevels", 2f, "...up to this many levels per biome.");
+        XpHealingUse = cfg.Bind("Xp", "HealingUse", 200, "XP for using up a healing item that came from a card pick (crate, level-up, statue)...");
+        XpFoodUse = cfg.Bind("Xp", "FoodUse", 50, "...a food (wild food never counts)...");
+        XpItemUse = cfg.Bind("Xp", "ItemUse", 100, "...anything else...");
+        XpItemLevels = cfg.Bind("Xp", "ItemLevels", 2f, "...up to this many levels per biome.");
+        XpBarScale = cfg.Bind("Xp", "BarScale", 0.75f, "Size of the XP bar (a copy of the stamina bar).");
+        XpBarX = cfg.Bind("Xp", "BarOffsetX", 0f, "Nudge the XP bar right (+) / left (-), in UI pixels.");
+        XpBarY = cfg.Bind("Xp", "BarOffsetY", 0f, "Nudge the XP bar up (+) / down (-), in UI pixels.");
         BmScoutmasterRecover = cfg.Bind("BloodMoon", "ScoutmasterRecover", 5f, "During a hunt, after a throw or a missed lunge he stands still this many seconds, then locks onto his next target (0 = vanilla's 2s after throws only).");
         BmTornadoGrouped = cfg.Bind("BloodMoon", "TornadoGroupedSpeed", 0.5f, "The tornado's speed when the relic holder nearest it is grouped (share of its normal speed).");
         BmTornadoApproach = cfg.Bind("BloodMoon", "TornadoApproachSpeed", 14f, "The tornado's speed (m/s) while it travels up from the section's starting campfire.");
@@ -127,20 +164,21 @@ internal static class ModConfig
         Suns = cfg.Bind("Suns", "Enabled", true, "Coloured suns: each biome's days burn the colour of its statue amulet until the squad holds that relic; blood moon nights only after it.");
         SunSky = cfg.Bind("Suns", "SkyTint", 1f, "How strongly the sky and sunlight take the sun's colour (0 = vanilla sky, effects still apply).");
         SunYellowDrain = cfg.Bind("Suns", "YellowStaminaDrain", 1.4f, "Yellow sun: stamina use multiplier, on top of the ascent's own (Ascent 6+ is x1.4, so x1.96 there).");
-        SunGreenFoodCap = cfg.Bind("Suns", "GreenFoodCap", 0.1f, "Green sun: food's other effects (bonus stamina, buffs) work at this fraction; hunger is GreenFoodBite.");
+        SunGreenFoodCap = cfg.Bind("Suns", "GreenFoodCap", 0.1f, "Unused since 0.12.7.");
         SunBlueHealCap = cfg.Bind("Suns", "BlueHealingCap", 0.1f, "Blue sun: healing items heal this fraction (lantern and relics never capped).");
+        SunBlueDamage = cfg.Bind("Suns", "BlueDamage", 1.5f, "Blue sun: every hit and every tick of harm (injury and falls, poison, cold, heat, spores, drowsiness, curse) lands this many times harder.");
         SunYellowRushCap = cfg.Bind("Suns", "YellowRushCap", 0.1f, "Yellow sun: infinite stamina from items lasts this fraction as long.");
         SunRedMoveCap = cfg.Bind("Suns", "RedMovementCap", 0.1f, "Red sun: glider, jetpack, rocket pack, balloons, scout cannon and anti-grav work at this fraction (ropes / pitons untouched).");
         SunSkyBlend = cfg.Bind("Suns", "SkyBlend", 0.8f, "How far the sky leans into the sun's colour (0..1).");
         SunFlareTint = cfg.Bind("Suns", "FlareTint", true, "Tint the game's sun glare (lens flare) to the sky's colour - coloured suns, and blood red on the menu and at the airport.");
         SunLight = cfg.Bind("Suns", "SunlightColour", 1f, "How strongly the sunlight itself takes the sun's colour (0 = the game's near-white light, 1 = the full colour, up to 1.5 = deeper than the sun's colour). Real light, not a filter: shadows stay shadows. Tune live in F8 > World.");
-        SunGreenBite = cfg.Bind("Suns", "GreenFoodBite", 0.05f, "Green sun: every bite of food that fills hunger fills exactly this much of the bar (0.05 = 5 of 100), whatever the food.");
+        SunGreenBite = cfg.Bind("Suns", "GreenFoodBite", 0.05f, "Unused since 0.12.7.");
         SafeZones = cfg.Bind("Suns", "SafeZones", true, "Lit campfires and the summit are safe: no sun effects, no blood moon attacks, music fades. The sky keeps its colour.");
         SpawnRadius = cfg.Bind("Suns", "SpawnSafeRadius", 30f, "Safe radius (m) around the plane crash where the run starts.");
         SummitRadius = cfg.Bind("Suns", "SummitSafeRadius", 25f, "Safe radius (m) around the summit.");
-        SunGreenHunger = cfg.Bind("Suns", "GreenHunger", 1.6f, "Green sun: hunger rate multiplier, on top of the ascent's own (Ascent 2+ is x1.6, so x2.56 there).");
-        SunGreenRainEvery = cfg.Bind("Suns", "GreenFoodRainEvery", 120f, "Green sun: seconds between food storms (wild food of every biome so far; 0 = off).");
-        SunGreenRainCount = cfg.Bind("Suns", "GreenFoodPerStorm", 20, "Green sun: pieces of food that fall around each scout per storm.");
+        SunGreenHunger = cfg.Bind("Suns", "GreenHunger", 1.6f, "Unused since 0.12.7 (no sun changes hunger).");
+        SunGreenRainEvery = cfg.Bind("Suns", "GreenFoodRainEvery", 120f, "Unused since 0.12.7.");
+        SunGreenRainCount = cfg.Bind("Suns", "GreenFoodPerStorm", 20, "Unused since 0.12.7.");
         SunGreenShowerSeconds = cfg.Bind("Suns", "GreenStormSeconds", 5f, "Green sun: how long each food storm lasts.");
         SunGreenFoodLife = cfg.Bind("Suns", "GreenFoodLifetime", 20f, "Green sun: rained food left on the ground vanishes after this many seconds (pocket it to keep it).");
         SunGreenNoStack = cfg.Bind("Suns", "GreenNoStacking", true, "Green sun: nothing new joins a stack (existing stacks stay and can be used); singles merge back at sunset or when the relic is taken.");
@@ -151,10 +189,11 @@ internal static class ModConfig
         SunRedSprintCut = cfg.Bind("Suns", "RedSprintCut", 0.6f, "Red sun: share of the sprint speed bonus taken away (0 = vanilla sprint, 1 = sprinting is no faster than walking). Walking untouched.");
         SunRedLungeCut = cfg.Bind("Suns", "RedLungeCut", 0.5f, "Red sun: share of the climbing lunge's distance taken away (0 = vanilla, 1 = no lunge). Stamina cost unchanged.");
         SunRedHeavyShoreOnly = cfg.Bind("Suns", "RedHeavyShoreOnly", true, "Red sun: heavier gravity and low jumps only on the Shore (false = every biome). Sprint, lunge and item caps apply everywhere.");
-        SunYellowStumble = cfg.Bind("Suns", "YellowStumbleSeconds", 1f, "Yellow sun on the Shore: running dry on the ground trips you for this long (0 = off).");
-        SunBlueFreeze = cfg.Bind("Suns", "BlueShoreFreeze", true, "Blue sun on the Shore: direct sunlight is cold, as fast as a high ascent's night at dusk (fades like heat in shade; lanterns / campfires protect).");
-        SunBlueWear = cfg.Bind("Suns", "BlueItemWear", true, "Blue sun: limited-use items spend two uses at a time.");
-        SunBlueBreaks = cfg.Bind("Suns", "BlueBreaks", true, "Blue sun: every rope frays (snaps after a climb) and every piton cracks under you.");
+        SunYellowStumble = cfg.Bind("Suns", "YellowStumbleSeconds", 0f, "Yellow sun on the Shore: running dry on the ground trips you for this long (0 = off; replaced by YellowDrowsy).");
+        SunYellowDrowsy = cfg.Bind("Suns", "YellowDrowsy", 0.05f, "Yellow sun on the Shore: each try to sprint, climb or jump with no stamina adds this much Drowsy (at most every half second; 0 = off).");
+        SunBlueFreeze = cfg.Bind("Suns", "BlueShoreFreeze", true, "Unused since 0.12.7.");
+        SunBlueWear = cfg.Bind("Suns", "BlueItemWear", true, "Green sun: limited-use items spend two uses at a time (blue until 0.12.7).");
+        SunBlueBreaks = cfg.Bind("Suns", "BlueBreaks", true, "Green sun: every rope frays (snaps after a climb) and every piton cracks under you (blue until 0.12.7).");
         GenerosityShare = cfg.Bind("Relics", "GenerosityMealShare", 0.5f, "Generosity: scouts near you get this share of the hunger your meals relieve (0 = off).");
 
         Storage = cfg.Bind("Storage", "Enabled", true, "Picking up a backpack or fanny pack offers to absorb it for extra pockets (lost on death). Off = vanilla packs.");

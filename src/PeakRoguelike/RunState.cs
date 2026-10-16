@@ -67,6 +67,7 @@ internal static class RunState
         UsedSkull = UsedDagger = false;
         RelicDrops.Clear();
         Blessing.Reset();
+        Xp.Reset();
         Storage.Reset();
         ItemLevels.Reset();
         Publish();

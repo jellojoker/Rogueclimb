@@ -156,7 +156,7 @@ internal static class LuggagePatches
         });
     }
 
-    private static void LevelUp(TreeDef tree, int level, int branch)
+    internal static void LevelUp(TreeDef tree, int level, int branch)
     {
         bool wasMax = RunState.Level(tree.Id) >= tree.MaxFor(RunState.Branch(tree.Id)) && RunState.Level(tree.Id) > 0;
         RunState.SetLevel(tree.Id, level, branch);
@@ -173,6 +173,7 @@ internal static class LuggagePatches
         perk?.Taken(-1, 0); // your own extra card: the crate's cards stay as they are
         perk?.ReleaseLock();
         GlobalEvents.TriggerLuggageOpened(luggage, me);
+        Xp.Crate($"fusion from {luggage.displayName}");
         Fusion.Give(recipe);
         Hud.Banner("FUSION", recipe.Name, ChoiceScreen.FusionGlow);
         Plugin.Log.LogInfo($"Claimed fusion {recipe.Name} from {luggage.displayName}.");
@@ -265,9 +266,11 @@ internal static class LuggagePatches
             perk.ReleaseLock();
         }
         else if (perk == null) luggage.photonView.RPC(nameof(PerkLuggage.RPC_PerkOpen), RpcTarget.All);
+        if (first < 0) Xp.Crate($"claimed from {luggage.displayName}");
         if (!bonus) GlobalEvents.TriggerLuggageOpened(luggage, me);
         // Host spawns the item at our hip and immediately picks it up for us
         // (if our pockets are full it drops at our feet, same as the game's own give-item path).
+        Xp.ExpectCrateItem(item);
         GameUtils.instance.InstantiateAndGrab(item, me);
         Plugin.Log.LogInfo($"Claimed {item.gameObject.name} from {luggage.displayName}{(first >= 0 ? " (Generosity's second pick)" : "")}.");
         if (bonus) ShowSecondPick(luggage, perk!, slot);

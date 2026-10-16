@@ -15,6 +15,7 @@ A roguelike mod for PEAK. Crates, statues and amulets turn every climb into a ru
 - **Coloured suns** - each biome's sun takes the colour of its amulet, and it changes the climb.
 - **Blood moons** - the moon remembers who takes the relics.
 - **Pockets** - backpacks and fanny packs become extra pockets.
+- **XP** - climb, open crates and use what they give you; every level is another pick.
 
 ## Credits
 

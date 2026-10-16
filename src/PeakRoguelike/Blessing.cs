@@ -291,7 +291,7 @@ internal class Blessing : MonoBehaviour
     private static void Grant(Item? prefab)
     {
         Character me = Character.localCharacter;
-        if (prefab != null && me != null) GameUtils.instance.InstantiateAndGrab(prefab, me);
+        if (prefab != null && me != null) { Xp.ExpectCrateItem(prefab); GameUtils.instance.InstantiateAndGrab(prefab, me); }
     }
 
     private sealed class TreeOption : Option

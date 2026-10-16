@@ -3,7 +3,7 @@
         <TargetFramework>netstandard2.1</TargetFramework>
         <AssemblyName>PeakRoguelike</AssemblyName>
         <AssemblyTitle>PEAK Roguelike</AssemblyTitle>
-        <Version>0.12.3</Version>
+        <Version>0.12.7</Version>
         <RootNamespace>PeakRoguelike</RootNamespace>
     </PropertyGroup>
     <!--

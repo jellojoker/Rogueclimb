@@ -213,9 +213,9 @@ internal class Stacks : MonoBehaviourPunCallbacks
     public override void OnJoinedRoom() => counts.Clear();
     public override void OnLeftRoom() => counts.Clear();
 
-    /// <summary>Copies a spend takes: the blue sun wears through two of a single-use item at once.</summary>
+    /// <summary>Copies a spend takes: the green sun wears through two of a single-use item at once.</summary>
     private static int Take(Item item) =>
-        Suns.Blue && ModConfig.SunBlueWear.Value && item.totalUses <= 0 ? 2 : 1;
+        Suns.Green && ModConfig.SunBlueWear.Value && item.totalUses <= 0 ? 2 : 1;
 
     /// <summary>
     /// The copy in hand (or in this pocket) is spent: if another is left, it takes the spent one's

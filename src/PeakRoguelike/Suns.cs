@@ -90,8 +90,7 @@ internal class Suns : MonoBehaviour
             Blend = Mathf.MoveTowards(Blend, Current != null && IsDay ? 1f : 0f, Time.deltaTime / Fade);
         }
         if (Blend <= 0f && Current == null) Shown = null;
-        try { ColdLight(); }
-        catch (System.Exception e) { Plugin.Log.LogWarning($"Suns cold light: {e.Message}"); }
+        // (blue's cold sunlight was removed in 0.12.7; blue now makes every hit and tick hurt more)
         try { WeightTick(); }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Suns weight: {e.Message}"); }
         if (Time.time < nextPoll) return;
@@ -163,7 +162,7 @@ internal class Suns : MonoBehaviour
         int now = PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(RoomKey, out object raw) && raw is int i ? i : -1;
         if (now != want)
             PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [RoomKey] = want });
-        FoodRain();
+        // (green food storms were removed in 0.12.7)
     }
 
     // --- green: it rains the biome's wild food (host) ------------------------------------------------
@@ -547,19 +546,28 @@ internal static class SunPatches
         if (Suns.Yellow && usage > 0f && __instance.IsLocal) usage *= ModConfig.SunYellowDrain.Value;
     }
 
-    private static bool stumbled;
+    private static float nextDrowsy;
 
-    /// <summary>Yellow on the Shore: run yourself dry on the ground and your legs give out for a moment.</summary>
+    /// <summary>
+    /// Yellow on the Shore: pushing on with no stamina left (sprinting, climbing, jumping) makes you
+    /// drowsy - a little each try. It wears off like any drowsiness; push too long and you pass out
+    /// the game's own way.
+    /// </summary>
     [HarmonyPostfix, HarmonyPatch(typeof(Character), "UpdateVariablesFixed")]
-    private static void Stumble(Character __instance)
+    private static void Drowsy(Character __instance)
     {
         if (!__instance.IsLocal) return;
         var d = __instance.data;
-        if (d.outOfStaminaFor <= 0f) { stumbled = false; return; }
-        float secs = ModConfig.SunYellowStumble.Value;
-        if (stumbled || !Suns.Yellow || secs <= 0f || !Suns.OnShore || d.dead || !d.isGrounded || d.isClimbing || d.isRopeClimbing || d.isVineClimbing || d.fallSeconds > 0f) return;
-        stumbled = true;
-        __instance.photonView.RPC("RPCA_Fall", RpcTarget.All, secs, 0.4f);
+        float amount = ModConfig.SunYellowDrowsy.Value;
+        if (d.outOfStaminaFor <= 0f || amount <= 0f || !Suns.Yellow || !Suns.OnShore || d.dead || d.passedOut || Time.time < nextDrowsy) return;
+        var input = __instance.input;
+        bool moving = input.movementInput.magnitude > 0.1f;
+        bool trying = (input.sprintIsPressed || input.sprintToggleIsPressed) && moving
+                      || d.isClimbingAnything && moving
+                      || input.jumpIsPressed || input.jumpWasPressed;
+        if (!trying) return;
+        nextDrowsy = Time.time + 0.5f;
+        __instance.refs.afflictions.AddStatus(CharacterAfflictions.STATUSTYPE.Drowsy, amount);
     }
 
     // --- green on the Shore: everything you carry weighs more ---------------------------------------
@@ -574,12 +582,19 @@ internal static class SunPatches
         if (Suns.GreenShoreWeight && Ascents.itemWeightModifier != -1) __result += ModConfig.SunGreenShoreWeight.Value;
     }
 
-    // --- green: hunger ------------------------------------------------------------------------------
+    // --- blue: everything hurts more ----------------------------------------------------------------
 
-    [HarmonyPostfix, HarmonyPatch(typeof(Ascents), nameof(Ascents.hungerRateMultiplier), MethodType.Getter)]
-    private static void Hungrier(ref float __result)
+    /// <summary>
+    /// Blue: every hit and every tick of harm lands SunBlueDamage times harder - the game's own list
+    /// of what difficulty scales (injury and falls, poison, cold, heat, spores, drowsiness, curse).
+    /// What items and sources hand out is the same; it's what reaches you.
+    /// </summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(CharacterAfflictions), nameof(CharacterAfflictions.AddStatus))]
+    private static void Harder(CharacterAfflictions __instance, CharacterAfflictions.STATUSTYPE statusType, ref float amount)
     {
-        if (Suns.Green) __result *= ModConfig.SunGreenHunger.Value;
+        if (amount <= 0f || !Suns.Blue || __instance.character == null || !__instance.character.IsLocal) return;
+        if (!__instance.StatusAffectedByDifficultyMod(statusType)) return;
+        amount *= Mathf.Max(0f, ModConfig.SunBlueDamage.Value);
     }
 
     [HarmonyPrefix, HarmonyPatch(typeof(Action_RestoreHunger), nameof(Action_RestoreHunger.RunAction))]
@@ -678,18 +693,18 @@ internal static class SunPatches
         __instance.playerSlide = __state + (__instance.playerSlide - __state) * keep;
     }
 
-    // --- blue: brittle (damage stays vanilla - ascents already scale it) ----------------------------------
+    // --- green: brittle - items wear out twice as fast --------------------------------------------------
 
     [HarmonyPrefix, HarmonyPatch(typeof(Action_ReduceUses), nameof(Action_ReduceUses.RunAction))]
     private static void WearStart(Action_ReduceUses __instance, out int __state)
     {
         __state = -1;
-        if (!Suns.Blue || !ModConfig.SunBlueWear.Value || !Local(__instance.character)) return;
+        if (!Suns.Green || !ModConfig.SunBlueWear.Value || !Local(__instance.character)) return;
         var data = __instance.item.GetData<OptionableIntItemData>(DataEntryKey.ItemUses);
         if (data.HasData) __state = data.Value;
     }
 
-    /// <summary>Blue: every use costs two.</summary>
+    /// <summary>Green: every use costs two.</summary>
     [HarmonyPostfix, HarmonyPatch(typeof(Action_ReduceUses), nameof(Action_ReduceUses.RunAction))]
     private static void Wear(Action_ReduceUses __instance, int __state)
     {

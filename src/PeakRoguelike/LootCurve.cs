@@ -30,7 +30,7 @@ internal static class LootCurve
     };
 
     /// <summary>The regular crates along the climb (not cursed, clown or ancient luggage).</summary>
-    private static readonly HashSet<SpawnPool> Crates = new()
+    internal static readonly HashSet<SpawnPool> Crates = new()
     {
         SpawnPool.LuggageBeach, SpawnPool.LuggageJungle, SpawnPool.LuggageRoots, SpawnPool.LuggageTundra,
         SpawnPool.LuggageMesa, SpawnPool.LuggageCaldera, SpawnPool.LuggageGloom, SpawnPool.LuggageCitadel, SpawnPool.LuggageClimber,

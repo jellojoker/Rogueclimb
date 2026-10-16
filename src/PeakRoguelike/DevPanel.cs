@@ -437,6 +437,8 @@ internal class DevPanel : MonoBehaviour
             Toggle("Moon on pickup", ModConfig.DevMoonOnPickup));
         Row(B($"Relic order: {RelicShuffle.Label(ModConfig.StatueOrder.Value)}", () => { RelicShuffle.Cycle(1); Rebuild(); },
             ModConfig.StatueOrder.Value == StatueOrder.Off ? ButtonColor : RedColor));
+        Label("<color=#FFD86A>XP (gold bar)</color>", 26f);
+        Row(B("+1 level", () => { if (InGame(true)) Xp.DevAdd(1000f); }), B("+250 XP", () => { if (InGame(true)) Xp.DevAdd(250f); }));
         MusicRow();
         Label($"<color=#FFD24A>Sun (now: {(Suns.Current is { } sun ? Suns.ColorName(sun) : "normal")}{(Suns.DevForce != null ? ", forced" : "")})</color>", 26f);
         Row(new[] { RelicGem.Ambition, RelicGem.Generosity, RelicGem.Initiative, RelicGem.Tenacity }
@@ -447,7 +449,7 @@ internal class DevPanel : MonoBehaviour
         PercentRow("Sky colour", ModConfig.SunSkyBlend);
         PercentRow("Red sprint cut", ModConfig.SunRedSprintCut);
         PercentRow("Red lunge cut", ModConfig.SunRedLungeCut);
-        PercentRow("Yellow Shore slip (100% = 1s)", ModConfig.SunYellowStumble, 3f);
+        PercentRow("Yellow Shore drowsy per try", ModConfig.SunYellowDrowsy, 0.3f);
         Row(Toggle("Red heavy: Shore only", ModConfig.SunRedHeavyShoreOnly));
         Label("<color=#D9C9A3>Squad</color>", 26f);
         Row(B("Jump squad to next biome", () => { if (InGame(true)) DevCheats.NextBiome(); }));
