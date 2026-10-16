@@ -16,7 +16,7 @@ namespace PeakRoguelike;
 [HarmonyPatch]
 internal static class LuggagePatches
 {
-    public const int MaxCards = 5;
+    public const int MaxCards = 10;
 
     // Respawn chests revive people - leave them alone.
     private static bool Handles(Luggage luggage) => luggage is not RespawnChest;
@@ -118,7 +118,7 @@ internal static class LuggagePatches
     }
 
     /// <summary>A card was chosen. Tree items may first ask for a path.</summary>
-    private static void Picked(Luggage luggage, List<Item> items, int index)
+    private static void Picked(Luggage luggage, List<Item> items, int index, System.Action? back = null)
     {
         Item item = items[index];
         var offer = Offers.Resolve(item);
@@ -152,7 +152,7 @@ internal static class LuggagePatches
                 LevelUp(tree, next, options[i].Branch);
                 Claim(luggage, Offers.Grant(options[i], item), index);
             },
-            OnBack = () => ShowCrate(luggage, items),
+            OnBack = back ?? (() => ShowCrate(luggage, items)),
         });
     }
 
@@ -185,21 +185,27 @@ internal static class LuggagePatches
         try
         {
             List<Transform> spots = luggage.GetSpawnSpots();
-            int count = Mathf.Min(spots?.Count ?? 0, MaxCards);
-            if (count == 0) return result;
-            // Earned-only items (fusions, level unlocks) are thrown back and the crate rolls again.
-            for (int attempt = 0; attempt < 8 && result.Count < count; attempt++)
+            int vanilla = spots?.Count ?? 0;
+            if (vanilla == 0) return result;
+            // One extra card per scout in the lobby (each still picks just one).
+            int scouts = PhotonNetwork.InRoom ? PhotonNetwork.PlayerList.Length : 1;
+            int count = Mathf.Min(vanilla + scouts, MaxCards);
+            // Earned-only items (fusions, level unlocks) are thrown back, and no card shows twice;
+            // the crate keeps rolling until it's full or its pool runs dry.
+            for (int attempt = 0; attempt < 12 && result.Count < count; attempt++)
             {
-                List<GameObject> objects = luggage.GetObjectsToSpawn(count, luggage.canRepeatSpawns);
+                List<GameObject> objects = luggage.GetObjectsToSpawn(count, true);
                 if (objects == null) break;
                 foreach (var item in objects.Where(o => o != null).Select(o => o.GetComponent<Item>()))
                 {
                     if (item == null || result.Count >= count) continue;
                     if (ModConfig.Leveling.Value && Items.IsEarnedOnly(item)) continue;
-                    if (attempt > 0 && !luggage.canRepeatSpawns && result.Any(r => r.itemID == item.itemID)) continue;
+                    if (result.Any(r => r.itemID == item.itemID)) continue;
                     result.Add(item);
                 }
             }
+            Plugin.Log.LogInfo($"{luggage.displayName}: vanilla {vanilla} + {scouts} scout(s) = {count} cards, rolled {result.Count}: "
+                + string.Join(", ", result.Select(r => r.gameObject.name)) + ".");
         }
         catch (System.Exception e)
         {
@@ -208,17 +214,21 @@ internal static class LuggagePatches
         return result;
     }
 
-    /// <summary>One more item from the crate's pool, for the card someone just took (0 = nothing).</summary>
-    internal static ushort RollOne(Luggage luggage)
+    /// <summary>
+    /// One more item from the crate's pool, for the card someone just took (0 = nothing, the card goes).
+    /// Never one of the cards still showing in the crate.
+    /// </summary>
+    internal static ushort RollOne(Luggage luggage, ICollection<ushort> showing)
     {
         try
         {
-            for (int attempt = 0; attempt < 8; attempt++)
+            for (int attempt = 0; attempt < 16; attempt++)
             {
                 var objects = luggage.GetObjectsToSpawn(1, true);
                 var item = objects?.Where(o => o != null).Select(o => o.GetComponent<Item>()).FirstOrDefault(i => i != null);
                 if (item == null) continue;
                 if (ModConfig.Leveling.Value && Items.IsEarnedOnly(item)) continue;
+                if (showing.Contains(item.itemID)) continue;
                 return item.itemID;
             }
         }
@@ -238,19 +248,71 @@ internal static class LuggagePatches
         Hud.PickChime();
 
         var perk = luggage.GetComponent<PerkLuggage>();
-        if (perk != null)
+        int first = bonusFirst;
+        bonusFirst = -1;
+        // Generosity relic: a first pick of its kind earns a second pick from the same crate.
+        // The crate stays closed (and locked to us) until the second card is chosen.
+        bool bonus = first < 0 && slot >= 0 && perk != null && perk.GetOrRoll().Count > 1 && Relics.Generosity(item);
+        if (perk != null && !bonus)
         {
-            perk.Taken(slot, slot >= 0 && perk.OthersLeft ? RollOne(luggage) : (ushort)0);
+            if (first >= 0)
+            {
+                // The second pick: both cards go (higher slot first, so a removed card can't shift the other).
+                foreach (int s in new[] { Mathf.Max(slot, first), Mathf.Min(slot, first) })
+                    perk.Taken(s, perk.OthersLeft ? RollOne(luggage, perk.CardsBesides(s)) : (ushort)0);
+            }
+            else perk.Taken(slot, slot >= 0 && perk.OthersLeft ? RollOne(luggage, perk.CardsBesides(slot)) : (ushort)0);
             perk.ReleaseLock();
         }
-        else luggage.photonView.RPC(nameof(PerkLuggage.RPC_PerkOpen), RpcTarget.All);
-        GlobalEvents.TriggerLuggageOpened(luggage, me);
+        else if (perk == null) luggage.photonView.RPC(nameof(PerkLuggage.RPC_PerkOpen), RpcTarget.All);
+        if (!bonus) GlobalEvents.TriggerLuggageOpened(luggage, me);
         // Host spawns the item at our hip and immediately picks it up for us
         // (if our pockets are full it drops at our feet, same as the game's own give-item path).
         GameUtils.instance.InstantiateAndGrab(item, me);
-        // Generosity relic: a pick of its kind comes with a spare.
-        if (Relics.Generosity(item)) GameUtils.instance.InstantiateAndGrab(item, me);
-        Plugin.Log.LogInfo($"Claimed {item.gameObject.name} from {luggage.displayName}.");
+        Plugin.Log.LogInfo($"Claimed {item.gameObject.name} from {luggage.displayName}{(first >= 0 ? " (Generosity's second pick)" : "")}.");
+        if (bonus) ShowSecondPick(luggage, perk!, slot);
+    }
+
+    /// <summary>The slot of a Generosity first pick whose second pick is open (-1 = none).</summary>
+    private static int bonusFirst = -1;
+
+    /// <summary>Generosity: the crate's other cards, one more pick.</summary>
+    private static void ShowSecondPick(Luggage luggage, PerkLuggage perk, int firstSlot)
+    {
+        var items = perk.GetOrRoll();
+        var others = Enumerable.Range(0, items.Count).Where(i => i != firstSlot).ToList();
+        string crateName = "";
+        try { crateName = luggage.GetName(); } catch { /* not localised */ }
+        if (string.IsNullOrEmpty(crateName)) crateName = "Supply crate";
+
+        // Walking away or backing out forfeits the second pick: the first one still counts.
+        void Forfeit()
+        {
+            bonusFirst = -1;
+            if (luggage == null) return;
+            perk.Taken(firstSlot, perk.OthersLeft ? RollOne(luggage, perk.CardsBesides(firstSlot)) : (ushort)0);
+            perk.ReleaseLock();
+            if (Character.localCharacter is { } me) GlobalEvents.TriggerLuggageOpened(luggage, me);
+        }
+
+        void Show()
+        {
+            bonusFirst = firstSlot;
+            bool shown = ChoiceScreen.Show(new ScreenSpec
+            {
+                Title = "CHOOSE YOUR PERK",
+                Subtitle = crateName,
+                Confirm = "CLAIM",
+                Cards = others.Select(i => CrateCards.ForItem(items[i])).ToList(),
+                StillValid = () => luggage != null && !luggage.IsOpen && Character.localCharacter != null
+                                   && Vector3.Distance(Character.localCharacter.Center, luggage.Center()) <= 8f,
+                OnConfirm = i => Picked(luggage, items, others[i], Show),
+                OnBack = Forfeit,
+            });
+            if (!shown) Forfeit();
+        }
+
+        Show();
     }
 
     /// <summary>
@@ -308,6 +370,10 @@ public class PerkLuggage : MonoBehaviourPun
     public bool OthersLeft => pickers != null && pickers.Any(a => a != LocalActor && !picked.Contains(a) && InRoom(a));
 
     private bool Spent => pickers != null && pickers.All(a => picked.Contains(a) || !InRoom(a));
+
+    /// <summary>The crate's cards apart from the one in this slot (the re-roll must not repeat them).</summary>
+    public HashSet<ushort> CardsBesides(int slot) =>
+        rolled == null ? new HashSet<ushort>() : new HashSet<ushort>(rolled.Where((_, i) => i != slot));
 
     /// <summary>You took a card (slot -1 = your own extra card): tell everyone, with the card's re-roll.</summary>
     public void Taken(int slot, ushort reroll)
@@ -398,7 +464,10 @@ public class PerkLuggage : MonoBehaviourPun
             rolled = items.Select(i => i.itemID).ToArray();
             pickers = PhotonNetwork.InRoom ? PhotonNetwork.PlayerList.Select(p => p.ActorNumber).ToArray() : new[] { LocalActor };
             if (rolled.Length > 0 && PhotonNetwork.InRoom)
+            {
                 photonView.RPC(nameof(RPC_SetRoll), RpcTarget.Others, rolled.Select(x => (int)x).ToArray(), pickers);
+                Plugin.Log.LogInfo($"{luggage.displayName}: rolled here, shared {rolled.Length} cards with {pickers.Length - 1} other scout(s).");
+            }
         }
         var list = new List<Item>();
         foreach (ushort id in rolled)
@@ -410,8 +479,13 @@ public class PerkLuggage : MonoBehaviourPun
     public void RPC_SetRoll(int[] ids, int[] actors)
     {
         // First roll wins; ignore a late one if we already rolled ourselves.
-        if (rolled != null) return;
+        if (rolled != null)
+        {
+            Plugin.Log.LogWarning($"{luggage?.displayName}: ignored a second roll of {ids.Length} cards (already had {rolled.Length}).");
+            return;
+        }
         rolled = ids.Select(x => (ushort)x).ToArray();
+        Plugin.Log.LogInfo($"{luggage?.displayName}: received {rolled.Length} cards from another scout.");
         pickers = actors;
         // Joined after it was first opened: not one of its pickers.
         if (!pickers.Contains(LocalActor)) OpenForMe();

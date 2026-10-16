@@ -23,7 +23,7 @@ public class RelicDef
 /// <summary>
 /// Statue amulets become permanent relics: picking one up offers three variants (food /
 /// healing / movement trigger). Each trigger fires the real amulet's own effect, and turns you
-/// a little more to glass. Generosity is the exception: it duplicates crate picks of its kind.
+/// a little more to glass. Generosity is the exception: a crate pick of its kind earns a second pick.
 /// Names and colours follow the game: red Initiative (team super jump), yellow Ambition
 /// (infinite-stamina bubble), blue Tenacity (heal + invincibility), green Generosity (clone).
 /// </summary>
@@ -37,9 +37,9 @@ internal class Relics : MonoBehaviour
         R(RelicGem.Initiative, RelicTrigger.Food, "Sugar Launch", "Eating any food launches you and\nnearby scouts into a super jump."),
         R(RelicGem.Initiative, RelicTrigger.Healing, "Purge Rocket", "Using any healing item launches\nyou and nearby scouts skyward."),
         R(RelicGem.Initiative, RelicTrigger.Movement, "Overdrive Leap", "Using a movement tool launches\nyou and nearby scouts skyward."),
-        R(RelicGem.Generosity, RelicTrigger.Food, "Second Helping", "Food you take from a crate\ncomes in a pair."),
-        R(RelicGem.Generosity, RelicTrigger.Healing, "Spare Supplies", "Healing items you take from\na crate come in a pair."),
-        R(RelicGem.Generosity, RelicTrigger.Movement, "Twin Gear", "Movement tools you take from\na crate come in a pair."),
+        R(RelicGem.Generosity, RelicTrigger.Food, "Second Helping", "Take food from a crate\nand you may take another card."),
+        R(RelicGem.Generosity, RelicTrigger.Healing, "Spare Supplies", "Take a healing item from a crate\nand you may take another card."),
+        R(RelicGem.Generosity, RelicTrigger.Movement, "Twin Gear", "Take a movement tool from a crate\nand you may take another card."),
         R(RelicGem.Ambition, RelicTrigger.Food, "Glucose Engine", "Eating any food radiates\ninfinite stamina around you."),
         R(RelicGem.Ambition, RelicTrigger.Healing, "Adrenaline Rush", "Using any healing item radiates\ninfinite stamina around you."),
         R(RelicGem.Ambition, RelicTrigger.Movement, "Momentum Flow", "Using a movement tool radiates\ninfinite stamina around you."),
@@ -93,7 +93,10 @@ internal class Relics : MonoBehaviour
 
         if (me.data.dead && !wasDead) DropOnDeath(me);
         wasDead = me.data.dead;
+        // Testing: the dead don't choose shared relics - let the host's moon go on without them.
+        if (me.data.dead) while (sharedOffers.Count > 0) { sharedOffers.Dequeue(); Net.SharedDone(); }
         if (ChoiceScreen.IsOpen || me.data.dead || me.data.passedOut) return;
+        if (sharedOffers.Count > 0) { OfferShared(sharedOffers.Dequeue()); return; }
 
         // With all three pockets full, a picked-up item rides in your hand (tempFullSlot) - an
         // amulet there never offered its relic until you juggled it into a pocket.
@@ -204,6 +207,55 @@ internal class Relics : MonoBehaviour
         });
     }
 
+    // --- testing: shared relic pickups ------------------------------------------------------
+
+    private static readonly Queue<RelicGem> sharedOffers = new();
+
+    /// <summary>Host (testing option): another scout bound a relic - everyone else gets that colour's choice.</summary>
+    internal static void ReceiveSharedOffer(RelicGem gem, int binderActor)
+    {
+        if (!ModConfig.Relics.Value || PhotonNetwork.LocalPlayer == null || PhotonNetwork.LocalPlayer.ActorNumber == binderActor) return;
+        sharedOffers.Enqueue(gem);
+    }
+
+    private void OfferShared(RelicGem gem)
+    {
+        // Already carrying this colour (a cursed copy can still be traded up).
+        if (RunState.Relics.ContainsKey(gem) && !RunState.IsCursed(gem)) { Net.SharedDone(); return; }
+        var options = All.Where(r => r.Gem == gem).ToList();
+        var amulet = Amulet(gem);
+        ChoiceScreen.Show(new ScreenSpec
+        {
+            Title = "CHOOSE YOUR RELIC",
+            Subtitle = GemName(gem),
+            Warning = ModConfig.BloodMoon.Value && ModConfig.BmWarning.Value ? "The moon remembers who takes it." : "",
+            Confirm = "BIND",
+            BackHint = "Leave it",
+            Cards = options.Select(o => new CardSpec
+            {
+                Style = CardStyle.Relic,
+                Gem = gem,
+                Title = o.Name,
+                Heading = GemName(gem),
+                Body = o.Desc,
+                Tag = o.Trigger.ToString(),
+                Icon = amulet != null ? Items.Icon(amulet) : null,
+            }).ToList(),
+            StillValid = () => Player.localPlayer != null,
+            OnConfirm = i =>
+            {
+                var relic = options[i];
+                RunState.SetRelic(relic.Gem, relic.Trigger, isShared: true);
+                Hud.Banner(GemName(relic.Gem).ToUpperInvariant(), relic.Name, GemColor(relic.Gem));
+                Plugin.Log.LogInfo($"Bound shared relic {relic.Name} (testing).");
+                Net.SharedDone();
+            },
+            OnBack = () => Net.SharedDone(),
+            // Knocked out, screen closed by the game...: not a choice. It asks again next scan.
+            OnCancelled = () => sharedOffers.Enqueue(gem),
+        });
+    }
+
     private static void Bind(byte slotId, ushort amuletId, RelicDef relic, bool recovered)
     {
         Character me = Character.localCharacter;
@@ -228,7 +280,7 @@ internal class Relics : MonoBehaviour
         Plugin.Log.LogInfo($"Bound relic {relic.Name}.");
         // The price of power: a blood moon rises (or restarts at the new tier). Without blood
         // moons it's the old minute of the Scoutmaster hunting the whole team.
-        Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout");
+        Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", relic.Gem);
     }
 
     // --- triggers -----------------------------------------------------------------------
@@ -504,12 +556,16 @@ internal class Relics : MonoBehaviour
         switch (gem)
         {
             case RelicGem.Tenacity:
+                float injury = aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Injury), hot = aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Hot);
+                float shield = 5f;
                 if (amulet?.GetComponent<Action_HealingGem>() is { } heal)
                 {
                     aff.AddAffliction(Copy(heal.healingAffliction));
                     aff.AddAffliction(Copy(heal.invincibilityAffliction));
+                    shield = heal.invincibilityAffliction.totalTime;
                 }
                 else aff.AddAffliction(new Affliction_Invincibility { totalTime = 5f, isFromAmulet = true });
+                Plugin.Log.LogInfo($"Tenacity fired: injury {injury:0.00}->{aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Injury):0.00}, heat {hot:0.00}->{aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Hot):0.00}, invincible {shield:0.#}s (now {me.data.isInvincible}), sun {(Suns.Current is { } s ? Suns.ColorName(s) : "none")}.");
                 break;
 
             case RelicGem.Initiative:
@@ -537,8 +593,8 @@ internal class Relics : MonoBehaviour
     }
 
     /// <summary>
-    /// Generosity: a crate pick of the bound kind (food / healing / movement) comes with a
-    /// duplicate. Returns true when a copy should be handed out.
+    /// Generosity: a crate pick of the bound kind (food / healing / movement) earns a second pick
+    /// from that crate. Returns true when the second pick should be offered.
     /// </summary>
     internal static bool Generosity(Item granted)
     {

@@ -84,19 +84,14 @@ public static class Trees
 
     static Trees()
     {
-        // Rope forks after the spool: the cannon path (ending in the Anti-Rope Cannon) or the
-        // Anti-Rope Spool, a dead end that never reaches a cannon.
+        // Rope: spool, then cannon. Floating (anti-) ropes are fusions with a Balloon Bunch.
         Add(TreeId.Rope, "Rope", PerkTheme.Climber,
             new[] { L("Frayed Cord", "A short length of rope.\nSnaps after 2s of climbing.", "RopeSpool") },
             new[] { L("Knotted Line", "A longer length of rope.\nSnaps after 4s of climbing.", "RopeSpool") },
-            new[] { L("Rope Spool", "A full spool.\nHolds for good.", "RopeSpool") },
-            new[] { L("Jammed Rope Cannon", "Evolves! Fires an anchored\nrope a short way.", "RopeShooter", 1),
-                    L("Wisp of Anti-Rope", "Evolves! A short rope that\nfloats up. No cannons, ever.", "AntiRopeSpool", 2) },
-            new[] { L("Patched Rope Cannon", "Fires an anchored rope\nfurther.", "RopeShooter", 1),
-                    L("Thin Anti-Rope Spool", "A longer rope that\nfloats up.", "AntiRopeSpool", 2) },
-            new[] { L("Rope Cannon", "Full range.\nFusion-ready.", "RopeShooter", 1),
-                    L("Anti-Rope Spool", "A full spool of rope\nthat floats up.", "AntiRopeSpool", 2) },
-            new[] { L("Anti-Rope Cannon", "Evolves! Floating rope at full\nrange. Still fuses as a cannon.", "AntiRopeShooter", 1) });
+            new[] { L("Rope Spool", "A full spool.\nHolds for good. Fusion-ready.", "RopeSpool") },
+            new[] { L("Jammed Rope Cannon", "Evolves! Fires an anchored\nrope a short way.", "RopeShooter") },
+            new[] { L("Patched Rope Cannon", "Fires an anchored rope\nfurther.", "RopeShooter") },
+            new[] { L("Rope Cannon", "Full range.\nFusion-ready.", "RopeShooter") });
 
         Add(TreeId.Piton, "Piton", PerkTheme.Climber,
             new[] { L("Brittle Piton", "Cracks after 2s\nof hanging.", "Piton") },
@@ -116,18 +111,19 @@ public static class Trees
             new[] { L("Patched Balloon Bunch", "Pops a little early.", "BalloonBunch") },
             new[] { L("Balloon Bunch", "Full float time.\nFusion-ready.", "BalloonBunch") });
 
-        // Bandages fork once they reach vanilla: Saint becomes the Med Kit, Dark becomes
-        // Pandora's Lunchbox (sealed until a Cursed Skull or Ritual Dagger has been used).
+        // Bandages fork once they reach vanilla. Both paths are the game's First Aid Kit: the holy
+        // one heals now, the dark (purple) one turns injury and glass into ailments that fade.
+        // (Which path a kit is lives in its level stamp - see ItemLevels.)
         Add(TreeId.Bandage, "Bandage", PerkTheme.Mountaineer,
             new[] { L("Frayed Gauze", "Heals a little.\nSlow to apply.", "Bandage") },
             new[] { L("Field Gauze", "Heals some.\nA bit slow to apply.", "Bandage") },
             new[] { L("Bandages", "Full healing.\nThe path forks next.", "Bandage") },
-            new[] { L("Patchwork Kit", "Evolves! A first aid kit:\nheals a little, slowly.", "FirstAidKit", 1),
-                    L("Spoiled Lunchbox", "Evolves! Rerolls your ailments.\nThe odds are against you.", "Pandora", 2) },
-            new[] { L("Field Medic Kit", "Heals some.\nA bit slow to use.", "FirstAidKit", 1),
-                    L("Pandora's Lunchbox", "Rerolls your ailments.\nA fair gamble.", "Pandora", 2) },
-            new[] { L("First Aid Kit", "Full healing.\nFusion-ready.", "FirstAidKit", 1),
-                    L("Gilded Lunchbox", "Rerolls your ailments.\nThe odds are on your side. Fusion-ready.", "Pandora", 2) });
+            new[] { L("Blessed Health Pack", "Evolves! Heals half of\neverything wrong with you.", "FirstAidKit", 1),
+                    L("Murky Medkit", "Evolves! Half your wounds\nand glass turn to poison.", "FirstAidKit", 2) },
+            new[] { L("Holy Health Pack", "Heals everything\nwrong with you.", "FirstAidKit", 1),
+                    L("Dark Medkit", "Your wounds and glass\nturn to poison.", "FirstAidKit", 2) },
+            new[] { L("Radiant Health Pack", "Heals everything, and more.\nFusion-ready.", "FirstAidKit", 1),
+                    L("Abyssal Medkit", "Your wounds turn to sleep.\nGlass shatters. Fusion-ready.", "FirstAidKit", 2) });
 
         // The Sports Drink evolves into the Energy Drink, which keeps a full sports drink inside.
         Add(TreeId.SportsDrink, "Sports Drink", PerkTheme.Mountaineer,
@@ -171,10 +167,8 @@ public static class Trees
     /// <summary>Path name shown on fork cards and the dev panel.</summary>
     public static string PathName(TreeId id, int branch) => (id, branch) switch
     {
-        (TreeId.Bandage, 1) => "Saint path",
+        (TreeId.Bandage, 1) => "Holy path",
         (TreeId.Bandage, 2) => "Dark path",
-        (TreeId.Rope, 1) => "Cannon path",
-        (TreeId.Rope, 2) => "Anti-rope path",
         _ => $"Path {branch}",
     };
 
@@ -183,11 +177,13 @@ public static class Trees
     {
         if (item == null) return TreeId.None;
         string n = Items.Key(item);
+        // Floating ropes are fusions: no levels, always vanilla.
+        if (item.GetComponent<RopeSpool>() is { isAntiRope: true } || Items.IsAntiRopeShooter(item)) return TreeId.None;
         if (item.GetComponent<RopeSpool>() || item.GetComponent<RopeShooter>()) return TreeId.Rope;
         if (item.GetComponent<ClimbingSpikeComponent>()) return TreeId.Piton;
         if (item.GetComponentInChildren<Glider>(true)) return TreeId.Glider;
         if (item.GetComponent<Balloon>()) return TreeId.Balloons;
-        if (n.Contains("bandage") || Items.IsMedKit(item) || Items.IsLunchbox(item)) return TreeId.Bandage;
+        if (n.Contains("bandage") || Items.IsMedKit(item)) return TreeId.Bandage;
         if (n.Contains("sports") || Items.IsEnergyDrink(item)) return TreeId.SportsDrink;
         if (n.Contains("trailmix") || n.Contains("trail mix") || n.Contains("granola")
             || n.Contains("airplane food") || n.Contains("airline food")) return TreeId.Food;

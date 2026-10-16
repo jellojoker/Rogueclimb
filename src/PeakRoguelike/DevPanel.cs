@@ -231,6 +231,10 @@ internal class DevPanel : MonoBehaviour
     }
 
     private static (string, Action, Color) B(string label, Action onClick, Color? color = null) => (label, onClick, color ?? ButtonColor);
+
+    /// <summary>An on/off config switch: red when on.</summary>
+    private (string, Action, Color) Toggle(string label, BepInEx.Configuration.ConfigEntry<bool> entry) =>
+        B($"{label}: {(entry.Value ? "ON" : "off")}", () => { entry.Value = !entry.Value; Rebuild(); }, entry.Value ? RedColor : ButtonColor);
     private static (string, Action, Color) T(string label, bool on, Action onClick) => ($"{label}: {(on ? "ON" : "OFF")}", onClick, on ? OnColor : ButtonColor);
 
     private static bool InGame(bool needRun = false)
@@ -382,7 +386,6 @@ internal class DevPanel : MonoBehaviour
             if (ForkLevel(tree) > 0 && br == 0) br = 1;
             RunState.SetLevel(tree.Id, tree.MaxFor(br), br);
         }
-        RunState.UsedSkull = true; // unlocks Pandora's Lunchbox on the dark path
         Hud.Toast("Every item tree maxed", Trees.Gold);
         Rebuild();
     }
@@ -428,12 +431,24 @@ internal class DevPanel : MonoBehaviour
         Label("<color=#FF5A4A>Blood moon (starts now, makes it night)</color>", 26f);
         Row(Enumerable.Range(1, 4).Select(t => B($"Tier {t}", () => { if (InGame(true)) BloodMoon.DevStart(t); }, RedColor))
             .Append(B("End", () => BloodMoon.DevStart(0))).ToArray());
+        Label("<color=#FF5A4A>Testing (saved to the config)</color>", 26f);
+        Row(Toggle("Shared relics", ModConfig.DevShareRelics),
+            Toggle("Moon every night", ModConfig.DevMoonEveryNight),
+            Toggle("Moon on pickup", ModConfig.DevMoonOnPickup));
+        Row(B($"Relic order: {RelicShuffle.Label(ModConfig.StatueOrder.Value)}", () => { RelicShuffle.Cycle(1); Rebuild(); },
+            ModConfig.StatueOrder.Value == StatueOrder.Off ? ButtonColor : RedColor));
         MusicRow();
         Label($"<color=#FFD24A>Sun (now: {(Suns.Current is { } sun ? Suns.ColorName(sun) : "normal")}{(Suns.DevForce != null ? ", forced" : "")})</color>", 26f);
         Row(new[] { RelicGem.Ambition, RelicGem.Generosity, RelicGem.Initiative, RelicGem.Tenacity }
             .Select(g => B(Suns.ColorName(g), () => { Suns.DevForce = (int)g; Rebuild(); }, Color.Lerp(ButtonColor, Relics.GemColor(g), 0.35f)))
             .Append(B("None", () => { Suns.DevForce = -1; Rebuild(); }))
             .Append(B("Auto", () => { Suns.DevForce = null; Rebuild(); })).ToArray());
+        PercentRow("Sunlight colour", ModConfig.SunLight, 1.5f);
+        PercentRow("Sky colour", ModConfig.SunSkyBlend);
+        PercentRow("Red sprint cut", ModConfig.SunRedSprintCut);
+        PercentRow("Red lunge cut", ModConfig.SunRedLungeCut);
+        PercentRow("Yellow Shore slip (100% = 1s)", ModConfig.SunYellowStumble, 3f);
+        Row(Toggle("Red heavy: Shore only", ModConfig.SunRedHeavyShoreOnly));
         Label("<color=#D9C9A3>Squad</color>", 26f);
         Row(B("Jump squad to next biome", () => { if (InGame(true)) DevCheats.NextBiome(); }));
         cursorY += 8f;
@@ -452,6 +467,25 @@ internal class DevPanel : MonoBehaviour
         Button(content!, "-", () => SetMusicVolume(-0.05f), x, cursorY, 40f, 30f, ButtonColor, 20);
         Button(content!, "+", () => SetMusicVolume(0.05f), x + 46f, cursorY, 40f, 30f, ButtonColor, 20);
         Button(content!, "Test 10s", BloodMoon.DevPreviewMusic, x + 92f, cursorY, 168f, 30f, ButtonColor, 15);
+        cursorY += 40f;
+    }
+
+    /// <summary>A 0-100% setting: -/+ in 10% steps, saved to the config and seen in game at once.</summary>
+    private void PercentRow(string name, BepInEx.Configuration.ConfigEntry<float> entry, float max = 1f)
+    {
+        int pct = Mathf.RoundToInt(entry.Value * 100f);
+        var t = Ui.Text(content!, "Label", $"<b>{name}</b> {pct}%", UiArt.BodyFont, 17, ChoiceScreen.Cream, TextAlignmentOptions.Left);
+        Place(t.rectTransform, 0f, cursorY, 330f, 32f);
+        t.richText = true;
+        t.enableWordWrapping = false;
+        float x = 336f;
+        void Step(float d)
+        {
+            entry.Value = Mathf.Clamp(Mathf.Round((entry.Value + d) * 10f) / 10f, 0f, max);
+            Rebuild();
+        }
+        Button(content!, "-", () => Step(-0.1f), x, cursorY, 40f, 30f, ButtonColor, 20);
+        Button(content!, "+", () => Step(0.1f), x + 46f, cursorY, 40f, 30f, ButtonColor, 20);
         cursorY += 40f;
     }
 

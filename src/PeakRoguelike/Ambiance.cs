@@ -28,9 +28,10 @@ internal class Ambiance : MonoBehaviour
     internal static float LightStrength =>
         Mathf.Clamp01(InAirport ? ModConfig.AirportLight.Value : InMenu ? ModConfig.MenuLight.Value : 0f);
 
-    internal static readonly Color SkyTop = new(0.30f, 0.02f, 0.03f);
-    internal static readonly Color SkyMid = new(0.72f, 0.08f, 0.05f);
-    internal static readonly Color SkyBottom = new(0.95f, 0.22f, 0.09f);
+    // Full saturation, top to horizon (same treatment as the coloured suns).
+    internal static readonly Color SkyTop = new(0.9f, 0f, 0.02f);
+    internal static readonly Color SkyMid = new(1f, 0.04f, 0.02f);
+    internal static readonly Color SkyBottom = new(1f, 0.16f, 0.04f);
 
     private Image? tint, vignette;
     private Graphic? logo;

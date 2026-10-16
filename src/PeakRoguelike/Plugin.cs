@@ -9,7 +9,7 @@ public class Plugin : BaseUnityPlugin
 {
     public const string Id = "rey.PeakRoguelike";
     public const string Name = "Rogue Climb";
-    public const string Version = "0.10.7";
+    public const string Version = "0.12.1";
 
     internal static ManualLogSource Log = null!;
 
@@ -18,7 +18,12 @@ public class Plugin : BaseUnityPlugin
         Log = Logger;
         ModConfig.Bind(Config);
         var harmony = new Harmony(Id);
-        harmony.PatchAll(typeof(Plugin).Assembly);
+        // One class at a time: a hook the game no longer has costs only that class, not the whole mod.
+        foreach (var type in AccessTools.GetTypesFromAssembly(typeof(Plugin).Assembly))
+        {
+            try { harmony.CreateClassProcessor(type).Patch(); }
+            catch (System.Exception e) { Log.LogError($"Couldn't hook {type.Name}: {e.Message}"); }
+        }
         SunCaps.Install(harmony);
         RunState.Install();
         Net.Install();
@@ -26,9 +31,12 @@ public class Plugin : BaseUnityPlugin
         ItemLevels.Install();
         Fusion.Install();
         Relics.Install();
+        RelicShuffle.Install();
         ToolRelics.Install();
         Blessing.Install();
         Storage.Install();
+        Stacks.Install();
+        Medicine.Install();
         ScoutmasterHunt.Install();
         ItemDump.Install();
         BloodMoon.Install();

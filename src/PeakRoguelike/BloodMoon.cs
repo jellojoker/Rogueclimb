@@ -13,30 +13,26 @@ using Hashtable = ExitGames.Client.Photon.Hashtable;
 namespace PeakRoguelike;
 
 /// <summary>
-/// Blood moons: binding a relic (not recovering a dropped one) and every nightfall while the
-/// squad holds at least one relic turn the moon full and red. Each relic held adds a wave,
-/// 15s apart, and the moon lasts one minute per relic:
-///   1 - the Scoutmaster hunts (60s)
-///   2 - zombies rise above and below the squad (until 2:00)
-///   3 - a tornado (until 3:00; sand on Mesa, snow on Alpine)
-///   4 - a meteor shower (until 4:00): purple glass on Gloom runs, fire on Caldera runs
+/// Blood moons: binding a relic (not recovering a dropped one) raises one at once - a blood
+/// eclipse by day, a blood moon by night - and nothing else does until the next relic (or a
+/// dark rite); nightfall alone stays calm. Each relic held adds a wave; all of them rise with
+/// the moon and last until it sets (60 / 80 / 100 / 120s by tier):
+///   1 - the Scoutmaster hunts
+///   2 - a zombie rises beside every scout carrying a relic, the skull or the dagger
+///   3 - a tornado (sand on Mesa, snow on Alpine)
+///   4 - a meteor shower: purple glass on Gloom runs, fire on Caldera runs
 /// Binding another relic mid-moon restarts it at the new tier. In daylight it's a blood eclipse
-/// (red sun and sky, the clock isn't touched). A nightfall within 30s of a moon ending waits out
-/// the rest of those 30s. The host publishes "tier|start time|binder" as a room property;
+/// (red sun and sky, the clock isn't touched). The host publishes "tier|start time|binder" as a room property;
 /// everyone draws the sky from that, so late joiners see it too.
 /// </summary>
 internal class BloodMoon : MonoBehaviour
 {
     internal const string RoomKey = "prl.bm";
 
-    // Wave timing (seconds after the moon rises) and lengths: every wave ends on a whole minute.
-    // A relay: each wave lasts WaveLength and the next arrives WaveGap later, so at most three
-    // overlap and a tier 4 moon is over in (3 x 20) + 60 = 2 minutes.
+    // Every wave the tier unlocks rises with the moon and lasts until it sets. The moon's length
+    // still grows with the tier: WaveLength at tier 1, WaveGap more per tier (60 / 80 / 100 / 120s).
     private static float Gap => Mathf.Max(0f, ModConfig.BmWaveGap.Value);
     internal static float WaveFor => Mathf.Max(5f, ModConfig.BmWaveLength.Value);
-    internal static float ZombiesAt => Gap;
-    internal static float TornadoAt => Gap * 2f;
-    internal static float FinalAt => Gap * 3f;
     /// <summary>No nightfall moon this soon after the last one ended.</summary>
     internal const float SafetySeconds = 30f;
 
@@ -57,7 +53,6 @@ internal class BloodMoon : MonoBehaviour
     internal static float Elapsed => Active ? (float)(PhotonNetwork.Time - StartTime) : 0f;
 
     private string? seenId;
-    private int toastsShown;
     private float nextPoll;
 
     // --- host state -----------------------------------------------------------------------------
@@ -132,7 +127,6 @@ internal class BloodMoon : MonoBehaviour
         if (seenId != raw)
         {
             seenId = raw;
-            toastsShown = 0;
             Begin(restart);
         }
     }
@@ -166,9 +160,13 @@ internal class BloodMoon : MonoBehaviour
             if (Active) SetRoom(null);
             wasNight = false;
             nightfallPending = false;
+            skipNextNight = false;
+            sharedWaiting.Clear();
             return;
         }
 
+        // A daytime pickup moon spares the night that follows it - even if it's still up at nightfall.
+        if (night && !wasNight && Active) skipNextNight = false;
         if (!Active)
         {
             // A nightfall during a moon is swallowed by it; one just after a moon waits out the safety window.
@@ -177,12 +175,7 @@ internal class BloodMoon : MonoBehaviour
             if (nightfallPending && PhotonNetwork.Time >= safeUntil)
             {
                 nightfallPending = false;
-                if (ModConfig.BloodMoon.Value && ModConfig.Relics.Value)
-                {
-                    int tier = Mathf.Clamp(RunState.SquadRelics(), 0, 4);
-                    if (tier > 0 && Suns.NightsUnlocked) Rise(tier, "");
-                    else Plugin.Log.LogInfo(tier > 0 ? "Nightfall - this biome's relic isn't taken, a calm night." : "Nightfall - nobody holds a relic, a normal night.");
-                }
+                Nightfall();
             }
         }
         else if (StartTime == endedFor)
@@ -242,21 +235,82 @@ internal class BloodMoon : MonoBehaviour
     internal static void RelicTaken(string binder)
     {
         if (instance == null || !PhotonNetwork.IsMasterClient) return;
-        instance.StartCoroutine(instance.RiseForRelic(binder));
+        if (!ModConfig.DevMoonOnPickup.Value)
+        {
+            Plugin.Log.LogInfo($"{binder} took a relic - no moon on pickup (BloodMoonOnPickup is off).");
+            return;
+        }
+        // A second pickup while the first one's moon is still on its way joins it.
+        instance.riseBinder = binder;
+        if (!instance.risePending) instance.StartCoroutine(instance.RiseForRelic());
     }
 
-    private IEnumerator RiseForRelic(string binder)
+    private bool risePending;
+    private string riseBinder = "";
+
+    private IEnumerator RiseForRelic()
     {
+        risePending = true;
         yield return new WaitForSeconds(1.5f);
-        if (!InRun) yield break;
-        // With suns: taking the relic clears the day; the night it unlocks comes at nightfall
-        // (taken at night, the moon rises now).
-        if (ModConfig.Suns.Value && (!IsNight || !Suns.NightsUnlocked))
+        // Testing: scouts choosing a shared relic get to finish first.
+        while (sharedWaiting.Count > 0 && Time.time < sharedUntil)
         {
-            Plugin.Log.LogInfo($"{binder} took a relic by day - the sun clears, the blood moon waits for night.");
-            yield break;
+            if (PhotonNetwork.CurrentRoom != null) sharedWaiting.RemoveWhere(a => PhotonNetwork.CurrentRoom.GetPlayer(a) == null);
+            yield return new WaitForSeconds(0.25f);
         }
-        Rise(Mathf.Clamp(RunState.SquadRelics(), 1, 4), binder);
+        if (sharedWaiting.Count > 0) Plugin.Log.LogInfo($"Shared relics: stopped waiting for {sharedWaiting.Count} scout(s).");
+        sharedWaiting.Clear();
+        risePending = false;
+        if (!InRun) yield break;
+        // Every freshly taken relic raises one at once: by day a blood eclipse, by night a blood moon.
+        nightfallPending = false;
+        if (!IsNight && ModConfig.DevMoonEveryNight.Value) skipNextNight = true;
+        Plugin.Log.LogInfo($"{riseBinder} took a relic - blood {(IsNight ? "moon" : "eclipse")} now.");
+        Rise(Mathf.Clamp(RunState.SquadRelics(), 1, 4), riseBinder);
+    }
+
+    // --- testing options -----------------------------------------------------------------------------
+
+    private bool skipNextNight;
+    private readonly System.Collections.Generic.HashSet<int> sharedWaiting = new();
+    private float sharedUntil;
+
+    /// <summary>
+    /// Nightfall. Normally calm - only a freshly taken relic (or a dark rite) raises a moon. With
+    /// the every-night option, any night while the squad holds a relic, except the one
+    /// right after a daytime pickup moon.
+    /// </summary>
+    private void Nightfall()
+    {
+        bool skip = skipNextNight;
+        skipNextNight = false;
+        if (!ModConfig.BloodMoon.Value || !ModConfig.Relics.Value) return;
+        int tier = RunState.SquadRelics();
+        if (!ModConfig.DevMoonEveryNight.Value || tier <= 0) { Plugin.Log.LogInfo("Nightfall - a calm night."); return; }
+        if (skip) { Plugin.Log.LogInfo("Nightfall - calm: the day's pickup moon stands in for tonight's."); return; }
+        Rise(Mathf.Clamp(tier, 1, 4), "");
+    }
+
+    /// <summary>
+    /// Host (testing option): a scout bound a relic from an amulet - everyone else gets that
+    /// colour's choice, and the pickup's moon waits until they've all chosen (or the wait runs out).
+    /// </summary>
+    internal static void ShareRelic(RelicGem gem, int binderActor)
+    {
+        if (instance == null || !PhotonNetwork.IsMasterClient || !ModConfig.DevShareRelics.Value || !ModConfig.Relics.Value) return;
+        if (PhotonNetwork.PlayerList.All(p => p.ActorNumber == binderActor)) return; // solo: nobody to share with
+        foreach (var p in PhotonNetwork.PlayerList)
+            if (p.ActorNumber != binderActor) instance.sharedWaiting.Add(p.ActorNumber);
+        instance.sharedUntil = Time.time + Mathf.Max(5f, ModConfig.DevShareWait.Value);
+        Plugin.Log.LogInfo($"Shared relics: {gem} offered to {instance.sharedWaiting.Count} scout(s).");
+        Net.SharedRelic(gem, binderActor);
+    }
+
+    /// <summary>Host: this scout chose or skipped their shared relic.</summary>
+    internal static void SharedDone(int actor)
+    {
+        if (instance == null || !PhotonNetwork.IsMasterClient) return;
+        instance.sharedWaiting.Remove(actor);
     }
 
     /// <summary>
@@ -283,33 +337,31 @@ internal class BloodMoon : MonoBehaviour
             stagesFor = StartTime;
             if (!fresh)
             {
-                huntDone = t > 1f;
-                zombiesDone = t > ZombiesAt + 1f;
+                huntDone = zombiesDone = tornadoDone = finalDone = t > 1f;
                 zombiesCleared = false;
-                tornadoDone = t > TornadoAt + 1f;
-                finalDone = t > FinalAt + 1f;
             }
         }
 
+        // Everything the tier unlocks rises together and lasts the whole moon.
+        float left = EffectsEnd(Tier) - t;
         if (!huntDone)
         {
             huntDone = true;
-            if (ModConfig.BmScoutmaster.Value) ScoutmasterHunt.Steer(WaveFor - t);
+            if (ModConfig.BmScoutmaster.Value) ScoutmasterHunt.Steer(left);
         }
-        if (Tier >= 2 && !zombiesDone && t >= ZombiesAt)
+        if (Tier >= 2 && !zombiesDone)
         {
             zombiesDone = true;
-            if (ModConfig.BmZombies.Value) BloodZombies.Spawn(ModConfig.BmZombieCount.Value, ZombiesAt + WaveFor - t);
+            if (ModConfig.BmZombies.Value) BloodZombies.Spawn(left);
         }
-        if (Tier >= 3 && !tornadoDone && t >= TornadoAt)
+        if (Tier >= 3 && !tornadoDone)
         {
             tornadoDone = true;
-            if (ModConfig.BmTornado.Value) BloodTornado.Spawn(TornadoAt + WaveFor - t);
+            if (ModConfig.BmTornado.Value) BloodTornado.Spawn(left);
         }
-        if (Tier >= 4 && !finalDone && t >= FinalAt)
+        if (Tier >= 4 && !finalDone)
         {
             finalDone = true;
-            float left = FinalAt + WaveFor - t;
             if (GloomRun ? ModConfig.BmGlassMeteors.Value : ModConfig.BmMeteors.Value) Meteors.Begin(left);
         }
         BloodZombies.HostTick();
@@ -650,6 +702,7 @@ internal class BloodMoon : MonoBehaviour
             var redLight = new Color(1f, 0.3f, 0.2f);
             if (dnm.sun != null) dnm.sun.color = Color.Lerp(dnm.sun.color, redLight * dnm.sun.color.maxColorComponent, l);
             if (dnm.moon != null) dnm.moon.color = Color.Lerp(dnm.moon.color, redLight * dnm.moon.color.maxColorComponent, l);
+            SunFlare.Tint(dnm, Ambiance.SkyMid, k);
             var light = dnm.moon != null && dnm.moon.enabled ? dnm.moon : dnm.sun;
             Vector3 dir = light != null ? -light.transform.forward : Vector3.up;
             Vector3 flat = new Vector3(dir.x, 0f, dir.z);

@@ -40,6 +40,11 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     private const byte RelicShareEvent = 188;
     private const byte ToolUsedEvent = 189;
     private const byte PlacedEvent = 190;
+    private const byte StackSpentEvent = 191;
+    private const byte SharedRelicEvent = 192;
+    private const byte SharedDoneEvent = 193;
+    private const byte CureAllSplashEvent = 194;
+    private const byte PandoraRollEvent = 195;
 
     internal static void Install()
     {
@@ -66,6 +71,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     public static void CrackPiton(Vector3 pos) => Send(PitonCrackEvent, new object[] { pos });
     public static void SnapRope(int ropeViewId) => Send(RopeSnapEvent, new object[] { ropeViewId });
 
+    /// <summary>A copy of a stacked item was used up (the item stays as the next copy).</summary>
+    public static void StackSpent(int itemViewId, int consumerViewId) => Send(StackSpentEvent, new object[] { itemViewId, consumerViewId });
+
     /// <summary>World items are room objects, so the host spawns them.</summary>
     public static void SpawnItem(string prefabName, Vector3 pos) =>
         Send(SpawnItemEvent, new object[] { prefabName, pos }, ReceiverGroup.MasterClient);
@@ -74,7 +82,18 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     public static void Bless(int statueViewId) => Send(BlessingEvent, new object[] { statueViewId });
 
     /// <summary>A fresh relic was bound: the host raises a blood moon (or, with blood moons off, everyone gets the Scoutmaster hunt).</summary>
-    public static void RelicTaken(float huntSeconds, string binder) => Send(HuntEvent, new object[] { huntSeconds, binder });
+    public static void RelicTaken(float huntSeconds, string binder, RelicGem gem) =>
+        Send(HuntEvent, new object[] { huntSeconds, binder, (int)gem, Me });
+
+    /// <summary>Host (testing): everyone but the binder gets this colour's relic choice.</summary>
+    public static void SharedRelic(RelicGem gem, int binderActor) => Send(SharedRelicEvent, new object[] { (int)gem, binderActor });
+
+    /// <summary>I chose (or skipped) my shared relic: the host may raise the pickup's moon once everyone has.</summary>
+    public static void SharedDone()
+    {
+        if (!PhotonNetwork.InRoom || PhotonNetwork.IsMasterClient) { BloodMoon.SharedDone(Me); return; }
+        Send(SharedDoneEvent, new object[] { Me }, ReceiverGroup.MasterClient);
+    }
 
     /// <summary>Host: where a blood moon tornado heads next.</summary>
     public static void TornadoTarget(int viewId, Vector3 pos) => Send(TornadoTargetEvent, new object[] { viewId, pos });
@@ -90,6 +109,17 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     {
         if (amount > 0f) Send(MealShareEvent, new object[] { origin, radius, amount }, ReceiverGroup.Others);
     }
+
+    /// <summary>A thrown Cure-All broke here: everyone this close gets a dose (us too).</summary>
+    public static void CureAllSplash(Vector3 at, float radius)
+    {
+        if (PhotonNetwork.InRoom) Send(CureAllSplashEvent, new object[] { at, radius });
+        else Medicine.ReceiveSplash(at, radius);
+    }
+
+    /// <summary>We opened Pandora's Lunchbox: everyone this close takes the same roll.</summary>
+    public static void PandoraRoll(Vector3 at, float radius, float[] roll, float stamina) =>
+        Send(PandoraRollEvent, new object[] { at, radius, roll, stamina }, ReceiverGroup.Others);
 
     /// <summary>The Cursed Skull or the Ritual Dagger was used: the host raises a blood moon now.</summary>
     public static void DarkRite(string who)
@@ -182,6 +212,7 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     Blessing.FromStatue((int)a[0]);
                     break;
                 case HuntEvent when e.CustomData is object[] a:
+                    if (a.Length > 3) BloodMoon.ShareRelic((RelicGem)(int)a[2], (int)a[3]);
                     if (ModConfig.BloodMoon.Value) BloodMoon.RelicTaken((string)a[1]);
                     else if ((float)a[0] > 0f) ScoutmasterHunt.Begin((float)a[0], (string)a[1]);
                     break;
@@ -212,8 +243,23 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                 case ToolUsedEvent when e.CustomData is object[] a:
                     Relics.ReceiveToolUsed((int)a[0]);
                     break;
+                case SharedRelicEvent when e.CustomData is object[] a:
+                    Relics.ReceiveSharedOffer((RelicGem)(int)a[0], (int)a[1]);
+                    break;
+                case SharedDoneEvent when e.CustomData is object[] a && PhotonNetwork.IsMasterClient:
+                    BloodMoon.SharedDone((int)a[0]);
+                    break;
+                case StackSpentEvent when e.CustomData is object[] a:
+                    Stacks.Spent((int)a[0], (int)a[1]);
+                    break;
                 case PlacedEvent when e.CustomData is object[] a:
                     ToolRelics.AddPlacement((Vector3)a[0], (int)a[1]);
+                    break;
+                case CureAllSplashEvent when e.CustomData is object[] a:
+                    Medicine.ReceiveSplash((Vector3)a[0], (float)a[1]);
+                    break;
+                case PandoraRollEvent when e.CustomData is object[] a:
+                    Medicine.ReceiveRoll((Vector3)a[0], (float)a[1], (float[])a[2], (float)a[3]);
                     break;
                 case MealShareEvent when e.CustomData is object[] a:
                     Suns.ReceiveShare((Vector3)a[0], (float)a[1], (float)a[2]);

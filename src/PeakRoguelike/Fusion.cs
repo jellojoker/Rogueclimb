@@ -68,13 +68,42 @@ internal class Fusion : MonoBehaviour
     private static Ingredient Any(string name, Func<Item, bool> match, string? gift = null) => new() { Name = name, Match = match, Gift = gift };
 
     /// <summary>A maxed Rope Cannon - the Anti-Rope Cannon counts too.</summary>
-    private static Ingredient Cannon() => new()
+    private static Ingredient Cannon(bool floatingToo = true) => new()
     {
         Name = "Rope Cannon (max)",
-        Match = i => i.GetComponent<RopeShooter>(),
-        Ready = () => !ModConfig.Leveling.Value || (RunState.Branch(TreeId.Rope) == 1 && RunState.Level(TreeId.Rope) >= 6),
+        Match = i => i.GetComponent<RopeShooter>() && (floatingToo || !Items.IsAntiRopeShooter(i)),
+        Ready = () => !ModConfig.Leveling.Value || RunState.Level(TreeId.Rope) >= 6,
         FromTree = true,
         SlotReady = s => !ModConfig.Leveling.Value || Items.IsAntiRopeShooter(s.prefab) || ItemLevels.IsMaxed(s),
+    };
+
+    /// <summary>A full Rope Spool: level 3 or better (a Frayed Cord or Knotted Line won't do).</summary>
+    private static Ingredient FullSpool() => new()
+    {
+        Name = "Rope Spool (full)",
+        Match = i => i.GetComponent<RopeSpool>() is { isAntiRope: false },
+        Ready = () => !ModConfig.Leveling.Value || RunState.Level(TreeId.Rope) >= 3,
+        FromTree = true,
+        SlotReady = s => !ModConfig.Leveling.Value || ItemLevels.IsMaxed(s),
+    };
+
+    /// <summary>A maxed First Aid Kit of one path: 1 = Radiant Health Pack (holy), 2 = Abyssal Medkit (dark).</summary>
+    private static Ingredient Kit(int branch, string name) => new()
+    {
+        Name = name,
+        Match = Items.IsMedKit,
+        Ready = () => !ModConfig.Leveling.Value || (RunState.IsMaxed(TreeId.Bandage) && RunState.Branch(TreeId.Bandage) == branch),
+        FromTree = true,
+        SlotReady = s => !ModConfig.Leveling.Value || (ItemLevels.IsMaxed(s) && ItemLevels.IsSecondPath(s.data) == (branch == 2)),
+    };
+
+    /// <summary>Any holy health pack, whatever its level (the Faerie Lantern's).</summary>
+    private static Ingredient HolyKit() => new()
+    {
+        Name = "Health Pack (holy)",
+        Match = Items.IsMedKit,
+        Gift = "FirstAidKit",
+        SlotReady = s => !ItemLevels.IsSecondPath(s.data),
     };
 
     public static readonly List<Recipe> Recipes = new()
@@ -104,7 +133,7 @@ internal class Fusion : MonoBehaviour
         {
             Id = "faerie", Name = "Faerie Lantern", Result = "FaerieLantern", Craft = CraftId.FaerieLantern,
             Desc = "Heals and warms scouts around you.\nFused: 150% range and burn time.",
-            Ingredients = new[] { Tree(TreeId.Light, "Lantern (max)", i => Trees.Classify(i) == TreeId.Light), Any("Candle", Items.IsCandle, "Candle"), Any("First Aid Kit", Items.IsMedKit, "FirstAidKit") },
+            Ingredients = new[] { Tree(TreeId.Light, "Lantern (max)", i => Trees.Classify(i) == TreeId.Light), Any("Candle", Items.IsCandle, "Candle"), HolyKit() },
             Trees = new[] { TreeId.Light, TreeId.Bandage },
         },
         new Recipe
@@ -136,9 +165,30 @@ internal class Fusion : MonoBehaviour
         },
         new Recipe
         {
-            Id = "bookofbones", Name = "The Book of Bones", Result = "BookOfBones",
-            Desc = "Bind dark medicine into the book.\nRaise a fallen scout from their bones.",
-            Ingredients = new[] { Any("Skull or Dagger", i => Items.IsSkull(i) || Items.IsDagger(i)), Tree(TreeId.Bandage, "Gilded Lunchbox (max)", Items.IsLunchbox, branch: 2) },
+            Id = "antirope", Name = "Anti-Rope Spool", Result = "AntiRopeSpool",
+            Desc = "Tie the balloons into the rope.\nIt floats up.",
+            Ingredients = new[] { FullSpool(), Tree(TreeId.Balloons, "Balloon Bunch (max)", Items.IsBalloonBunch) },
+            Trees = new[] { TreeId.Rope, TreeId.Balloons },
+        },
+        new Recipe
+        {
+            Id = "anticannon", Name = "Anti-Rope Cannon", Result = "AntiRopeShooter",
+            Desc = "Load the balloons into the cannon.\nIts rope floats up.",
+            Ingredients = new[] { Cannon(floatingToo: false), Tree(TreeId.Balloons, "Balloon Bunch (max)", Items.IsBalloonBunch) },
+            Trees = new[] { TreeId.Rope, TreeId.Balloons },
+        },
+        new Recipe
+        {
+            Id = "cureall", Name = "Cure-All", Result = "CureAll",
+            Desc = "Everything a Cure-All does,\nand the light of a Radiant pack.",
+            Ingredients = new[] { Kit(1, "Radiant Health Pack (max)"), Any("Antidote", Items.IsAntidote, "Antidote") },
+            Trees = new[] { TreeId.Bandage },
+        },
+        new Recipe
+        {
+            Id = "pandora", Name = "Pandora's Lunchbox", Result = "Pandora",
+            Desc = "Seal the dark medicine in.\nWhat comes out, everyone shares.",
+            Ingredients = new[] { Kit(2, "Abyssal Medkit (max)"), Any("Skull or Dagger", i => Items.IsSkull(i) || Items.IsDagger(i)) },
             Trees = new[] { TreeId.Bandage },
         },
     };
@@ -262,16 +312,14 @@ internal class Fusion : MonoBehaviour
         Item? result = recipe.Result != null ? Items.Find(recipe.Result) : null;
         if (recipe.Result != null && result == null) { Hud.Toast($"{recipe.Name} isn't in this version of the game", Color.white); return; }
 
-        bool heldConsumed = me.refs.items.currentSelectedSlot.IsSome && slots.Contains(me.refs.items.currentSelectedSlot.Value);
+        bool heldConsumed = false;
         foreach (byte s in slots)
         {
-            // Consuming a dark artifact in a recipe counts as using it.
-            if (p.GetItemSlot(s)?.prefab is { } consumed)
-            {
-                if (Items.IsSkull(consumed)) RunState.UsedSkull = true;
-                if (Items.IsDagger(consumed)) RunState.UsedDagger = true;
-            }
+            // (A dark artifact fused away is not a dark rite: only a death raises the moon.)
+            // A stacked ingredient gives one copy; the rest of the stack stays.
+            if (Stacks.TakeOne(p, s)) continue;
             p.EmptySlot(Optionable<byte>.Some(s));
+            if (me.refs.items.currentSelectedSlot.IsSome && me.refs.items.currentSelectedSlot.Value == s) heldConsumed = true;
         }
         if (heldConsumed) me.refs.items.EquipSlot(Optionable<byte>.None);
 
@@ -288,7 +336,7 @@ internal class Fusion : MonoBehaviour
         Character me = Character.localCharacter;
         if (me == null || recipe.Result == null || Items.Find(recipe.Result) is not { } result) return;
         if (recipe.Craft == CraftId.SugarRush) SugarRush.ExpectGrant();
-        GameUtils.instance.InstantiateAndGrab(result, me);
+        GameUtils.instance.InstantiateAndGrab(result, me, recipe.Craft == CraftId.SugarRush ? SugarRushGrant.Marker : 0);
     }
 
     public static Recipe? Get(string id) => Recipes.FirstOrDefault(r => r.Id == id);

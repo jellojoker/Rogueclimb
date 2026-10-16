@@ -36,6 +36,7 @@ internal class ScoutmasterHunt : MonoBehaviour
         if (instance == null || !Photon.Pun.PhotonNetwork.IsMasterClient) return;
         instance.until = Mathf.Max(instance.until, Time.time + seconds);
         instance.last = null;
+        instance.arrive = true; // he steps in from out of sight on the first target
         Plugin.Log.LogInfo($"Scoutmaster hunt: {seconds}s.");
     }
 
@@ -136,10 +137,12 @@ internal class ScoutmasterHunt : MonoBehaviour
         sm.view.RPC("RPCA_SetCurrentTarget", Photon.Pun.RpcTarget.All, next.photonView.ViewID, until - Time.time);
         HuntPatches.Target(sm) = next; // the RPC's setter skips it while the old target is still forced
         Plugin.Log.LogInfo($"Scoutmaster hunting {next.characterName}.");
+        // The moon just rose: he appears out of sight and runs in.
+        if (arrive && Appear(sm, next)) arrive = false;
         ResetStuck(sm, next);
-        // Far off (or still in his hiding spot): he steps out of cover close by instead of 90m away.
-        if (Vector3.Distance(Pos(sm), next.Center) > 60f * Squad.M) WarpNear(sm, next);
     }
+
+    private bool arrive;
 
     /// <summary>
     /// His body (the ragdoll) is where he really is; the root transform stays behind - which is
@@ -241,46 +244,49 @@ internal class ScoutmasterHunt : MonoBehaviour
     // --- getting him to his prey -------------------------------------------------------------
 
     private Vector3 stuckPos;
-    private float stuckDist, stuckSince;
+    private float stuckSince;
 
     private void ResetStuck(Scoutmaster sm, Character prey)
     {
         stuckPos = Pos(sm);
-        stuckDist = Vector3.Distance(stuckPos, prey.Center);
         stuckSince = Time.time;
     }
 
     /// <summary>
-    /// Hasn't moved or closed in for a while (caught on a ledge, lost below a wall): he
-    /// silently reappears out of sight, a fair way from his prey.
+    /// Out of his prey's sight he sprints to get them back in view. Sprinting without getting
+    /// anywhere (a wall, a cliff he can't climb) he appears again out of sight and runs in anew.
     /// </summary>
     private void Unstick(Scoutmaster sm, Character prey)
     {
         float limit = ModConfig.BmScoutmasterStuck.Value;
-        var me = sm.GetComponent<Character>();
+        var me = sm.character;
         if (limit <= 0f || me == null) return;
         Vector3 pos = Pos(sm);
-        float dist = Vector3.Distance(pos, prey.Center);
-        if (Busy(sm) || me.warping || dist < 4f * Squad.M
-            || Vector3.Distance(pos, stuckPos) > 2f * Squad.M || dist < stuckDist - 2f * Squad.M)
+        if (Busy(sm) || me.warping || CanSee(sm, prey) || Vector3.Distance(pos, stuckPos) > 2f * Squad.M)
         {
             ResetStuck(sm, prey);
             return;
         }
         if (Time.time - stuckSince < limit) return;
-        Plugin.Log.LogInfo($"Scoutmaster stuck for {limit:0}s ({dist / Squad.M:0}m from {prey.characterName}) - reappearing out of sight.");
-        WarpAround(sm, prey, ModConfig.BmScoutmasterStuckDistance.Value);
+        Plugin.Log.LogInfo($"Scoutmaster stuck out of {prey.characterName}'s sight for {limit:0.#}s - appearing again.");
+        Appear(sm, prey);
         ResetStuck(sm, prey);
     }
 
-    /// <summary>Out of sight, about ScoutmasterReturnDistance from the prey, near their height.</summary>
-    internal static bool WarpNear(Scoutmaster sm, Character prey) => WarpAround(sm, prey, ModConfig.BmScoutmasterNear.Value);
+    /// <summary>He has his prey in his line of sight (nothing solid between his eyes and them).</summary>
+    internal static bool CanSee(Scoutmaster sm, Character prey) =>
+        sm.character != null && HelperFunctions.LineCheck(sm.character.Head, prey.Center, HelperFunctions.LayerType.TerrainMap).transform == null;
 
-    /// <summary>Out of sight, about this far (m, +-10%) from the prey, near their height.</summary>
-    private static bool WarpAround(Scoutmaster sm, Character prey, float metres)
+    /// <summary>
+    /// Out of every scout's sight, where the game's own teleport puts him: ScoutmasterSpawnMin-Max
+    /// from his prey, within ScoutmasterSpawnHeight of their height.
+    /// </summary>
+    internal static bool Appear(Scoutmaster sm, Character prey)
     {
-        float d = Mathf.Max(8f, metres) * Squad.M;
-        return WarpTo(sm, prey, d * 0.9f, d * 1.1f, -15f * Squad.M, 15f * Squad.M);
+        float min = Mathf.Max(5f, ModConfig.BmScoutmasterSpawnMin.Value) * Squad.M;
+        float max = Mathf.Max(min / Squad.M + 1f, ModConfig.BmScoutmasterSpawnMax.Value) * Squad.M;
+        float h = Mathf.Max(2f, ModConfig.BmScoutmasterSpawnHeight.Value) * Squad.M;
+        return WarpTo(sm, prey, min, max, -h, h);
     }
 
     private static bool WarpTo(Scoutmaster sm, Character prey, float minFlat, float maxFlat, float minUp, float maxUp)
@@ -375,22 +381,40 @@ internal static class HuntPatches
         return false;
     }
 
+    private static Character? sightOf;
+    private static bool inSight, sprinted;
+    private static float sightSince, stareUntil;
+
     /// <summary>
-    /// His pace on a hunt: a holder with company (or a bodyguard) only ever sees him walk; a
-    /// holder alone gets sprint bursts with winded gaps. Only ever holds him back - where vanilla
-    /// wouldn't sprint, he doesn't.
+    /// His pace on a hunt: out of his prey's sight and far off he sprints until he has them in
+    /// view; close by (a cave, a hole) he only walks, sight or not - he creeps in rather than
+    /// charging. Catching sight of them after a sprint he stops dead and stares a moment, then
+    /// walks. For a while after he gets them in view he can't grab - running up on someone is a
+    /// scare, not a catch - and never while a tornado has them. Runs before <see cref="Lunge"/>
+    /// so a held-back reach isn't a miss.
     /// </summary>
-    [HarmonyLib.HarmonyPostfix, HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "Chase")]
+    [HarmonyLib.HarmonyPostfix, HarmonyLib.HarmonyPriority(HarmonyLib.Priority.High), HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "Chase")]
     private static void Pace(Scoutmaster __instance)
     {
-        if (!ScoutmasterHunt.Hunting || !__instance.character.input.sprintIsPressed) return;
         var prey = __instance.currentTarget;
-        if (prey == null) return;
-        if (Squad.Grouped(prey)) { __instance.character.input.sprintIsPressed = false; return; }
-        bool solo = Squad.Solo;
-        float burst = Mathf.Max(0.5f, solo ? ModConfig.SoloSprint.Value : ModConfig.BmScoutmasterSprint.Value);
-        float rest = solo ? ModConfig.SoloWinded.Value : ModConfig.BmScoutmasterWinded.Value;
-        if (rest > 0f && Time.time % (burst + rest) >= burst) __instance.character.input.sprintIsPressed = false;
+        var me = __instance.character;
+        if (!ScoutmasterHunt.Hunting || prey == null || me == null || ScoutmasterHunt.Busy(__instance)) { sightOf = null; return; }
+        bool sees = ScoutmasterHunt.CanSee(__instance, prey);
+        if (prey != sightOf) { sightOf = prey; inSight = false; sprinted = true; stareUntil = 0f; }
+        if (sees && !inSight)
+        {
+            sightSince = Time.time;
+            if (sprinted) stareUntil = Time.time + Mathf.Max(0f, ModConfig.BmScoutmasterStare.Value);
+            sprinted = false;
+        }
+        inSight = sees;
+        var input = me.input;
+        bool far = Vector3.Distance(me.Center, prey.Center) > Mathf.Max(0f, ModConfig.BmScoutmasterSprintDistance.Value) * Squad.M;
+        input.sprintIsPressed = !sees && far;
+        if (input.sprintIsPressed) sprinted = true;
+        if (Time.time < stareUntil && !me.data.isClimbing) input.movementInput = Vector2.zero; // stops and stares (Chase already faces them)
+        bool grace = sees && Time.time - sightSince < ModConfig.BmScoutmasterGrabGrace.Value;
+        if (grace || Time.time < stareUntil || BloodTornado.Carrying(prey)) input.useSecondaryIsPressed = false;
     }
 
     private static float lungeSince = -1f;
@@ -423,14 +447,14 @@ internal static class HuntPatches
     private static readonly HarmonyLib.AccessTools.FieldRef<Scoutmaster, float> TpCounter =
         HarmonyLib.AccessTools.FieldRefAccess<Scoutmaster, float>("tpCounter");
 
-    /// <summary>His "too far, teleport closer" lands 50-70 units out; during a hunt it's ScoutmasterSpawnDistance.</summary>
+    /// <summary>His own "too far / lost them, teleport closer": during a hunt he appears like at moonrise.</summary>
     [HarmonyLib.HarmonyPrefix, HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "TeleportCloseToTarget")]
     private static bool CloserDuringHunts(Scoutmaster __instance)
     {
         if (!ScoutmasterHunt.Hunting || __instance.currentTarget == null) return true;
         ref float tp = ref TpCounter(__instance);
         if (tp < 5f) return false;
-        if (!ScoutmasterHunt.WarpNear(__instance, __instance.currentTarget)) return true; // no spot: vanilla's
+        if (!ScoutmasterHunt.Appear(__instance, __instance.currentTarget)) return true; // no spot: vanilla's
         tp = 0f;
         return false;
     }

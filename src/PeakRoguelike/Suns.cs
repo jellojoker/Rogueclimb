@@ -13,9 +13,9 @@ namespace PeakRoguelike;
 /// once they hold it, the days clear and the nights become blood moons. From the Kiln on, the sun
 /// cycles day by day through the colours of the relics the squad carries (none carried, no sun).
 ///
-///   yellow (Ambition)   stamina drains faster, comes back slower
-///   green  (Generosity) food barely fills you, hunger climbs faster
-///   red    (Initiative) heavy: low jumps, hard landings
+///   yellow (Ambition)   stamina drains faster; on the Shore, running dry trips you
+///   green  (Generosity) every bite fills the same small share, hunger climbs faster
+///   red    (Initiative) slow sprint, short climbing lunge; on the Shore also low jumps, hard landings
 ///   blue   (Tenacity)   every ailment hits double, items wear twice as fast, ropes and pitons give
 ///
 /// The host decides the sun (room property prl.sun = gem, or -1); every client applies the effects
@@ -38,6 +38,8 @@ internal class Suns : MonoBehaviour
     internal static bool Red => Hits(RelicGem.Initiative);
     internal static bool Blue => Hits(RelicGem.Tenacity);
     private static bool On => ModConfig.Suns.Value;
+    /// <summary>The Shore's suns hit harder: red keeps its full weight, yellow trips you.</summary>
+    internal static bool OnShore => InRun && Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore;
 
     // A relic beats its own sun: carrying it, that sun can't touch you.
     private static bool Hits(RelicGem gem) => On && Current == gem && !Sanctuary.SunSpared && !(ModConfig.Relics.Value && RunState.Relics.ContainsKey(gem));
@@ -74,8 +76,6 @@ internal class Suns : MonoBehaviour
             Blend = Mathf.MoveTowards(Blend, Current != null && IsDay ? 1f : 0f, Time.deltaTime / Fade);
         }
         if (Blend <= 0f && Current == null) Shown = null;
-        try { Wash(); }
-        catch (System.Exception e) { Plugin.Log.LogWarning($"Suns wash: {e.Message}"); }
         try { ColdLight(); }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Suns cold light: {e.Message}"); }
         if (Time.time < nextPoll) return;
@@ -231,9 +231,9 @@ internal class Suns : MonoBehaviour
     }
 
     // --- blue on the Shore: the sunlight is freezing ---------------------------------------------------
-    // The Mesa's burning sun, mirrored: same amount every half second, same shade / parasol rules,
-    // and the sun's cold fades the way the Mesa's heat does. A lit lantern, candle or campfire
-    // keeps it off you. The blue sun doesn't double its own cold.
+    // The cold of a high ascent's night at its mildest (dusk), but from the sun: same shade / parasol
+    // rules as the Mesa's burning sun, and the sun's cold fades the way the Mesa's heat does. A lit
+    // lantern, candle or campfire keeps it off you. The blue sun doesn't double its own cold.
 
     private float coldTick;
     private static float sunCold;
@@ -245,8 +245,8 @@ internal class Suns : MonoBehaviour
         var me = Character.localCharacter;
         if (me == null || me.data.dead) { sunCold = 0f; return; }
         var aff = me.refs.afflictions;
-        bool shore = InRun && Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore;
-        bool lit = Blue && shore && IsDay && Blend > 0.5f && ModConfig.SunBlueFreezeSeconds.Value > 0f && InSunlight(me) && !Warmed(me);
+        bool shore = OnShore;
+        bool lit = Blue && shore && IsDay && Blend > 0.5f && ModConfig.SunBlueFreeze.Value &&InSunlight(me) && !Warmed(me);
         if (lit)
         {
             coldTick += Time.deltaTime;
@@ -254,8 +254,9 @@ internal class Suns : MonoBehaviour
             coldTick = 0f;
             float before = aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Cold);
             AddingSunCold = true;
-            // The game banks it and adds a tick (1/40 of the bar) whenever enough has built up.
-            try { aff.AddStatus(CharacterAfflictions.STATUSTYPE.Cold, 0.5f / Mathf.Max(1f, ModConfig.SunBlueFreezeSeconds.Value)); }
+            // Night cold as it first sets in (half dark), half a second's worth. The game banks it and
+            // adds a tick (1/40 of the bar) whenever enough has built up.
+            try { aff.AddStatus(CharacterAfflictions.STATUSTYPE.Cold, 0.5f * Ascents.nightColdRate * 0.5f); }
             finally { AddingSunCold = false; }
             sunCold += Mathf.Max(0f, aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Cold) - before);
             lastSunCold = Time.time;
@@ -285,34 +286,6 @@ internal class Suns : MonoBehaviour
         return hit.transform == null || hit.transform.root == me.transform.root;
     }
 
-    // --- a faint wash of the sun's colour over the screen ---------------------------------------------
-
-    private static UnityEngine.UI.Image? wash;
-
-    private void Wash()
-    {
-        float a = Blend * Mathf.Clamp01(ModConfig.SunWash.Value) * (1f - BloodMoon.Blend);
-        if (wash == null)
-        {
-            if (a <= 0f) return;
-            var go = new GameObject("PEAK Roguelike - Sun Wash");
-            DontDestroyOnLoad(go);
-            var canvas = go.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = -51; // under the HUD and the blood filter
-            var img = new GameObject("Wash", typeof(RectTransform));
-            img.transform.SetParent(go.transform, false);
-            var rt = (RectTransform)img.transform;
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = rt.offsetMax = Vector2.zero;
-            wash = img.AddComponent<UnityEngine.UI.Image>();
-            wash.raycastTarget = false;
-        }
-        wash.enabled = a > 0.001f && Shown != null;
-        if (wash.enabled) { var c = Palette(Shown!.Value).sun; c.a = a; wash.color = c; }
-    }
-
     private static int Segment => MapHandler.Exists ? Singleton<MapHandler>.Instance.currentSegment : 0;
     private static bool FinalStretch => Segment >= (int)global::Segment.TheKiln;
 
@@ -332,20 +305,6 @@ internal class Suns : MonoBehaviour
 
     /// <summary>Has the squad got this colour's relic?</summary>
     internal static bool Cleared(RelicGem gem) => RunState.SquadGems().Contains(gem);
-
-    /// <summary>
-    /// Host, at nightfall: may a blood moon rise here? Only once this biome's relic is held
-    /// (from the Kiln on: whenever relics are held). A biome without a statue keeps the old rule.
-    /// </summary>
-    internal static bool NightsUnlocked
-    {
-        get
-        {
-            if (!On) return true;
-            if (FinalStretch) return RunState.SquadGems().Count > 0;
-            return BiomeGem(Segment) is not { } gem || Cleared(gem);
-        }
-    }
 
     // --- which amulet each biome's statue holds -------------------------------------------------
 
@@ -399,6 +358,14 @@ internal class Suns : MonoBehaviour
 
     private static readonly Dictionary<int, float> nextLook = new();
     private static readonly HashSet<int> missLogged = new();
+
+    /// <summary>The statues' amulets were swapped (relic shuffle): look at them again.</summary>
+    internal static void ForgetGems()
+    {
+        biomeGems.Clear();
+        nextLook.Clear();
+        missLogged.Clear();
+    }
 
     /// <summary>The amulet on a statue: its item spawner's prefab, an amulet built into it, or one lying on it.</summary>
     private static RelicGem? StatueGem(Peak.PropSpawner_AmuletStatues statue)
@@ -460,11 +427,13 @@ internal class Suns : MonoBehaviour
 
     private static (Color sun, Color top, Color mid, Color bottom) Palette(RelicGem g) => g switch
     {
-        // Saturated: lemon yellow, vivid green, hot red-orange (never the blood eclipse's dark red disc), deep blue.
-        RelicGem.Ambition => (new Color(1f, 0.85f, 0f), new Color(0.75f, 0.6f, 0f), new Color(1f, 0.85f, 0.05f), new Color(1f, 0.93f, 0.3f)),
-        RelicGem.Generosity => (new Color(0.2f, 1f, 0.1f), new Color(0.02f, 0.45f, 0.05f), new Color(0.15f, 0.9f, 0.1f), new Color(0.45f, 1f, 0.3f)),
-        RelicGem.Initiative => (new Color(1f, 0.32f, 0f), new Color(0.65f, 0.12f, 0f), new Color(1f, 0.3f, 0.02f), new Color(1f, 0.55f, 0.15f)),
-        _ => (new Color(0.1f, 0.35f, 1f), new Color(0f, 0.08f, 0.55f), new Color(0.08f, 0.3f, 1f), new Color(0.35f, 0.6f, 1f)),
+        // The whole sky at full saturation, top to horizon, in bright hues (never murky). The light on the
+        // world is only a moderate tint of the hue (no screen filter - shadows stay real shadows). Lemon
+        // yellow, green, red-orange (never the blood eclipse's dark red disc), blue.
+        RelicGem.Ambition => (new Color(1f, 0.85f, 0.4f), new Color(1f, 0.72f, 0f), new Color(1f, 0.8f, 0.02f), new Color(1f, 0.88f, 0.12f)),
+        RelicGem.Generosity => (new Color(0.62f, 1f, 0.48f), new Color(0.05f, 0.82f, 0.02f), new Color(0.15f, 1f, 0.06f), new Color(0.35f, 1f, 0.2f)),
+        RelicGem.Initiative => (new Color(1f, 0.6f, 0.45f), new Color(1f, 0.22f, 0f), new Color(1f, 0.34f, 0.02f), new Color(1f, 0.48f, 0.12f)),
+        _ => (new Color(0.55f, 0.72f, 1f), new Color(0f, 0.28f, 1f), new Color(0.04f, 0.45f, 1f), new Color(0.25f, 0.62f, 1f)),
     };
 
     [HarmonyPatch]
@@ -474,7 +443,11 @@ internal class Suns : MonoBehaviour
         private static void Tint(DayNightManager __instance, out (float, Color, float, Color, Color, Color)? __state)
         {
             __state = null;
-            if (!Application.isPlaying || Blend <= 0f || Shown is not { } gem) return;
+            if (!Application.isPlaying || Blend <= 0f || Shown is not { } gem)
+            {
+                SunFlare.Tint(__instance, default, 0f);
+                return;
+            }
             var d = __instance;
             __state = (d.specialDaySunBlend, d.specialSunColor, d.specialDaySkyBlend, d.specialTopColor, d.specialMidColor, d.specialBottomColor);
             var p = Palette(gem);
@@ -486,6 +459,7 @@ internal class Suns : MonoBehaviour
             d.specialTopColor = p.top;
             d.specialMidColor = p.mid;
             d.specialBottomColor = p.bottom;
+            SunFlare.Tint(d, p.mid, k);
         }
 
         [HarmonyPostfix, HarmonyPatch(typeof(DayNightManager), nameof(DayNightManager.UpdateCycle))]
@@ -494,6 +468,19 @@ internal class Suns : MonoBehaviour
             if (__state is not { } s) return;
             var d = __instance;
             (d.specialDaySunBlend, d.specialSunColor, d.specialDaySkyBlend, d.specialTopColor, d.specialMidColor, d.specialBottomColor) = s;
+            // The sunlight itself, past the game's cap (its special-day blend switches the sun off at
+            // 0.5): recolour the light after the game sets it. Brightness and day/night (alpha) kept.
+            if (Shown is { } gem && d.sun != null && d.sun.enabled)
+            {
+                float k = Mathf.Clamp(ModConfig.SunLight.Value, 0f, 1.5f) * Blend * Mathf.Clamp01(ModConfig.SunSky.Value);
+                if (k <= 0f) return;
+                Color c = d.sun.color;
+                Color hue = Palette(gem).mid * c.maxColorComponent;
+                hue.a = c.a;
+                // Past 1 the light overshoots the sun's colour (more saturated), never below black.
+                Color lit = Color.LerpUnclamped(c, hue, k);
+                d.sun.color = new Color(Mathf.Max(0f, lit.r), Mathf.Max(0f, lit.g), Mathf.Max(0f, lit.b), c.a);
+            }
         }
     }
 
@@ -521,23 +508,16 @@ internal static class SunPatches
 
     // --- yellow: stamina ----------------------------------------------------------------------------
 
+    // Runs before the game's own ascent multiplier, so the two stack (x1.4 on Peak, ~x1.96 on Ascent 8).
     [HarmonyPrefix, HarmonyPatch(typeof(Character), nameof(Character.UseStamina))]
     private static void Drain(Character __instance, ref float usage)
     {
         if (Suns.Yellow && usage > 0f && __instance.IsLocal) usage *= ModConfig.SunYellowDrain.Value;
     }
 
-    [HarmonyPostfix, HarmonyPatch(typeof(Character), "UpdateVariablesFixed")]
-    private static void SlowRegen(Character __instance)
-    {
-        if (!Suns.Yellow || !__instance.IsLocal || !__instance.CanRegenStamina()) return;
-        float take = Time.fixedDeltaTime * 0.2f * (1f - Mathf.Clamp01(ModConfig.SunYellowRegen.Value));
-        __instance.data.currentStamina = Mathf.Max(0f, __instance.data.currentStamina - take);
-    }
-
     private static bool stumbled;
 
-    /// <summary>Yellow: run yourself dry on the ground and your legs give out for a moment.</summary>
+    /// <summary>Yellow on the Shore: run yourself dry on the ground and your legs give out for a moment.</summary>
     [HarmonyPostfix, HarmonyPatch(typeof(Character), "UpdateVariablesFixed")]
     private static void Stumble(Character __instance)
     {
@@ -545,7 +525,7 @@ internal static class SunPatches
         var d = __instance.data;
         if (d.outOfStaminaFor <= 0f) { stumbled = false; return; }
         float secs = ModConfig.SunYellowStumble.Value;
-        if (stumbled || !Suns.Yellow || secs <= 0f || d.dead || !d.isGrounded || d.isClimbing || d.isRopeClimbing || d.isVineClimbing || d.fallSeconds > 0f) return;
+        if (stumbled || !Suns.Yellow || secs <= 0f || !Suns.OnShore || d.dead || !d.isGrounded || d.isClimbing || d.isRopeClimbing || d.isVineClimbing || d.fallSeconds > 0f) return;
         stumbled = true;
         __instance.photonView.RPC("RPCA_Fall", RpcTarget.All, secs, 0.4f);
     }
@@ -606,7 +586,7 @@ internal static class SunPatches
     {
         __state = __instance.jumpImpulse;
         // Jump height goes with the square of the launch speed.
-        if (Suns.Red) __instance.jumpImpulse *= Mathf.Sqrt(Mathf.Clamp(ModConfig.SunRedJump.Value, 0.05f, 1f));
+        if (Suns.Red && Weighty()) __instance.jumpImpulse *= Mathf.Sqrt(Mathf.Clamp(ModConfig.SunRedJump.Value, 0.05f, 1f));
     }
 
     [HarmonyPostfix, HarmonyPatch(typeof(CharacterMovement), nameof(CharacterMovement.JumpRpc))]
@@ -615,6 +595,9 @@ internal static class SunPatches
     private static readonly AccessTools.FieldRef<CharacterMovement, Character> MoverOf = AccessTools.FieldRefAccess<CharacterMovement, Character>("character");
 
     private static bool RedFor(CharacterMovement m) => Suns.Red && Local(MoverOf(m));
+
+    /// <summary>Red's full weight (gravity + low jumps): only on the Shore, unless the config says everywhere.</summary>
+    private static bool Weighty() => !ModConfig.SunRedHeavyShoreOnly.Value || Suns.OnShore;
 
     /// <summary>Red: sprinting barely helps, so no long sprint-jumps. Walking and climbing stay vanilla.</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(CharacterMovement), "GetMovementForce")]
@@ -632,9 +615,23 @@ internal static class SunPatches
     [HarmonyPostfix, HarmonyPatch(typeof(CharacterMovement), "GetGravityForce")]
     private static void Heavy(CharacterMovement __instance, ref Vector3 __result)
     {
-        if (__result.y == 0f || !RedFor(__instance)) return;
+        if (__result.y == 0f || !RedFor(__instance) || !Weighty()) return;
         float g = Mathf.Max(1f, ModConfig.SunRedGravity.Value);
         __result.y = __result.y < 0f ? __result.y * g : __result.y / g;
+    }
+
+    private static readonly AccessTools.FieldRef<CharacterClimbing, Character> ClimberOf = AccessTools.FieldRefAccess<CharacterClimbing, Character>("character");
+
+    /// <summary>Red: the climbing lunge carries you a shorter way (stamina cost unchanged).</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(CharacterClimbing), nameof(CharacterClimbing.RPCA_ClimbJump))]
+    private static void ShortLungeStart(CharacterClimbing __instance, out Vector2 __state) => __state = __instance.playerSlide;
+
+    [HarmonyPostfix, HarmonyPatch(typeof(CharacterClimbing), nameof(CharacterClimbing.RPCA_ClimbJump))]
+    private static void ShortLunge(CharacterClimbing __instance, Vector2 __state)
+    {
+        if (!Suns.Red || !Local(ClimberOf(__instance))) return;
+        float keep = 1f - Mathf.Clamp01(ModConfig.SunRedLungeCut.Value);
+        __instance.playerSlide = __state + (__instance.playerSlide - __state) * keep;
     }
 
     // --- blue: brittle (damage stays vanilla - ascents already scale it) ----------------------------------

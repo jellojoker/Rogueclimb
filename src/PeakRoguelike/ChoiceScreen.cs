@@ -51,6 +51,8 @@ public class ScreenSpec
     public string Warning = "";
     public string Confirm = "CLAIM";
     public string BackHint = "Back";
+    /// <summary>Look but don't take: the confirm button stays greyed out (e.g. a pack with no room for it).</summary>
+    public bool Locked;
     public List<CardSpec> Cards = new();
     /// <summary>Checked every frame; returning false closes the screen (OnCancelled, else OnBack).</summary>
     public Func<bool>? StillValid;
@@ -142,18 +144,23 @@ public class ChoiceScreen : MonoBehaviour
 
         BuildHeader(root);
 
-        // Card row
+        // Card rows: up to 5 cards a row, more start a new row underneath (shrunk to fit).
         var row = Ui.Rect(root, "Cards");
         row.anchorMin = row.anchorMax = new Vector2(0.5f, 0.5f);
         row.anchoredPosition = new Vector2(0, 10);
         int n = s.Cards.Count;
-        float spacing = 430f;
-        float width = n * spacing;
-        row.localScale = Vector3.one * Mathf.Min(1f, 1760f / width);
+        const int perRow = 5;
+        float spacing = 430f, rowHeight = 560f;
+        int rows = Mathf.Max(1, Mathf.CeilToInt(n / (float)perRow));
+        float width = Mathf.Min(n, perRow) * spacing;
+        float scale = Mathf.Min(1f, 1760f / width);
+        if (rows > 1) scale = Mathf.Min(scale, 720f / (rows * rowHeight));
+        row.localScale = Vector3.one * scale;
         for (int i = 0; i < n; i++)
         {
+            int r = i / perRow, inRow = Mathf.Min(perRow, n - r * perRow);
             var card = CardView.Create(row, s.Cards[i], i, this);
-            card.Home = new Vector2((i - (n - 1) / 2f) * spacing, 0);
+            card.Home = new Vector2((i % perRow - (inRow - 1) / 2f) * spacing, ((rows - 1) / 2f - r) * rowHeight);
             cards.Add(card);
         }
 
@@ -218,7 +225,7 @@ public class ChoiceScreen : MonoBehaviour
         confirmButton.Rect.anchoredPosition = new Vector2(150, 0);
         confirmButton.Interactable = false;
 
-        string keys = cardCount > 1 ? $"1-{cardCount}" : "1";
+        string keys = cardCount >= 10 ? "1-0" : cardCount > 1 ? $"1-{cardCount}" : "1";
         var hint = Ui.Text(root, "Hint",
             $"<color=#FBEBC4>{keys}</color>  Select        <color=#FBEBC4>ENTER</color>  {Title(spec.Confirm)}        <color=#FBEBC4>ESC</color>  {spec.BackHint}",
             UiArt.BodyFont, 17, Muted, TextAlignmentOptions.Center);
@@ -268,12 +275,12 @@ public class ChoiceScreen : MonoBehaviour
         if (closing) return;
         selected = selected == card && cards.Count > 1 ? null : card;
         foreach (var c in cards) c.SetSelected(c == selected, selected != null);
-        confirmButton.Interactable = selected != null;
+        confirmButton.Interactable = selected != null && !spec.Locked;
     }
 
     internal void Confirm()
     {
-        if (closing || selected == null) return;
+        if (closing || selected == null || spec.Locked) return;
         claimOnClose = true;
         BeginClose();
     }
@@ -319,12 +326,13 @@ public class ChoiceScreen : MonoBehaviour
 
         var kb = Keyboard.current;
         if (kb == null) return;
-        for (int i = 0; i < cards.Count && i < 9; i++)
+        for (int i = 0; i < cards.Count && i < 10; i++)
         {
-            if (kb[Key.Digit1 + i].wasPressedThisFrame || kb[Key.Numpad1 + i].wasPressedThisFrame)
-            {
-                if (selected != cards[i]) Select(cards[i]);
-            }
+            // 1-9, then 0 for the tenth card.
+            bool hit = i < 9
+                ? kb[Key.Digit1 + i].wasPressedThisFrame || kb[Key.Numpad1 + i].wasPressedThisFrame
+                : kb[Key.Digit0].wasPressedThisFrame || kb[Key.Numpad0].wasPressedThisFrame;
+            if (hit && selected != cards[i]) Select(cards[i]);
         }
         if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) Confirm();
         if (kb.backspaceKey.wasPressedThisFrame) Back();

@@ -47,6 +47,8 @@ internal static class Items
     public static bool IsEnergyDrink(Item item) => Key(item).Contains("energy drink");
     public static bool IsMedKit(Item item) => Key(item).Replace(" ", "").Contains("firstaid");
     public static bool IsLunchbox(Item item) { string k = Key(item); return k.Contains("pandora") || k.Contains("lunchbox"); }
+    public static bool IsAntidote(Item item) => Key(item).Contains("antidote");
+    public static bool IsCureAll(Item item) { string k = Key(item).Replace(" ", "").Replace("-", ""); return k.Contains("cureall"); }
     public static bool IsDagger(Item item) => item.GetComponent<RitualDaggerFeedBehavior>() || Key(item).Contains("dagger");
     public static bool IsLollipop(Item item) => Key(item).Contains("lollipop") && !Key(item).Contains("prop");
     public static bool IsMilk(Item item) => Key(item).Contains("fortified") || Key(item).Contains("milk");
@@ -93,6 +95,8 @@ internal static class Items
             "AirlineFood" => Database.FirstOrDefault(i => Key(i).Contains("airplane food") || Key(i).Contains("airline food")),
             "FirstAidKit" => Database.FirstOrDefault(IsMedKit),
             "BookOfBones" => Database.FirstOrDefault(IsBookOfBones),
+            "Antidote" => Database.FirstOrDefault(IsAntidote),
+            "CureAll" => Database.FirstOrDefault(IsCureAll),
             "Bandage" => Database.FirstOrDefault(i => Trees.Classify(i) == TreeId.Bandage),
             "Glider" => Database.FirstOrDefault(i => Trees.Classify(i) == TreeId.Glider),
             "Lantern" => Database.FirstOrDefault(i => Trees.Classify(i) == TreeId.Light),
@@ -149,6 +153,11 @@ internal static class Items
         Uses("ChainShooter", ModConfig.ChainLauncherUses.Value);
         Uses("RescueHook", ModConfig.RescueClawUses.Value);
         Uses("AntiZooka", ModConfig.AntiGravUses.Value);
+        // The Antidote soothes heat as much as every other ailment it now eases (Medicine).
+        if (Find("Antidote") is { } antidote)
+            foreach (var a in antidote.GetComponents<Action_ModifyStatus>())
+                if (a.statusType == CharacterAfflictions.STATUSTYPE.Hot && a.changeAmount < 0f)
+                    a.changeAmount = -Mathf.Max(-a.changeAmount, ModConfig.AntidoteCleanse.Value);
     }
 
     /// <summary>Food-tree snacks: offered by crates, never lying around the mountain.</summary>
@@ -213,9 +222,9 @@ internal static class Items
         if (IsLollipop(earned) || Trees.Classify(earned) == TreeId.Food) return Find("TrailMix");
         if (IsEnergyDrink(earned)) return Find("SportsDrink");
         if (IsMedKit(earned) || IsLunchbox(earned)) return Find("Bandage");
+        if (IsCureAll(earned)) return Find("Antidote");
         if (earned.GetComponent<JetpackItem>()) return Find("Glider");
         if (IsFaerie(earned)) return Find("Lantern");
-        if (IsBookOfBones(earned)) return Find("RitualDagger");
         if (earned.GetComponent<ScoutEffigy>() || Key(earned).Contains("effigy")) return Find("CursedSkull");
         return null;
     }

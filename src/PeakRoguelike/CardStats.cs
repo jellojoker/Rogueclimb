@@ -170,14 +170,16 @@ internal static class CardStats
             case TreeId.Balloons:
             {
                 bool bunch = Items.IsBalloonBunch(p);
-                float pop = Stats.BalloonPopSeconds(bunch, lv, VanillaBalloonSeconds);
-                l.Add(bunch ? $"A whole bunch: floats you {Amount.Seconds(pop)}." : $"Floats you {Amount.Seconds(pop)}.");
-                if (!bunch) l.Add(Lift(Stats.BalloonLift(lv)) + " lift.");
+                float fly = Stats.BalloonFlight(bunch, lv);
+                string what = bunch ? "A whole bunch" : Stats.BalloonTies(lv) > 1 ? "Two balloons" : "One balloon";
+                if (fly <= 0f) l.Add($"{what}: slows your fall for {Amount.Seconds(VanillaBalloonSeconds)}.");
+                else l.Add($"{what}: flies you up to {Amount.Metres(Stats.Metres(Stats.BalloonRiseSpeed * fly))} over {Amount.Seconds(fly)}.");
+                if (ModConfig.BalloonPopJump.Value > 0f) l.Add("Jump to pop one.");
                 break;
             }
 
             case TreeId.Bandage:
-                if (Items.IsLunchbox(p)) Lunchbox(l, p, lv, br);
+                if (Items.IsMedKit(p)) Medkit(l, lv, br);
                 else
                 {
                     float scale = Stats.Potency(p, lv, br).status;
@@ -185,9 +187,10 @@ internal static class CardStats
                         .Select(a => (a.statusType, amount: Stats.SnapStatus(a.changeAmount, scale))).ToList();
                     foreach (var grp in heals.GroupBy(h => Mathf.Round(h.amount * 100f)))
                         l.Add($"Heals {Amount.Of(grp.First().amount, "your " + string.Join(" and ", grp.Select(h => StatusName(h.statusType))))}.");
-                    float use = Stats.UseSeconds(p, lv, br, p.usingTimePrimary);
-                    if (use > 0.1f) l.Add($"{Amount.Seconds(use)} to apply.");
+                    if (heals.Count > 0) l.Add("Eases every ailment as much.");
                 }
+                float use = Stats.UseSeconds(p, lv, br, p.usingTimePrimary);
+                if (use > 0.1f) l.Add($"{Amount.Seconds(use)} to apply.");
                 break;
 
             case TreeId.SportsDrink:
@@ -232,7 +235,8 @@ internal static class CardStats
                 if (p.GetComponent<Lantern>() is { } lantern)
                 {
                     l.Add($"Burns {Amount.Seconds(Stats.LanternSeconds(lv, lantern.startingFuel))}.");
-                    l.Add(Lift(Stats.Brightness(lv)).Replace("Weak", "Dim").Replace("Steady", "Fair").Replace("Full", "Bright") + " light.");
+                    if (p.GetComponent<Peak.GloomSafeZone>() is { statusProtectionRadius: > 0f } glow)
+                        l.Add($"Glows {Amount.Metres(Stats.Metres(glow.statusProtectionRadius * Stats.GlowScale(lv, glow.statusProtectionRadius)))} around you.");
                 }
                 break;
         }
@@ -244,12 +248,28 @@ internal static class CardStats
     private static IEnumerable<Affliction_FasterBoi> Boosts(Item p) =>
         p.GetComponents<Action_ApplyAffliction>().Select(a => a.affliction).OfType<Affliction_FasterBoi>();
 
-    private static void Lunchbox(List<string> l, Item p, int lv, int br)
+    /// <summary>Holy packs heal now; dark medkits turn injury and glass into ailments that fade.</summary>
+    private static void Medkit(List<string> l, int lv, int br)
     {
-        int step = Stats.LunchboxStep(lv, br);
-        l.Add("Rerolls your ailments.");
-        l.Add(step <= 1 ? "The odds are against you." : step == 2 ? "A fair gamble." : "The odds are on your side.");
-        if (p.totalUses > 1) l.Add($"{p.totalUses} uses.");
+        int step = Stats.KitStep(lv, br);
+        float share = step <= 1 ? Stats.HolyFirstStep : 1f;
+        if (br == 2)
+        {
+            if (step >= 3)
+            {
+                l.Add("Turns all of your injury into drowsiness.");
+                l.Add("Shatters your glass.");
+            }
+            else l.Add($"Turns {Amount.Of(share, "your injury and glass")} into poison.");
+            return;
+        }
+        l.Add($"Heals {Amount.Of(share, "your injury")}.");
+        l.Add($"Cures {Amount.Of(share, "every ailment")}.");
+        if (step >= 3)
+        {
+            l.Add($"{Amount.Seconds(ModConfig.HolyShieldSeconds.Value)} of invincibility.");
+            l.Add("A scout who passes out finds one beside them.");
+        }
     }
 
     private static string StatusName(CharacterAfflictions.STATUSTYPE s) => s switch

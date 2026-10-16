@@ -200,10 +200,20 @@ internal class Storage : MonoBehaviour
         if (!ModConfig.Storage.Value || who == null || !who.IsLocal || ChoiceScreen.IsOpen || pack == null) return false;
         int add = PocketsFor(pack.backpackType);
         var p = who.player;
-        if (add <= 0 || Pockets >= Max || p == null || p.backpackSlot == null || !p.backpackSlot.IsEmpty()) return false;
+        if (add <= 0 || p == null || p.backpackSlot == null || !p.backpackSlot.IsEmpty()) return false;
+        bool fanny = pack.backpackType == BackpackSlot.BackpackType.Fannypack;
+        // No room left: the card shows, but there's nothing to claim - the pack stays where it lies.
+        if (Pockets >= Max)
+        {
+            ShowCard(pack, fanny, add,
+                stillValid: () => pack != null && pack.itemState == ItemState.Ground,
+                onConfirm: () => { },
+                onBack: () => { },
+                full: true);
+            return true;
+        }
         var guid = pack.data?.guid ?? Guid.Empty;
         if (guid != Guid.Empty && declined.Contains(guid)) return false;
-        bool fanny = pack.backpackType == BackpackSlot.BackpackType.Fannypack;
         ShowCard(pack, fanny, add,
             stillValid: () => pack != null && pack.itemState == ItemState.Ground,
             onConfirm: () =>
@@ -221,7 +231,7 @@ internal class Storage : MonoBehaviour
         return true;
     }
 
-    private static void ShowCard(Item prefab, bool fanny, int add, Func<bool> stillValid, Action onConfirm, Action onBack)
+    private static void ShowCard(Item prefab, bool fanny, int add, Func<bool> stillValid, Action onConfirm, Action onBack, bool full = false)
     {
         string name = fanny ? "Fanny Pack" : "Backpack";
         int from = Pockets, to = Mathf.Min(Max, from + add);
@@ -229,8 +239,9 @@ internal class Storage : MonoBehaviour
         {
             Title = fanny ? "FANNY PACK FOUND" : "BACKPACK FOUND",
             Subtitle = "More pockets",
-            Confirm = "STRAP ON",
-            BackHint = "Keep it as a pack",
+            Confirm = full ? "POCKETS FULL" : "STRAP ON",
+            BackHint = full ? "Leave it" : "Keep it as a pack",
+            Locked = full,
             Cards = new List<CardSpec>
             {
                 new()
@@ -300,12 +311,43 @@ internal class Storage : MonoBehaviour
     {
         var gui = GUIManager.instance;
         if (gui == null || gui.items == null || gui.items.Length < Vanilla) return;
-        try { SyncHud(gui); }
+        try { SyncHud(gui); FollowRow(gui); }
         catch (Exception e)
         {
             Plugin.Log.LogWarning($"Storage HUD: {e.Message}");
             hudFor = null;
         }
+    }
+
+    private GUIManager? tempFor;
+    private Vector3 tempRest, firstRest;
+    private bool tempKnown;
+
+    /// <summary>
+    /// The "pockets full" slot (the item riding in your hand) sits where the game puts it for its
+    /// 3-pocket row. Extra pockets widen the row and shift it left, so the slot shifts with it:
+    /// it keeps the same place relative to pocket 1 as in vanilla.
+    /// </summary>
+    private void FollowRow(GUIManager gui)
+    {
+        var temp = gui.temporaryItem;
+        if (temp == null || vanillaBoxes.Length == 0 || vanillaBoxes[0] == null) return;
+        var trt = temp.rectTransform;
+        var parent = trt.parent;
+        if (parent == null) return;
+        if (tempFor != gui) { tempFor = gui; tempKnown = false; }
+        Vector3 first = parent.InverseTransformPoint(vanillaBoxes[0].transform.position);
+        if (!tempKnown)
+        {
+            // Learn the vanilla spot while the row is still vanilla.
+            if (extraBoxes.Count != 0) return;
+            tempRest = trt.localPosition;
+            firstRest = first;
+            tempKnown = true;
+            Plugin.Log.LogInfo($"Storage HUD: hand slot rests at {tempRest}, pocket 1 at {firstRest}.");
+            return;
+        }
+        trt.localPosition = tempRest + new Vector3(first.x - firstRest.x, 0f, 0f);
     }
 
     private readonly List<TMPro.TMP_Text?> keyLabels = new();

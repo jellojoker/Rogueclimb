@@ -53,7 +53,9 @@ internal static class LootCurve
     public static float Multiplier(Item item)
     {
         var loot = item.GetComponent<LootData>();
-        return loot != null && Curve.TryGetValue(loot.Rarity, out var row) ? row[Stage] : 1f;
+        // The Antidote counts as uncommon (vanilla rare).
+        var rarity = Items.IsAntidote(item) ? Rarity.Uncommon : loot != null ? loot.Rarity : (Rarity?)null;
+        return rarity is { } r && Curve.TryGetValue(r, out var row) ? row[Stage] : 1f;
     }
 
     /// <summary>Which pool the game is drawing from right now (ValidateSpawnPoolDictionary isn't told).</summary>
@@ -96,6 +98,10 @@ internal static class LootCurve
         if (sunscreen != null && !spawnPoolDictionary.ContainsKey(sunscreen.itemID))
             spawnPoolDictionary[sunscreen.itemID] = Mathf.Max(1, Mathf.RoundToInt(even * ModConfig.SunscreenWeight.Value));
 
+        // The Antidote: a middle-of-the-pack find in every biome's crates.
+        var antidote = crate ? Items.Find("Antidote") : null;
+        if (antidote != null) spawnPoolDictionary[antidote.itemID] = Mathf.Max(1, Mathf.RoundToInt(even * ModConfig.AntidoteWeight.Value));
+
         foreach (ushort id in spawnPoolDictionary.Keys.ToList())
         {
             if (!Items.TryGet(id, out var item)) continue;
@@ -103,7 +109,9 @@ internal static class LootCurve
             if (luggage && Items.IsEarnedOnly(item)) { spawnPoolDictionary.Remove(id); continue; }
             if (equal && baseIds.Contains(id)) continue; // set below
             float m = ModConfig.RarityCurve.Value ? Multiplier(item) : 1f;
-            if (crate && Stage == 0 && Trees.Classify(item) == TreeId.None && !Items.IsSunscreen(item)) m *= Mathf.Max(0f, ModConfig.ShoreOtherItems.Value);
+            if (crate && Stage == 0 && Trees.Classify(item) == TreeId.None && !Items.IsSunscreen(item) && !Items.IsAntidote(item)) m *= Mathf.Max(0f, ModConfig.ShoreOtherItems.Value);
+            // A step rarer than the Skull and the Dagger it lies beside.
+            if (Items.IsBookOfBones(item)) m *= Mathf.Max(0f, ModConfig.BookOfBonesWeight.Value);
             // Weights are ints: scale everything by 10 so small multipliers don't round to zero.
             int scaled = Mathf.RoundToInt(spawnPoolDictionary[id] * 10f * m);
             if (scaled <= 0) spawnPoolDictionary.Remove(id);

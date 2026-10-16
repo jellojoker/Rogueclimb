@@ -72,6 +72,19 @@ internal static class Squad
         return hunted.Where(c => holders.Contains(c) || holders.Any(h => Vector3.Distance(h.Center, c.Center) <= aura)).ToList();
     }
 
+    /// <summary>Carries at least one relic (copies included).</summary>
+    public static bool HoldsRelic(Character c) =>
+        c.photonView != null && c.photonView.Owner != null && RunState.RelicsOf(c.photonView.Owner).Count > 0;
+
+    /// <summary>Has the Cursed Skull or the Ritual Dagger in their pockets or hand.</summary>
+    public static bool CarriesRite(Character c)
+    {
+        var p = c.player;
+        if (p == null || p.itemSlots == null) return false;
+        var slots = p.tempFullSlot != null ? p.itemSlots.Append(p.tempFullSlot) : p.itemSlots;
+        return slots.Any(s => s != null && !s.IsEmpty() && s.prefab != null && (Items.IsSkull(s.prefab) || Items.IsDagger(s.prefab)));
+    }
+
     /// <summary>A holder with a buddy (any living scout within the aura).</summary>
     public static bool Grouped(Character holder)
     {
@@ -81,17 +94,6 @@ internal static class Squad
 
     /// <summary>Metres -> game units.</summary>
     internal const float M = 1f / 1.6f;
-
-    /// <summary>Like <see cref="GroundNear"/>, but never within <paramref name="safe"/> units of a scout.</summary>
-    public static Vector3? SafeGround(Vector3 around, float min, float max, float reach, List<Character> alive, float safe)
-    {
-        for (int i = 0; i < 24; i++)
-        {
-            var p = GroundNear(around, min, max, reach);
-            if (p != null && alive.All(c => Vector3.Distance(c.Center, p.Value) >= safe)) return p;
-        }
-        return null;
-    }
 
     /// <summary>Standable ground near a point: a ring of radius min..max around it, within ±reach units of its height.</summary>
     public static Vector3? GroundNear(Vector3 around, float min, float max, float reach)
@@ -109,7 +111,7 @@ internal static class Squad
 }
 
 // =====================================================================================================
-// 2 relics - zombies at the campfire ahead and below the squad, never right next to anyone
+// 2 relics - a zombie rises beside every scout carrying a relic, the skull or the dagger
 // =====================================================================================================
 
 internal static class BloodZombies
@@ -133,32 +135,21 @@ internal static class BloodZombies
         return prefab;
     }
 
-    public static void Spawn(int count, float seconds)
+    /// <summary>
+    /// One zombie rises right beside every scout out in the open who carries a relic (copies
+    /// included), the Cursed Skull or the Ritual Dagger.
+    /// </summary>
+    public static void Spawn(float seconds)
     {
-        var alive = Squad.Alive();
-        if (alive.Count == 0 || count <= 0) return;
+        var marked = Squad.Alive().Where(c => !Sanctuary.Safe(c) && (Squad.HoldsRelic(c) || Squad.CarriesRite(c))).ToList();
+        if (marked.Count == 0) return;
         until = Time.time + seconds;
-        float safe = Mathf.Max(5f, ModConfig.BmZombieSafe.Value) * Squad.M;
-        var highest = alive.OrderByDescending(c => c.Center.y).First().Center;
-        var lowest = alive.OrderBy(c => c.Center.y).First().Center;
-        Vector3? ahead = AheadAnchor();
-        int above = Mathf.CeilToInt(count / 2f);
-        int made = 0, fromTop = 0;
-        for (int i = 0; i < count; i++)
+        float near = Mathf.Max(1f, ModConfig.BmZombieNear.Value) * Squad.M;
+        int made = 0;
+        foreach (var scout in marked)
         {
-            Vector3? pos = null;
-            if (i < above)
-            {
-                // At the campfire ahead (the summit on the Peak); scouts already there push them further up.
-                if (ahead is { } a)
-                    pos = Squad.SafeGround(a, 2f, 14f, 25f, alive, safe)
-                          ?? Squad.SafeGround(a + Vector3.up * safe * 0.5f, safe * 0.4f, safe, safe, alive, safe);
-                pos ??= Squad.SafeGround(highest + Vector3.up * safe * 0.7f, safe * 0.5f, safe * 1.2f, safe, alive, safe);
-                if (pos != null) fromTop++;
-            }
-            // Below the squad (and where the top ones go when there's no room up there).
-            pos ??= Squad.SafeGround(lowest + Vector3.down * safe * 0.6f, safe * 0.6f, safe * 1.3f, safe, alive, safe)
-                    ?? Squad.SafeGround(lowest, safe, safe * 1.8f, safe * 1.5f, alive, safe);
+            var pos = Squad.GroundNear(scout.Center, near * 0.75f, near * 1.25f, 4f * Squad.M)
+                      ?? Squad.GroundNear(scout.Center, near, near * 2f, 8f * Squad.M);
             if (pos == null) continue;
             try
             {
@@ -175,25 +166,7 @@ internal static class BloodZombies
                 break;
             }
         }
-        Plugin.Log.LogInfo($"Blood moon: {made} zombies rose ({seconds:0}s; {fromTop} {(ahead == null ? "above the squad" : "at the camp ahead")}, rest below; none within {safe / Squad.M:0}m).");
-    }
-
-    /// <summary>
-    /// The campfire at the end of the current section; on the Peak (no campfire left) the summit.
-    /// </summary>
-    private static Vector3? AheadAnchor()
-    {
-        try
-        {
-            var map = Zorro.Core.Singleton<MapHandler>.Instance;
-            int i = (int)MapHandler.CurrentSegmentNumber;
-            if (i < map.segments.Length && map.segments[i].segmentCampfire is { } fire) return fire.transform.position;
-            var peak = Resources.FindObjectsOfTypeAll<PeakSequence>().FirstOrDefault(p => p != null && p.gameObject.scene.IsValid());
-            if (peak != null) return peak.ropeSpawnPoint != null ? peak.ropeSpawnPoint.position : peak.transform.position;
-            if (map.respawnThePeak != null) return map.respawnThePeak.position;
-        }
-        catch (System.Exception e) { Plugin.Log.LogWarning($"No campfire ahead for the zombies: {e.Message}"); }
-        return null;
+        Plugin.Log.LogInfo($"Blood moon: {made} zombie(s) rose beside {marked.Count} marked scout(s) ({seconds:0}s).");
     }
 
     /// <summary>NPC zombies sleep until looked at - blood moon zombies get up and come for you.</summary>
@@ -350,6 +323,10 @@ internal class BloodTornado : MonoBehaviour
     {
         if (live.TryGetValue(viewId, out var t) && t != null) t.target.position = pos;
     }
+
+    /// <summary>A blood moon tornado is carrying this scout right now.</summary>
+    public static bool Carrying(Character c) =>
+        live.Values.Any(t => t != null && t.tornado != null && t.tornado.caughtCharacters.Contains(c));
 
     public static void KillAll()
     {

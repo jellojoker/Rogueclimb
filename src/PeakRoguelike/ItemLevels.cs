@@ -25,7 +25,12 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
     {
         public TreeId Tree;
         public int Min, Max, Branch;
+        /// <summary>The same item on both paths of a fork (First Aid Kit: holy / dark) - the stamp says which.</summary>
+        public bool BothPaths;
     }
+
+    /// <summary>Added to a stamp for an item on the second path of a both-paths kind (the dark medkit).</summary>
+    private const int SecondPath = 100;
 
     private static readonly Dictionary<ushort, Kind?> kinds = new();
     /// <summary>Known stamps; 0 = looked it up, nobody has stamped it.</summary>
@@ -58,7 +63,11 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
                 {
                     if (def.Grants == null || Items.Find(def.Grants) is not { } g || g.itemID != item.itemID) continue;
                     if (kind == null) kind = new Kind { Tree = id, Min = i + 1, Max = i + 1, Branch = def.Branch };
-                    else kind.Max = i + 1;
+                    else
+                    {
+                        kind.Max = i + 1;
+                        if (def.Branch != kind.Branch) kind.BothPaths = true;
+                    }
                 }
             // In a tree but never handed out by a level (a variant): treat it as the tree's first item.
             kind ??= new Kind { Tree = id, Min = 1, Max = Mathf.Min(3, tree.Max), Branch = 0 };
@@ -69,13 +78,17 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
 
     /// <summary>The level an item of this kind gets from a scout at this discovery level.</summary>
     internal static int Clamp(Kind k, int level, int branch) =>
-        k.Branch != 0 && branch != k.Branch ? k.Min : Mathf.Clamp(Mathf.Max(1, level), k.Min, k.Max);
+        k.Branch != 0 && branch != k.Branch && !(k.BothPaths && branch != 0) ? k.Min : Mathf.Clamp(Mathf.Max(1, level), k.Min, k.Max);
 
     private static int Discovered(Kind k) => Clamp(k, RunState.Level(k.Tree), RunState.Branch(k.Tree));
 
+    /// <summary>The path a fresh item of this kind takes from us (both-paths kinds follow our fork).</summary>
+    private static bool OnSecondPath(Kind k) => k.BothPaths && RunState.Branch(k.Tree) == 2;
+
     // --- stamps ---------------------------------------------------------------------------
 
-    internal static int Stamp(ItemInstanceData? data)
+    /// <summary>The stamp as stored: level, plus <see cref="SecondPath"/> for a second-path item.</summary>
+    private static int Raw(ItemInstanceData? data)
     {
         if (data == null) return 0;
         if (stamps.TryGetValue(data.guid, out int lv)) return lv;
@@ -85,6 +98,22 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         stamps[data.guid] = lv;
         return lv;
     }
+
+    internal static int Stamp(ItemInstanceData? data) => Raw(data) % SecondPath;
+
+    /// <summary>Is this item on the second path of its fork (a dark medkit)?</summary>
+    internal static bool IsSecondPath(ItemInstanceData? data) => Raw(data) >= SecondPath;
+
+    /// <summary>The path an item is on: its kind's, or for a both-paths kind what its stamp says.</summary>
+    internal static int BranchOf(Kind k, ItemInstanceData? data) => k.BothPaths ? (IsSecondPath(data) ? 2 : 1) : k.Branch;
+
+    /// <summary>Re-stamp an item's level, keeping its path.</summary>
+    internal static void StampAs(Guid guid, int level, string why) =>
+        SetStamp(guid, level + (stamps.TryGetValue(guid, out int raw) && raw >= SecondPath ? SecondPath : 0), why);
+
+    /// <summary>Stamp an item with a level and a path (a pass-out health pack, a fused ingredient check).</summary>
+    internal static void StampPath(Guid guid, int level, int branch, string why) =>
+        SetStamp(guid, level + (branch == 2 ? SecondPath : 0), why);
 
     private static void SetStamp(Guid guid, int level, string why)
     {
@@ -102,7 +131,7 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
     {
         if (item == null || item.data == null || KindOf(item) is not { } k) return null;
         int lv = Stamp(item.data);
-        return lv > 0 ? (lv, k.Branch) : null;
+        return lv > 0 ? (lv, BranchOf(k, item.data)) : null;
     }
 
     /// <summary>A pocket item's level: its stamp, else what our discovery level would stamp it.</summary>
@@ -111,6 +140,28 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         if (slot?.prefab == null || KindOf(slot.prefab) is not { } k) return 0;
         int lv = Stamp(slot.data);
         return lv > 0 ? lv : Discovered(k);
+    }
+
+    private static readonly Dictionary<ushort, int> foodLevels = new();
+
+    /// <summary>The level shown after an item's name (0 = none): its stamp, else what our discovery level would give it.</summary>
+    internal static int Shown(Item item, ItemInstanceData? data)
+    {
+        if (!ModConfig.ItemTrees.Value || item == null) return 0;
+        if (KindOf(item) is { } k)
+        {
+            int lv = Stamp(data ?? item.data);
+            return lv > 0 ? lv : Discovered(k);
+        }
+        // Snacks aren't stamped: each one is its own level of the food tree.
+        if (foodLevels.TryGetValue(item.itemID, out int food)) return food;
+        food = 0;
+        if (Trees.Classify(item) == TreeId.Food && Trees.Get(TreeId.Food) is { } tree)
+            for (int i = 0; i < tree.Levels.Length && food == 0; i++)
+                foreach (var def in tree.Levels[i])
+                    if (def.Grants != null && Items.Find(def.Grants) is { } g && g.itemID == item.itemID) { food = i + 1; break; }
+        if (Items.Find(Trees.BaseRole(TreeId.Rope)) != null) foodLevels[item.itemID] = food; // only once the item database is up
+        return food;
     }
 
     /// <summary>Is this pocket item at the top level of its kind (a fusion ingredient)?</summary>
@@ -137,7 +188,7 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         foreach (var s in Pockets())
         {
             if (KindOf(s.prefab) is not { } k || Stamp(s.data) > 0) continue;
-            SetStamp(s.data.guid, Discovered(k), $"{s.prefab.gameObject.name} picked up (unstamped)");
+            StampPath(s.data.guid, Discovered(k), OnSecondPath(k) ? 2 : 1, $"{s.prefab.gameObject.name} picked up (unstamped)");
         }
     }
 
@@ -156,8 +207,10 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         foreach (var s in Pockets().ToList())
         {
             if (KindOf(s.prefab) is not { } k || !up.Contains(k.Tree)) continue;
+            // A holy pack never levels up along a dark path (or the other way round).
+            if (k.BothPaths && IsSecondPath(s.data) != OnSecondPath(k)) continue;
             int target = Discovered(k), cur = Stamp(s.data);
-            if (cur > 0 && target > cur) SetStamp(s.data.guid, target, $"{s.prefab.gameObject.name} levelled up with you ({cur})");
+            if (cur > 0 && target > cur) StampAs(s.data.guid, target, $"{s.prefab.gameObject.name} levelled up with you ({cur})");
         }
     }
 
@@ -189,5 +242,21 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
             try { PhotonNetwork.CurrentRoom.SetCustomProperties(clear); }
             catch (Exception e) { Plugin.Log.LogWarning($"Couldn't clear item levels: {e.Message}"); }
         }
+    }
+}
+
+/// <summary>Hover names carry the item's level: "Rope Spool 3", "Rope Cannon 5".</summary>
+[HarmonyLib.HarmonyPatch]
+internal static class ItemLevelNames
+{
+    [HarmonyLib.HarmonyPostfix, HarmonyLib.HarmonyPatch(typeof(Item), nameof(Item.GetItemName))]
+    private static void WithLevel(Item __instance, ItemInstanceData data, ref string __result)
+    {
+        try
+        {
+            int lv = ItemLevels.Shown(__instance, data);
+            if (lv > 0 && !string.IsNullOrEmpty(__result)) __result = $"{__result} {lv}";
+        }
+        catch (Exception e) { Plugin.Log.LogWarning($"Item level name: {e.Message}"); }
     }
 }

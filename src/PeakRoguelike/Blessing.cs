@@ -28,6 +28,9 @@ internal class Blessing : MonoBehaviour
     /// <summary>A statue blessing waiting for its screen (another screen was open, or "Decide later").</summary>
     private static bool pending;
     private static float pendingAt;
+    private static int pendingSource;
+    /// <summary>New every run, so the same crate or statue blesses differently next run.</summary>
+    private static int runSalt = UnityEngine.Random.Range(1, int.MaxValue);
 
     internal static void Install()
     {
@@ -41,6 +44,20 @@ internal class Blessing : MonoBehaviour
     {
         blessedStatues.Clear();
         pending = false;
+        runSalt = UnityEngine.Random.Range(1, int.MaxValue);
+    }
+
+    /// <summary>
+    /// A blessing's luck is locked to its crate or statue and to you: backing out and reopening shows
+    /// the same shuffle and the same statue's luck. The cards still follow your build as it is now.
+    /// </summary>
+    private static T Seeded<T>(int source, Func<T> build)
+    {
+        int actor = Photon.Pun.PhotonNetwork.LocalPlayer?.ActorNumber ?? 0;
+        var saved = UnityEngine.Random.state;
+        UnityEngine.Random.InitState(unchecked(runSalt * 31 + source * 397 + actor * 7919));
+        try { return build(); }
+        finally { UnityEngine.Random.state = saved; }
     }
 
     public static bool On => ModConfig.Blessings.Value && ModConfig.Leveling.Value;
@@ -51,6 +68,7 @@ internal class Blessing : MonoBehaviour
     internal static void FromStatue(int statueViewId)
     {
         if (!On || !blessedStatues.Add(statueViewId)) return;
+        pendingSource = unchecked(statueViewId + 1000003);
         Hud.Banner("", "The statue blesses you", Trees.Gold);
         pending = true;
         pendingAt = Time.time + 1.5f;
@@ -62,7 +80,7 @@ internal class Blessing : MonoBehaviour
         Character me = Character.localCharacter;
         if (me == null || me.data.dead || me.data.passedOut) return;
         pending = false;
-        Show("Revive statue", onTaken: () => { }, onBack: () =>
+        Show("Revive statue", pendingSource, onTaken: () => { }, onBack: () =>
         {
             pending = true;
             pendingAt = Time.time + 8f;
@@ -73,7 +91,7 @@ internal class Blessing : MonoBehaviour
     internal static void DevBless()
     {
         if (ChoiceScreen.IsOpen) return;
-        Show("Dev blessing", onTaken: () => { }, onBack: () => { }, stillValid: null);
+        Show("Dev blessing", UnityEngine.Random.Range(1, int.MaxValue), onTaken: () => { }, onBack: () => { }, stillValid: null);
     }
 
     /// <summary>Ancient Luggage: only the opener is blessed, and the crate opens once they choose.</summary>
@@ -82,7 +100,7 @@ internal class Blessing : MonoBehaviour
         if (!On || !IsAncient(luggage)) return false;
         string name = "Ancient Luggage";
         try { if (!string.IsNullOrEmpty(luggage.GetName())) name = luggage.GetName(); } catch { }
-        bool shown = Show(name,
+        bool shown = Show(name, luggage.photonView != null ? luggage.photonView.ViewID : luggage.GetInstanceID(),
             onTaken: () =>
             {
                 luggage.photonView.RPC(nameof(PerkLuggage.RPC_PerkOpen), RpcTarget.All);
@@ -100,9 +118,9 @@ internal class Blessing : MonoBehaviour
 
     // --- the cards --------------------------------------------------------------------------
 
-    private static bool Show(string subtitle, Action onTaken, Action onBack, Func<bool>? stillValid)
+    private static bool Show(string subtitle, int source, Action onTaken, Action onBack, Func<bool>? stillValid)
     {
-        var options = BuildOptions();
+        var options = Seeded(source, BuildOptions);
         if (options.Count == 0)
         {
             Hud.Toast("The statue is silent", Trees.Gold);
@@ -120,7 +138,7 @@ internal class Blessing : MonoBehaviour
             OnConfirm = i => options[i].Take(ok =>
             {
                 if (ok) onTaken();
-                else Show(subtitle, onTaken, onBack, stillValid);
+                else Show(subtitle, source, onTaken, onBack, stillValid);
             }),
             OnBack = onBack,
         });

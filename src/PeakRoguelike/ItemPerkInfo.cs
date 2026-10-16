@@ -235,9 +235,8 @@ internal static class Offers
     public static Item Grant(LevelDef def, Item crateItem) =>
         def.Grants != null && Items.Find(def.Grants) is { } prefab ? prefab : crateItem;
 
-    /// <summary>The paths open at a fork: the dark bandage path stays sealed until a skull or dagger was used.</summary>
-    public static LevelDef[] Paths(TreeDef tree, int level) =>
-        tree.Levels[level - 1].Where(o => !(tree.Id == TreeId.Bandage && o.Branch == 2 && !(RunState.UsedSkull || RunState.UsedDagger))).ToArray();
+    /// <summary>The paths open at a fork (both, always).</summary>
+    public static LevelDef[] Paths(TreeDef tree, int level) => tree.Levels[level - 1];
 
     /// <summary>Fusions you've made whose ingredients this crate rolled: each one comes along as an extra card.</summary>
     public static List<Recipe> UnlockedFusions(IEnumerable<Item> crateItems)

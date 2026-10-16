@@ -24,6 +24,8 @@ internal static class RunState
     private static readonly Dictionary<RelicGem, RelicTrigger> relics = new();
     /// <summary>Relics that are cursed copies (from a skull or a dagger): they shatter on death and don't raise the moon.</summary>
     private static readonly HashSet<RelicGem> cursed = new();
+    /// <summary>Relics handed out by the shared-pickups testing option: real relics, but they don't raise the moon's tier.</summary>
+    private static readonly HashSet<RelicGem> shared = new();
     /// <summary>Extra copies stacked onto a relic by the Ritual Dagger (each one shortens its cooldown).</summary>
     private static readonly Dictionary<RelicGem, int> stacks = new();
     /// <summary>Fusions this player has made this run: crates then offer them as an extra card.</summary>
@@ -58,6 +60,7 @@ internal static class RunState
         levels.Clear();
         relics.Clear();
         cursed.Clear();
+        shared.Clear();
         stacks.Clear();
         Fused.Clear();
         crafts.Clear();
@@ -116,10 +119,11 @@ internal static class RunState
         Changed?.Invoke();
     }
 
-    public static void SetRelic(RelicGem gem, RelicTrigger trigger, bool isCursed = false)
+    public static void SetRelic(RelicGem gem, RelicTrigger trigger, bool isCursed = false, bool isShared = false)
     {
         relics[gem] = trigger;
         if (isCursed) cursed.Add(gem); else cursed.Remove(gem);
+        if (isShared && !isCursed) shared.Add(gem); else shared.Remove(gem);
         Publish();
         Changed?.Invoke();
     }
@@ -128,6 +132,7 @@ internal static class RunState
     {
         if (!relics.Remove(gem)) return;
         cursed.Remove(gem);
+        shared.Remove(gem);
         stacks.Remove(gem);
         Publish();
         Changed?.Invoke();
@@ -177,10 +182,18 @@ internal static class RunState
         return set;
     }
 
-    /// <summary>How many real relics the whole squad holds right now: the blood moon's tier. Cursed copies don't count.</summary>
+    /// <summary>How many real relics the whole squad holds right now: the blood moon's tier. Cursed copies and shared (testing) relics don't count.</summary>
     public static int SquadRelics() =>
-        !PhotonNetwork.InRoom ? relics.Keys.Count(g => !cursed.Contains(g))
-            : PhotonNetwork.PlayerList.Sum(p => RelicsOf(p).Count(r => !r.cursed));
+        !PhotonNetwork.InRoom ? TierRelics()
+            : PhotonNetwork.PlayerList.Sum(p => p.IsLocal ? TierRelics() : TierRelicsOf(p));
+
+    private static int TierRelics() => relics.Keys.Count(g => !cursed.Contains(g) && !shared.Contains(g));
+
+    /// <summary>Another player's relics with no copy mark (":c" cursed, ":s" shared).</summary>
+    private static int TierRelicsOf(Photon.Realtime.Player p) =>
+        p.CustomProperties.TryGetValue(RelicsKey, out object raw) && raw is string s
+            ? s.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Count(part => part.Split(':').Length == 2)
+            : 0;
 
     /// <summary>Level of a tree for any character (local state for us, player properties for others).</summary>
     public static (int level, int branch) LevelOf(Character? c, TreeId id)
@@ -218,7 +231,8 @@ internal static class RunState
         try
         {
             string lv = string.Join(";", levels.Select(kv => $"{kv.Key}:{kv.Value.level}:{kv.Value.branch}"));
-            string rel = string.Join(";", relics.Select(kv => $"{kv.Key}:{kv.Value}" + (cursed.Contains(kv.Key) ? ":c" : "")));
+            string rel = string.Join(";", relics.Select(kv => $"{kv.Key}:{kv.Value}"
+                + (cursed.Contains(kv.Key) ? ":c" : shared.Contains(kv.Key) ? ":s" : "")));
             string cr = string.Join(";", crafts.Select(kv => $"{kv.Key}:{kv.Value}"));
             PhotonNetwork.LocalPlayer.SetCustomProperties(new Hashtable
             {

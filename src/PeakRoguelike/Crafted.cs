@@ -218,35 +218,6 @@ internal static class CraftPatches
         __instance.GetData<FloatItemData>(DataEntryKey.Fuel).Value = __instance.fuel;
     }
 
-    // --- pandora's lunchbox: odds by dark-path level --------------------------------------------
-
-    [HarmonyPrefix, HarmonyPatch(typeof(Action_ApplyAffliction), nameof(Action_ApplyAffliction.RunAction))]
-    private static void LunchboxOdds(Action_ApplyAffliction __instance, out float[]? __state)
-    {
-        __state = null;
-        if (!Stats.On || __instance.affliction is not Affliction_Chaos chaos || __instance.item == null || !Items.IsLunchbox(__instance.item)) return;
-        __state = new[] { chaos.statusAmountAverage, chaos.averageBonusStamina };
-        var (tl, tb) = Stats.For(__instance.item, TreeId.Bandage);
-        int lv = Stats.LunchboxStep(tl, tb);
-        // Higher average = more (bad) statuses; bonus stamina is the upside.
-        (chaos.statusAmountAverage, chaos.averageBonusStamina) = lv switch
-        {
-            <= 1 => (__state[0] * 1.4f, __state[1] * 0.5f),
-            2 => (__state[0], __state[1]),
-            _ => (__state[0] * 0.6f, __state[1] * 1.5f),
-        };
-    }
-
-    [HarmonyPostfix, HarmonyPatch(typeof(Action_ApplyAffliction), nameof(Action_ApplyAffliction.RunAction))]
-    private static void LunchboxOddsRestore(Action_ApplyAffliction __instance, float[]? __state)
-    {
-        if (__state != null && __instance.affliction is Affliction_Chaos chaos)
-        {
-            chaos.statusAmountAverage = __state[0];
-            chaos.averageBonusStamina = __state[1];
-        }
-    }
-
     /// <summary>
     /// Extra effects after the local player uses a fused item: the cocktail's rush, and the Big
     /// Lollipop's milk - invincible for exactly as long as its infinite stamina lasts.
@@ -322,7 +293,7 @@ internal class SugarRush : MonoBehaviour
         }
     }
 
-    private static void Mark(Guid g)
+    internal static void Mark(Guid g)
     {
         marked.Add(g);
         if (!PhotonNetwork.InRoom) return;
@@ -445,5 +416,38 @@ public class SugarRushLook : MonoBehaviour
     {
         Color hue = Color.HSVToRGB(Mathf.Repeat(Time.time * 0.25f, 1f), 0.75f, 1f);
         tint.Apply(gameObject, Color.Lerp(Color.white, hue, 0.85f) * 1.15f);
+    }
+}
+
+/// <summary>
+/// Host: the Sugar-Rush drink is marked before it is picked up, so it can never join a stack of
+/// plain Sports Drinks (a fresh item has no instance data, so it is given one here).
+/// </summary>
+[HarmonyPatch]
+internal static class SugarRushGrant
+{
+    internal const int Marker = -7717;
+
+    [HarmonyPrefix, HarmonyPatch(typeof(GameUtils), "InstantiateAndGrabRPC")]
+    private static bool Grant(string itemPrefabName, PhotonView characterView, int cookedAmount)
+    {
+        if (cookedAmount != Marker || !PhotonNetwork.IsMasterClient) return true;
+        try
+        {
+            var character = characterView.GetComponent<Character>();
+            character.refs.items.lastEquippedSlotTime = 0f;
+            var hip = character.GetBodypart(BodypartType.Hip);
+            var item = PhotonNetwork.InstantiateItemRoom(itemPrefabName, hip.transform.position + hip.transform.forward * 0.5f, Quaternion.identity).GetComponent<Item>();
+            if (item.data == null)
+            {
+                item.data = new ItemInstanceData(Guid.NewGuid());
+                ItemInstanceDataHandler.AddInstanceData(item.data);
+            }
+            SugarRush.Mark(item.data.guid);
+            item.Interact(character);
+            Plugin.Log.LogInfo("Sugar-Rush: marked before pickup (never stacks).");
+        }
+        catch (Exception e) { Plugin.Log.LogWarning($"Sugar-Rush grant failed: {e.Message}"); }
+        return false;
     }
 }

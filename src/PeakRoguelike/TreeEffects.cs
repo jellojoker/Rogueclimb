@@ -24,7 +24,7 @@ internal static class Stats
         try { if (item.TryGetFeeder(out var feeder)) user = feeder; } catch { }
         user ??= item.holderCharacter ?? Character.localCharacter;
         var (lv, br) = RunState.LevelOf(user, id);
-        if (ItemLevels.KindOf(item) is { } k) return (ItemLevels.Clamp(k, lv, br), k.Branch == 0 ? br : k.Branch);
+        if (ItemLevels.KindOf(item) is { } k) return (ItemLevels.Clamp(k, lv, br), k.Branch == 0 || k.BothPaths ? br : k.Branch);
         return (Mathf.Max(1, lv), br);
     }
 
@@ -34,7 +34,7 @@ internal static class Stats
         if (slot?.prefab == null) return (Mathf.Max(1, RunState.Level(id)), RunState.Branch(id));
         var k = ItemLevels.KindOf(slot.prefab);
         int lv = ItemLevels.LevelOf(slot);
-        return lv > 0 && k != null ? (lv, k.Branch) : (Mathf.Max(1, RunState.Level(id)), RunState.Branch(id));
+        return lv > 0 && k != null ? (lv, ItemLevels.BranchOf(k, slot.data)) : (Mathf.Max(1, RunState.Level(id)), RunState.Branch(id));
     }
 
     /// <summary>Blend a designed multiplier toward vanilla by the config's power scale.</summary>
@@ -68,7 +68,8 @@ internal static class Stats
     /// </summary>
     public static float? RopeSegments(bool anti, int lv, int br, float vanillaFuel, float spacing)
     {
-        float share = anti ? Third(Evolved(lv, br, 2)) : Third(lv);
+        if (anti) return null; // floating ropes are fusions: always the full vanilla spool
+        float share = Third(lv);
         if (share >= 0.999f) return null;
         float full = Mathf.Min(vanillaFuel, Rope.MaxSegments) * spacing;
         float m = Mathf.Max(1f, Mathf.Round(Metres(full * share)));
@@ -76,7 +77,7 @@ internal static class Stats
     }
 
     public static float RopeShooterRange(Item shooter, int lv, int br) =>
-        Items.IsAntiRopeShooter(shooter) ? 1f : Third(Evolved(lv, br, 1));
+        Items.IsAntiRopeShooter(shooter) ? 1f : Third(Evolved(lv, br));
 
     /// <summary>A cannon's range multiplier, snapped to whole metres.</summary>
     public static float ShooterScale(Item shooter, int lv, int br, float baseUnits)
@@ -120,9 +121,39 @@ internal static class Stats
     public static float GliderStamina(int lv) => Drag(lv);
     public static float GliderLift(int lv) => Third(lv);
 
-    public static float BalloonLift(int lv) => Third(lv);
-    /// <summary>A single balloon floats by the first three levels; a bunch by levels 4-6.</summary>
-    public static float BalloonDuration(bool bunch, int lv) => bunch ? Third(Evolved(lv, 0)) : Third(lv);
+    /// <summary>
+    /// Seconds a tied balloon flies you (0 = it only slows your fall, like vanilla). A single
+    /// balloon is levels 1-3, a bunch levels 4-6 (config BalloonFlightSeconds, six numbers).
+    /// </summary>
+    public static float BalloonFlight(bool bunch, int lv)
+    {
+        var secs = BalloonFlightTable;
+        int i = bunch ? 2 + Evolved(lv, 0) : Mathf.Clamp(lv, 1, 3) - 1;
+        return On && i < secs.Length ? secs[i] : 0f;
+    }
+
+    /// <summary>Balloons one single-balloon item ties: two from level 3.</summary>
+    public static int BalloonTies(int lv) => On && lv >= 3 ? 2 : 1;
+
+    /// <summary>One steady climb speed (units/s): the longest flight rises exactly one max-length vanilla rope.</summary>
+    public static float BalloonRiseSpeed => MaxRope / Mathf.Max(0.5f, BalloonFlightTable.DefaultIfEmpty(1f).Max());
+
+    /// <summary>A full vanilla rope: 40 segments of 0.75 units.</summary>
+    public static float MaxRope => Rope.MaxSegments * 0.75f;
+
+    private static string flightKey = "";
+    private static float[] flightTable = new float[0];
+    private static float[] BalloonFlightTable
+    {
+        get
+        {
+            string s = ModConfig.BalloonFlightSeconds.Value;
+            if (s == flightKey) return flightTable;
+            flightKey = s;
+            flightTable = s.Split(',').Select(p => float.TryParse(p.Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var f) ? Mathf.Max(0f, f) : 0f).ToArray();
+            return flightTable;
+        }
+    }
 
     /// <summary>Glider stamina per second at this level, snapped so a full bar glides whole/half seconds.</summary>
     public static float GliderStamUse(int lv, float baseStam, float opening)
@@ -137,15 +168,15 @@ internal static class Stats
     public static float GlideSeconds(int lv, float baseStam, float opening) =>
         (1f - opening) / Mathf.Max(0.0001f, GliderStamUse(lv, baseStam, opening));
 
-    /// <summary>How long a tied balloon floats at this level.</summary>
-    public static float BalloonPopSeconds(bool bunch, int lv, float vanilla)
-    {
-        float s = BalloonDuration(bunch, lv);
-        return s >= 0.999f ? vanilla : Amount.SnapSeconds(vanilla * s);
-    }
-
     public static float BurnTime(int lv) => Third(lv);
-    public static float Brightness(int lv) => Third(lv);
+
+    /// <summary>A lantern's glow (warmth, protection and light reach) multiplier, snapped to whole metres.</summary>
+    public static float GlowScale(int lv, float baseUnits)
+    {
+        float m = On ? Third(lv) : 1f;
+        if (m >= 0.999f || baseUnits <= 0f) return 1f;
+        return Units(Mathf.Max(1f, Mathf.Round(Metres(baseUnits * m)))) / baseUnits;
+    }
 
     /// <summary>A lantern's burn time in seconds (vanilla burns 1 fuel a second), whole seconds.</summary>
     public static float LanternSeconds(int lv, float startingFuel)
@@ -190,8 +221,8 @@ internal static class Stats
     /// <summary>How strong a levelled consumable is: (healing / stamina / cooling, buff duration, crash).</summary>
     public static (float status, float time, float crash) Potency(Item item, int lv, int br)
     {
-        if (Items.IsMedKit(item)) return (Third(Evolved(lv, br, 1)), 1f, 1f);
-        if (Items.IsLunchbox(item)) return (1f, 1f, 1f); // its odds are set by level (CraftPatches)
+        // Holy pack: half at its first step, everything after. The dark medkit converts instead (Medicine).
+        if (Items.IsMedKit(item)) return (br == 2 ? 1f : Evolved(lv, br) <= 1 ? HolyFirstStep : 1f, 1f, 1f);
         if (Items.IsEnergyDrink(item)) { int s = Evolved(lv, br); return (1f, Third(s), Drag(s)); }
         return Trees.Classify(item) switch
         {
@@ -201,11 +232,14 @@ internal static class Stats
     }
 
     public static float UseTime(Item item, int lv, int br) =>
-        Items.IsMedKit(item) ? Drag(Evolved(lv, br, 1))
-        : Trees.Classify(item) == TreeId.Bandage && !Items.IsLunchbox(item) ? Drag(lv) : 1f;
+        Items.IsMedKit(item) ? Drag(Evolved(lv, br))
+        : Trees.Classify(item) == TreeId.Bandage ? Drag(lv) : 1f;
 
-    /// <summary>Pandora's Lunchbox odds step (1 bad, 2 fair, 3 good) for whoever opens it.</summary>
-    public static int LunchboxStep(int lv, int br) => Evolved(lv, br, 2);
+    /// <summary>The holy pack's first step heals this share; the dark medkit's converts it.</summary>
+    public static float HolyFirstStep => Ease(0.5f);
+
+    /// <summary>A medkit's own step (1-3 for levels 4-6).</summary>
+    public static int KitStep(int lv, int br) => Evolved(lv, br);
 }
 
 /// <summary>
@@ -223,7 +257,10 @@ public class LeveledItem : MonoBehaviour
     private RopeTier? ropeTier;
     private RopeShooter? shooter;
     private Lantern? lantern;
-    private float baseStam, baseYDrag, baseSoar, baseCast, baseShotMax, baseShotLen, baseLight, baseUseTime;
+    private StatusField? warmth;
+    private Peak.GloomSafeZone? glow;
+    private float baseStam, baseYDrag, baseSoar, baseCast, baseShotMax, baseShotLen, baseUseTime;
+    private float baseWarmth, baseGlow, baseGlowVisual, baseReach;
 
     private (int, int) shownLevel = (-1, -1);
 
@@ -240,7 +277,15 @@ public class LeveledItem : MonoBehaviour
         if (glider) { baseStam = glider!.stamUse; baseYDrag = glider.extraYDrag; baseSoar = glider.soarForwardForce; }
         if (ropeTier) baseCast = ropeTier!.castTime;
         if (shooter) { baseShotMax = shooter!.maxLength; baseShotLen = shooter.length; }
-        if (lantern) baseLight = lantern!.lightIntensity;
+        // The fused Faerie Lantern sizes its own glow (Crafted).
+        if (lantern && !Items.IsFaerie(Item))
+        {
+            warmth = GetComponent<StatusField>();
+            glow = GetComponent<Peak.GloomSafeZone>();
+            if (warmth) baseWarmth = warmth!.radius;
+            if (glow) { baseGlow = glow!.statusProtectionRadius; baseGlowVisual = glow.visualRadius; }
+            if (lantern!.lanternLight) baseReach = lantern.lanternLight.range;
+        }
         baseUseTime = Item.usingTimePrimary;
     }
 
@@ -263,7 +308,14 @@ public class LeveledItem : MonoBehaviour
             shooter!.maxLength = baseShotMax * m;
             shooter.length = baseShotLen * m;
         }
-        if (lantern) lantern!.lightIntensity = baseLight * (on ? Stats.Brightness(lv) : 1f);
+        if (glow || warmth)
+        {
+            // One glow: warmth, protection and the light's reach shrink together, so what you see lit is what keeps you safe.
+            float g = Stats.GlowScale(lv, glow ? baseGlow : baseWarmth);
+            if (warmth) warmth!.radius = baseWarmth * g;
+            if (glow) { glow!.statusProtectionRadius = baseGlow * g; glow.visualRadius = baseGlowVisual * g; }
+            if (baseReach > 0f) lantern!.lanternLight.range = baseReach * g;
+        }
         if (Tree == TreeId.Bandage) Item.usingTimePrimary = on ? Stats.UseSeconds(Item, lv, br, baseUseTime) : baseUseTime;
 
         // A sports drink can turn out to be the Sugar-Rush Cocktail (marked after it spawns).
@@ -393,25 +445,7 @@ internal static class TreePatches
 
     // --- balloons ------------------------------------------------------------------------
 
-    /// <summary>Set by Action_Balloon below: was the balloon just tied a bunch, and its level.</summary>
-    private static bool tyingBunch;
-    private static int tyingLevel = 1;
-    /// <summary>Lift follows the last balloon we tied.</summary>
-    private static int liftLevel = 1;
-
-    [HarmonyPrefix, HarmonyPatch(typeof(Action_Balloon), nameof(Action_Balloon.RunAction))]
-    private static void TyingBalloon(Action_Balloon __instance)
-    {
-        tyingBunch = __instance.item != null && Items.IsBalloonBunch(__instance.item);
-        if (__instance.item != null) tyingLevel = liftLevel = Stats.For(__instance.item, TreeId.Balloons).level;
-    }
-
-    [HarmonyPostfix, HarmonyPatch(typeof(TiedBalloon), nameof(TiedBalloon.RPC_Init))]
-    private static void BalloonLifetime(TiedBalloon __instance)
-    {
-        if (!Stats.On || !__instance.photonView.IsMine) return;
-        __instance.popTime = Stats.BalloonPopSeconds(tyingBunch, tyingLevel, __instance.popTime);
-    }
+    // Flight (levels 2+) lives in BalloonFlight. Plain floating stays vanilla, but the red sun weakens it.
 
     private static readonly Dictionary<CharacterBalloons, (float, float)> balloonBase = new();
 
@@ -421,7 +455,7 @@ internal static class TreePatches
         if (__instance.character == null || !__instance.character.IsLocal) return;
         if (!balloonBase.TryGetValue(__instance, out var b))
             balloonBase[__instance] = b = (__instance.balloonFloatAmount, __instance.balloonJumpAmount);
-        float m = (Stats.On ? Stats.BalloonLift(liftLevel) : 1f) * SunCaps.MoveCap;
+        float m = SunCaps.MoveCap;
         __instance.balloonFloatAmount = b.Item1 * m;
         __instance.balloonJumpAmount = b.Item2 * m;
     }
