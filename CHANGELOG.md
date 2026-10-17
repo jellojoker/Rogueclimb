@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.12.11
+- Safe ground holds: every campfire counts, lit or not. Blood moon zombies won't come for anyone resting there, and the Scoutmaster won't grab them.
+- The hunting Scoutmaster freezes whenever anyone looks at him. Look away and he comes - running from afar, walking the last stretch. Right on you, he waits a moment... then a second after you turn your back.
+
+## 0.12.10
+- Relics: "Movement" is now "Tools". Letting go of any rope counts (the mountain's own too), pitons count even on a quick hold, and the Chain Launcher, Rescue Claw and anti-ropes are tools now.
+- Blood moons come for everyone, relic carriers first. Tier 1 brings a zombie for every scout; tier 2 brings more for relic carriers, and the Scoutmaster doesn't stop at one throw.
+- The Scoutmaster's static is gone. No more red screen filter: a blood moon lights the mountain red.
+- Level-ups offer up to 4 cards, from anything you've found this run - pick one you're not carrying and you get one.
+- Climbing pays more, and the fast-clear bonus lasts longer. The Kiln now counts. Caldera and Gloom reward exploring: new ground pays.
+
+## 0.12.9
+- The XP bar is now Climber XP, and every level makes something you carry stronger.
+- Crates hand out items. Find a third of something you're stacking and they merge into one, a level higher.
+- A relic taken in the morning still brings its moon that night.
+- The fast-clear bonus moved up beside the build number.
+- The higher you climb, the luckier the mountain gets.
+
+## 0.12.8
+- The Lantern answers to healing relics.
+
 ## 0.12.4 - 0.12.7
 - XP: a gold bar beside your stamina. Each biome, climbing higher, opening crates and using up what crates give you each fill up to 2 levels; reaching the campfire fast adds a bonus. Every level is another crate pick, offered once you stand on flat ground.
 - The Scoutmaster changes with the moon. Tier 1: he hunts, and throws each scout once. Tier 2: he watches - don't stare back. Tier 3 and up: he only watches. He is always somewhere you can see him, and his throws carry less far.
