@@ -17,7 +17,8 @@ namespace PeakRoguelike;
 ///   crate items- using up an item that came from a card pick (crate, level-up, statue blessing):
 ///                healing / food / anything else, up to ItemLevels. Wild food never counts.
 /// Uncapped extras on reaching the campfire: the fast-clear bonus (drains over BiomeMinutes from
-/// when you leave camp) and CampfireXp. Each level opens a crate card pick on flat ground.
+/// when you leave camp) and CampfireXp. Each level levels up an item you carry (a card pick on
+/// flat ground; with nothing to level, a crate card instead).
 /// Per scout and local; feeding / bandaging a friend sends the XP back to the feeder.
 /// </summary>
 internal class Xp : MonoBehaviour
@@ -31,6 +32,7 @@ internal class Xp : MonoBehaviour
     private int biome = -1;           // the biome we're climbing (map segment index); int.MaxValue = summit reached
     private float best;               // best height through it, 0-1
     private float crateXp, itemXp;    // this biome's crate and crate-item XP so far
+    private int merges;               // this biome's 3-copy merges (for the campfire log)
     private float clockFrom = -1f;    // when we left its start (-1 = still at camp)
     private float deferUntil, flatSince = -1f;
     private int announced;            // levels already chimed
@@ -50,6 +52,7 @@ internal class Xp : MonoBehaviour
         instance.claimed = instance.announced = 0;
         instance.biome = -1;
         instance.best = instance.crateXp = instance.itemXp = 0f;
+        instance.merges = 0;
         instance.clockFrom = -1f;
         instance.deferUntil = 0f;
         instance.flatSince = -1f;
@@ -69,7 +72,9 @@ internal class Xp : MonoBehaviour
 
     private int Earned => Mathf.FloorToInt(xp / PerLevel + 0.0001f);
     private int Pending => Mathf.Max(0, Earned - claimed);
-    private static float ClimbXp => Mathf.Max(0f, ModConfig.XpClimbLevels.Value) * PerLevel;
+    // The Kiln is a short climb: its climb pays more.
+    private float ClimbXp => Mathf.Max(0f, ModConfig.XpClimbLevels.Value) * PerLevel
+        * ((Segment)biome == Segment.TheKiln ? Mathf.Max(0f, ModConfig.XpKilnClimb.Value) : 1f);
     private static float FastXp => Mathf.Max(0f, ModConfig.XpFastClearLevels.Value) * PerLevel;
     private float BonusLeft => clockFrom < 0f ? 1f
         : Mathf.Clamp01(1f - (Time.time - clockFrom) / Mathf.Max(1f, ModConfig.XpBiomeMinutes.Value * 60f));
@@ -115,6 +120,12 @@ internal class Xp : MonoBehaviour
             return;
         }
         instance.AddItemXp(worth, item.gameObject.name.Replace("(Clone)", "").Trim());
+    }
+
+    /// <summary>Three copies merged a level up (counted for the campfire log).</summary>
+    internal static void Merged()
+    {
+        if (instance != null) instance.merges++;
     }
 
     /// <summary>A friend used one of our crate items on themselves... or we fed them one.</summary>
@@ -225,6 +236,11 @@ internal class Xp : MonoBehaviour
         xp += bonus + fire;
         Plugin.Log.LogInfo($"XP: cleared biome {biome} in {(clockFrom < 0f ? 0f : Time.time - clockFrom):0}s - fast clear +{bonus}, campfire +{fire} (total {xp:0}).");
         if (bonus + fire > 0) Hud.Toast($"Fast clear  +{bonus + fire} XP", Trees.Gold);
+        // For tuning: what this biome paid, in levels.
+        Plugin.Log.LogInfo($"Biome done: {(Segment)biome} - {(ClimbXp + crateXp + itemXp + bonus + fire) / PerLevel:0.##} levels "
+            + $"(climb {ClimbXp / PerLevel:0.##} / crates {crateXp / PerLevel:0.##} / items {itemXp / PerLevel:0.##} / fast clear {bonus / PerLevel:0.##} / campfire {fire / PerLevel:0.##}), "
+            + $"{merges} merge(s); {Earned} levels earned this run.");
+        Luck.BiomeCleared(biome);
         bool last = biome + 1 >= map.segments.Length || !Ends(biome + 1, out _, out _, out _);
         if (last) { biome = int.MaxValue; Plugin.Log.LogInfo("XP: summit - no more biomes."); }
         else StartBiome(biome + 1);
@@ -234,6 +250,7 @@ internal class Xp : MonoBehaviour
     {
         biome = b;
         best = crateXp = itemXp = 0f;
+        merges = 0;
         clockFrom = -1f;
         if (Ends(b, out var from, out var to, out _))
         {
@@ -336,23 +353,47 @@ internal class Xp : MonoBehaviour
     }
 
     /// <summary>Standing still-ish on level ground, on your own feet: no pop-up mid-climb or mid-fall.</summary>
-    private static bool OnFlatGround(Character me)
+    internal static bool OnFlatGround(Character me)
     {
         var d = me.data;
         return d.isGrounded && !d.isClimbingAnything && !d.isJumping && !d.dead && !d.passedOut && d.fullyConscious
                && !d.isCarried && d.groundNormal.y >= 0.9f && !BloodTornado.Carrying(me);
     }
 
+    // This level-up's cards: items you carry going up a level - or, with nothing to level, a crate pick.
+    private List<Offer> levels = new();
     private List<Item> rolled = new();
 
     private void OpenPick()
     {
-        if (rolled.Count == 0) rolled = Roll();
-        if (rolled.Count == 0) { deferUntil = Time.time + 10f; Plugin.Log.LogWarning("XP: no crate pool to roll a level-up from - trying again."); return; }
-        var items = rolled;
-        var fused = Offers.UnlockedFusions(items);
-        var cards = items.Select(CrateCards.ForItem).ToList();
-        cards.AddRange(fused.Select(r => Fusion.ItemCard(r, "Fusion unlocked")));
+        if (levels.Count == 0 && rolled.Count == 0)
+        {
+            levels = Offers.Carried();
+            if (levels.Count == 0) rolled = Roll();
+        }
+        if (levels.Count == 0 && rolled.Count == 0) { deferUntil = Time.time + 10f; Plugin.Log.LogWarning("XP: nothing to level and no crate pool to roll from - trying again."); return; }
+
+        var cards = new List<CardSpec>();
+        var picks = new List<System.Action>();
+        foreach (var o in levels) { cards.Add(CrateCards.ForCarried(o)); picks.Add(() => PickedLevel(o)); }
+        foreach (var item in rolled) { cards.Add(CrateCards.ForItem(item)); picks.Add(() => Picked(item)); }
+        foreach (var r in levels.Count > 0 ? new List<Recipe>() : Offers.UnlockedFusions(rolled))
+        {
+            cards.Add(Fusion.ItemCard(r, "Fusion unlocked"));
+            picks.Add(() => Done(() => { Fusion.Give(r); Hud.Banner("FUSION", r.Name, ChoiceScreen.FusionGlow); }));
+        }
+        // Luck from the second campfire: a finished fusion takes the last card's place.
+        if (Luck.LuckyCard is { } lucky && cards.Count > 0)
+        {
+            cards[cards.Count - 1] = Fusion.ItemCard(lucky, "A lucky find");
+            picks[picks.Count - 1] = () => Done(() =>
+            {
+                Luck.LuckyClaimed();
+                Fusion.Give(lucky);
+                Hud.Banner("FUSION", lucky.Name, ChoiceScreen.FusionGlow);
+            });
+        }
+
         bool shown = ChoiceScreen.Show(new ScreenSpec
         {
             Title = "LEVEL UP",
@@ -360,15 +401,12 @@ internal class Xp : MonoBehaviour
             Confirm = "CLAIM",
             Cards = cards,
             StillValid = Alive,
-            OnConfirm = i =>
-            {
-                if (i < items.Count) Picked(items[i]);
-                else Done(() => { Fusion.Give(fused[i - items.Count]); Hud.Banner("FUSION", fused[i - items.Count].Name, ChoiceScreen.FusionGlow); });
-            },
+            OnConfirm = i => picks[i](),
             OnBack = Later,
             OnCancelled = Later,
         });
-        if (shown) Plugin.Log.LogInfo($"XP: level-up pick ({string.Join(", ", items.Select(r => r.gameObject.name))}).");
+        if (shown) Plugin.Log.LogInfo($"XP: level-up pick ({string.Join(", ", levels.Select(o => $"{o.Tree!.Name} {o.Level}").Concat(rolled.Select(r => r.gameObject.name)))}"
+            + (Luck.LuckyCard != null ? $" + lucky {Luck.LuckyCard.Name}" : "") + ").");
         else Later();
     }
 
@@ -377,14 +415,46 @@ internal class Xp : MonoBehaviour
     /// <summary>Backed out (or knocked over): the pick waits, same cards.</summary>
     private void Later() => deferUntil = Time.time + 20f;
 
+    /// <summary>A carried item goes up a level (a fork asks for the path first).</summary>
+    private void PickedLevel(Offer offer)
+    {
+        if (offer.Kind != OfferKind.Fork)
+        {
+            Done(() => { Hud.PickChime(); Offers.ApplyCarried(offer, offer.Branch); });
+            return;
+        }
+        var tree = offer.Tree!;
+        int next = offer.Level;
+        var options = Offers.Paths(tree, next);
+        ChoiceScreen.Show(new ScreenSpec
+        {
+            Title = "CHOOSE YOUR PATH",
+            Subtitle = $"{tree.Name} · level {next}",
+            Confirm = "CHOOSE",
+            Cards = options.Select(o => CrateCards.ForPath(tree, next, o, offer.CrateItem)).ToList(),
+            StillValid = Alive,
+            OnConfirm = i => Done(() => { Hud.PickChime(); Offers.ApplyCarried(offer, options[i].Branch); }),
+            OnBack = OpenPick,
+            OnCancelled = Later,
+        });
+    }
+
+    /// <summary>Nothing to level: a crate card, claimed the way a crate would hand it over.</summary>
     private void Picked(Item item)
     {
-        var offer = Offers.Resolve(item);
+        var offer = Offers.ForCrate(item);
         switch (offer.Kind)
         {
-            case OfferKind.TreeLevel:
             case OfferKind.TreeSpare:
-                Done(() => { LuggagePatches.LevelUp(offer.Tree!, offer.Level, offer.Branch); Grant(offer.Grant); });
+                Done(() => Grant(offer.Grant));
+                return;
+            case OfferKind.TreeLevel:
+                Done(() =>
+                {
+                    if (!Offers.ConsumeMerge(offer)) { Grant(LuggagePatches.Spare(offer, item)); return; }
+                    LuggagePatches.LevelUp(offer.Tree!, offer.Level, offer.Branch);
+                    Grant(offer.Grant);
+                });
                 return;
             case OfferKind.Fork:
                 break;
@@ -402,7 +472,12 @@ internal class Xp : MonoBehaviour
             Confirm = "CHOOSE",
             Cards = options.Select(o => CrateCards.ForPath(tree, next, o, item)).ToList(),
             StillValid = Alive,
-            OnConfirm = i => Done(() => { LuggagePatches.LevelUp(tree, next, options[i].Branch); Grant(Offers.Grant(options[i], item)); }),
+            OnConfirm = i => Done(() =>
+            {
+                if (!Offers.ConsumeMerge(offer)) { Grant(LuggagePatches.Spare(offer, item)); return; }
+                LuggagePatches.LevelUp(tree, next, options[i].Branch);
+                Grant(Offers.Grant(options[i], item));
+            }),
             OnBack = OpenPick,
             OnCancelled = Later,
         });
@@ -411,6 +486,7 @@ internal class Xp : MonoBehaviour
     private void Done(System.Action give)
     {
         claimed++;
+        levels = new List<Offer>();
         rolled = new List<Item>();
         deferUntil = Time.time + 1.5f; // the next level's cards don't slam in on top of this one
         give();
@@ -473,6 +549,8 @@ internal class Xp : MonoBehaviour
         if (barRoot == null) return;
         bool show = on && !ChoiceScreen.IsOpen;
         if (barRoot.gameObject.activeSelf != show) barRoot.gameObject.SetActive(show);
+        var bonusLabel = FastClearLabel();
+        if (corner != null && corner.gameObject.activeSelf != show) corner.gameObject.SetActive(show);
         if (!show) return;
 
         Place();
@@ -496,9 +574,9 @@ internal class Xp : MonoBehaviour
             glow.color = c;
         }
 
-        left!.text = Pending > 0 ? "LEVEL UP" : "XP";
+        left!.text = Pending > 0 ? "LEVEL UP" : "CLIMBER XP";
         left.alpha = Pending > 0 ? 0.6f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.4f : 1f;
-        if (biome < 0 || biome == int.MaxValue) right!.text = "";
+        if (biome < 0 || biome == int.MaxValue) bonusLabel.text = "";
         else
         {
             int bonus = Mathf.RoundToInt(BonusLeft * FastXp);
@@ -508,8 +586,50 @@ internal class Xp : MonoBehaviour
                 float s = Mathf.Max(0f, ModConfig.XpBiomeMinutes.Value * 60f - (Time.time - clockFrom));
                 clock = $"   <alpha=#99>{(int)s / 60}:{(int)s % 60:00}";
             }
-            right!.text = $"FAST CLEAR BONUS  +{bonus} XP{clock}";
+            bonusLabel.text = $"FAST CLEAR BONUS  +{bonus} XP{clock}";
         }
+        PlaceCorner();
+    }
+
+    private TextMeshProUGUI? corner, version;
+    private float nextVersionLook;
+
+    /// <summary>The fast-clear bonus sits top left, after the game's build number (on the bar if there's none).</summary>
+    private TextMeshProUGUI FastClearLabel()
+    {
+        if (corner != null) return corner;
+        if (Time.time < nextVersionLook) return right!;
+        nextVersionLook = Time.time + 2f;
+        var vt = FindObjectsByType<VersionString>(FindObjectsSortMode.None)
+            .Where(v => v != null && v.isActiveAndEnabled).Select(v => v.GetComponent<TextMeshProUGUI>()).FirstOrDefault(t => t != null);
+        if (vt == null) return right!;
+        version = vt;
+        var rt = Ui.Rect(vt.rectTransform, "RogueClimb FastClear");
+        rt.anchorMin = rt.anchorMax = new Vector2(0f, 1f);
+        rt.pivot = new Vector2(0f, 1f);
+        rt.sizeDelta = new Vector2(700f, 40f);
+        var t = rt.gameObject.AddComponent<TextMeshProUGUI>();
+        t.font = vt.font;
+        t.fontSharedMaterial = vt.fontSharedMaterial;
+        t.fontSize = Mathf.Max(vt.fontSize, 18f);
+        t.color = GoldText;
+        t.alignment = TextAlignmentOptions.TopLeft;
+        t.characterSpacing = 2f;
+        t.enableWordWrapping = false;
+        t.raycastTarget = false;
+        corner = t;
+        right!.text = "";
+        Plugin.Log.LogInfo($"XP: fast-clear bonus moved beside the build number '{vt.text}' ({vt.fontSize:0}pt).");
+        return t;
+    }
+
+    /// <summary>Just right of the build number's text, tops lined up.</summary>
+    private void PlaceCorner()
+    {
+        if (corner == null || version == null) return;
+        var r = version.rectTransform.rect;
+        var b = version.textBounds;
+        ((RectTransform)corner.transform).anchoredPosition = new Vector2(b.max.x - r.xMin + 24f, b.max.y - r.yMax);
     }
 
     private void Build(GUIManager gui)

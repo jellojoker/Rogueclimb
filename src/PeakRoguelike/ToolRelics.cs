@@ -34,7 +34,7 @@ internal class ToolRelics : MonoBehaviour
     internal static bool FiresOnDismount(Item item) =>
         item.GetComponent<RopeSpool>() || item.GetComponent<RopeShooter>() || item.GetComponent<ClimbingSpikeComponent>()
         || item.GetComponentInChildren<Glider>(true) || item.GetComponent<Balloon>() || item.GetComponent<MagicBean>()
-        || item.GetComponent<JetpackItem>() || Relics.IsLantern(item);
+        || item.GetComponent<JetpackItem>();
 
     // --- who placed what -----------------------------------------------------------------------
 

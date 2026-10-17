@@ -208,12 +208,12 @@ internal class Blessing : MonoBehaviour
         {
             int at = Mathf.Max(0, list.FindIndex(o => o is TreeOption { Role: "Specialize" }));
             float roll = UnityEngine.Random.value;
-            if (roll < ModConfig.StatueFusionChance.Value)
+            if (roll < Luck.StatueFusionChance)
             {
                 var jackpot = Fusion.Recipes.Where(r => r.Result != null && Items.Find(r.Result) != null).OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
                 if (jackpot != null) { list[at] = new GiftOption(jackpot); Plugin.Log.LogInfo($"Blessing: jackpot - {jackpot.Name}."); }
             }
-            else if (roll < ModConfig.StatueFusionChance.Value + ModConfig.StatueIngredientChance.Value && MissingIngredient() is { } gift)
+            else if (roll < Luck.StatueFusionChance + Luck.StatueIngredientChance && MissingIngredient() is { } gift)
             {
                 list[at] = new IngredientOption(gift.recipe, gift.ingredient);
                 Plugin.Log.LogInfo($"Blessing: {gift.ingredient.Name} for the {gift.recipe.Name}.");
@@ -226,7 +226,7 @@ internal class Blessing : MonoBehaviour
     /// The one thing between you and a fusion: every maxed-tree ingredient ready, and exactly one
     /// other ingredient missing from your pockets that a statue may give. Most complete recipe first.
     /// </summary>
-    private static (Recipe recipe, Ingredient ingredient)? MissingIngredient()
+    internal static (Recipe recipe, Ingredient ingredient)? MissingIngredient()
     {
         var p = Player.localPlayer;
         if (p == null) return null;

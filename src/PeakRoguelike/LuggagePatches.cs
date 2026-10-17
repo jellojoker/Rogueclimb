@@ -121,11 +121,16 @@ internal static class LuggagePatches
     private static void Picked(Luggage luggage, List<Item> items, int index, System.Action? back = null)
     {
         Item item = items[index];
-        var offer = Offers.Resolve(item);
+        var offer = Offers.ForCrate(item);
         switch (offer.Kind)
         {
-            case OfferKind.TreeLevel:
             case OfferKind.TreeSpare:
+                // A spare: the item at your level, no level up.
+                Claim(luggage, offer.Grant, index);
+                return;
+            case OfferKind.TreeLevel:
+                // A new tree's first item, or the 3rd copy merging a stack a level up.
+                if (!Offers.ConsumeMerge(offer)) { Claim(luggage, Spare(offer, item), index); return; }
                 LevelUp(offer.Tree!, offer.Level, offer.Branch);
                 Claim(luggage, offer.Grant, index);
                 return;
@@ -149,11 +154,20 @@ internal static class LuggagePatches
             StillValid = () => luggage != null && !luggage.IsOpen,
             OnConfirm = i =>
             {
+                if (!Offers.ConsumeMerge(offer)) { Claim(luggage, Spare(offer, item), index); return; }
                 LevelUp(tree, next, options[i].Branch);
                 Claim(luggage, Offers.Grant(options[i], item), index);
             },
             OnBack = back ?? (() => ShowCrate(luggage, items)),
         });
+    }
+
+    /// <summary>The item at your current level (a merge whose stack went missing).</summary>
+    internal static Item Spare(Offer offer, Item crateItem)
+    {
+        var tree = offer.Tree!;
+        int cur = RunState.Level(tree.Id);
+        return cur > 0 ? Offers.Grant(tree.At(cur, RunState.Branch(tree.Id)), crateItem) : crateItem;
     }
 
     internal static void LevelUp(TreeDef tree, int level, int branch)

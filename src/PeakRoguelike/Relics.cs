@@ -526,7 +526,7 @@ internal class Relics : MonoBehaviour
         Plugin.Log.LogInfo($"{ScoutOf(ownerActor)?.characterName ?? "A scout"}'s {GemName(gem)} fired on us.");
     }
 
-    /// <summary>Lanterns are both healing (they thaw frost) and tools: either kind of relic fires.</summary>
+    /// <summary>Lanterns count as healing (they thaw frost); the Faerie Lantern fires every kind of relic.</summary>
     internal static bool IsLantern(Item item) => item.GetComponent<Lantern>() != null;
 
     internal static bool IsHealing(Item item) =>
@@ -561,8 +561,7 @@ internal class Relics : MonoBehaviour
         var tree = Trees.Classify(item);
         return tree is TreeId.Rope or TreeId.Piton or TreeId.Glider or TreeId.Balloons
             || item.GetComponent<MagicBean>() || item.GetComponent<ShelfShroom>() || item.GetComponent<JetpackItem>()
-            || item.GetComponent<Action_LaunchPlayer>() || item.GetComponent<Parasol>() || item.GetComponent<Antigrav>()
-            || IsLantern(item);
+            || item.GetComponent<Action_LaunchPlayer>() || item.GetComponent<Parasol>() || item.GetComponent<Antigrav>();
     }
 
     internal static void Trigger(RelicTrigger trigger) => Fire(trigger, null);
@@ -777,17 +776,20 @@ internal static class RelicPatches
         if (Relics.IsMovementItem(__instance) && !ToolRelics.FiresOnDismount(__instance)) Relics.Trigger(RelicTrigger.Movement);
     }
 
-    /// <summary>Lighting a lantern (not snuffing it) fires both healing and tool relics.</summary>
+    /// <summary>Lighting a lantern (not snuffing it) fires healing relics; a Faerie Lantern fires food, healing and tool relics.</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(Action_LightLantern), nameof(Action_LightLantern.RunAction))]
     private static void LanternUsed(Action_LightLantern __instance)
     {
         try
         {
             var lantern = __instance.GetComponent<Lantern>();
-            var holder = __instance.GetComponent<Item>()?.holderCharacter;
+            var item = __instance.GetComponent<Item>();
+            var holder = item?.holderCharacter;
             if (lantern == null || holder == null || !holder.IsLocal) return;
             if (lantern.GetData<BoolItemData>(DataEntryKey.FlareActive).Value) return; // about to snuff
             Relics.Trigger(RelicTrigger.Healing);
+            if (!Items.IsFaerie(item!)) return;
+            Relics.Trigger(RelicTrigger.Food);
             Relics.Trigger(RelicTrigger.Movement);
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Lantern relic hook failed: {e.Message}"); }

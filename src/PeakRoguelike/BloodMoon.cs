@@ -264,8 +264,11 @@ internal class BloodMoon : MonoBehaviour
         if (!InRun) yield break;
         // Every freshly taken relic raises one at once: by day a blood eclipse, by night a blood moon.
         nightfallPending = false;
-        if (!IsNight && ModConfig.DevMoonEveryNight.Value) skipNextNight = true;
-        Plugin.Log.LogInfo($"{riseBinder} took a relic - blood {(IsNight ? "moon" : "eclipse")} now.");
+        // A morning pickup still owes tonight's moon; from the afternoon on (the game's 11:30) its eclipse stands in for it.
+        bool afternoon = !IsNight && DayNightManager.instance.timeOfDay >= 11.5f;
+        if (afternoon && ModConfig.DevMoonEveryNight.Value) skipNextNight = true;
+        Plugin.Log.LogInfo($"{riseBinder} took a relic - blood {(IsNight ? "moon" : "eclipse")} now"
+            + (IsNight ? "." : afternoon ? " (afternoon: tonight stays calm)." : " (morning: tonight's moon still rises)."));
         Rise(Mathf.Clamp(RunState.SquadRelics(), 1, 4), riseBinder);
     }
 
@@ -278,7 +281,7 @@ internal class BloodMoon : MonoBehaviour
     /// <summary>
     /// Nightfall. Normally calm - only a freshly taken relic (or a dark rite) raises a moon. With
     /// the every-night option, any night while the squad holds a relic, except the one
-    /// right after a daytime pickup moon.
+    /// right after an afternoon / evening pickup moon.
     /// </summary>
     private void Nightfall()
     {

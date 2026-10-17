@@ -91,7 +91,10 @@ internal static class ModConfig
     public static ConfigEntry<bool> Xp = null!;
     public static ConfigEntry<int> XpPerCrate = null!, XpHealingUse = null!, XpFoodUse = null!, XpItemUse = null!, XpCampfire = null!;
     public static ConfigEntry<float> XpCrateLevels = null!, XpItemLevels = null!, XpMinClimb = null!;
-    public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!;
+    public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!;
+    public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckStatueFusionLate = null!, LuckFusionChance = null!;
+    public static ConfigEntry<int> LuckLateFrom = null!;
+    public static ConfigEntry<bool> LuckGuarantee = null!;
     public static ConfigEntry<Key> FlyKey = null!;
     public static ConfigEntry<float> FlySpeed = null!;
 
@@ -147,11 +150,19 @@ internal static class ModConfig
         XpMinClimb = cfg.Bind("Xp", "MinClimb", 50f, "A biome whose campfire is less than this many metres above its start pays its climb on arrival instead.");
         XpCampfire = cfg.Bind("Xp", "CampfireXp", 100, "XP for reaching each campfire (and the summit), on top of the fast-clear bonus.");
         XpPerCrate = cfg.Bind("Xp", "PerCrate", 100, "XP for each crate you claim from...");
-        XpCrateLevels = cfg.Bind("Xp", "CrateLevels", 2f, "...up to this many levels per biome.");
+        XpCrateLevels = cfg.Bind("Xp", "CrateLevels", 1f, "...up to this many levels per biome.");
         XpHealingUse = cfg.Bind("Xp", "HealingUse", 200, "XP for using up a healing item that came from a card pick (crate, level-up, statue)...");
         XpFoodUse = cfg.Bind("Xp", "FoodUse", 50, "...a food (wild food never counts)...");
         XpItemUse = cfg.Bind("Xp", "ItemUse", 100, "...anything else...");
-        XpItemLevels = cfg.Bind("Xp", "ItemLevels", 2f, "...up to this many levels per biome.");
+        XpItemLevels = cfg.Bind("Xp", "ItemLevels", 1.5f, "...up to this many levels per biome.");
+        XpKilnClimb = cfg.Bind("Xp", "KilnClimbMultiplier", 1.5f, "The Kiln is a short climb: its climb XP is worth this much more.");
+        LuckPullEarly = cfg.Bind("Luck", "IngredientPullEarly", 1.5f, "Crates: while you hold a maxed item one ingredient short of a fusion, that ingredient rolls this much more often (before LateFromSegment).");
+        LuckPullLate = cfg.Bind("Luck", "IngredientPullLate", 3f, "...and this much more often from LateFromSegment on.");
+        LuckLateFrom = cfg.Bind("Luck", "LateFromSegment", 3, "Map segment where the late luck starts (0 Shore, 1 Tropics/Roots, 2 Alpine/Mesa, 3 Caldera/Gloom, 4 Kiln) - once the squad is past the third biome's campfire.");
+        LuckStatueIngredientLate = cfg.Bind("Luck", "StatueIngredientLate", 0.3f, "Late luck: statue / Ancient Luggage chance of the missing ingredient (early = [Fusion] StatueIngredientChance).");
+        LuckStatueFusionLate = cfg.Bind("Luck", "StatueFusionLate", 0.05f, "Late luck: statue / Ancient Luggage chance of a finished fusion (early = [Fusion] StatueFusionChance).");
+        LuckFusionChance = cfg.Bind("Luck", "LuckyFusionChance", 0.1f, "Reaching the second biome's campfire: chance per SQUAD that a scout's next level-up offers a finished fusion (each scout rolls this divided by the squad size).");
+        LuckGuarantee = cfg.Bind("Luck", "SquadGuarantee", true, "Reaching the Kiln's campfire with no fusion made by anyone: one scout (the closest to a fusion) is offered a guaranteed one.");
         XpBarScale = cfg.Bind("Xp", "BarScale", 0.75f, "Size of the XP bar (a copy of the stamina bar).");
         XpBarX = cfg.Bind("Xp", "BarOffsetX", 0f, "Nudge the XP bar right (+) / left (-), in UI pixels.");
         XpBarY = cfg.Bind("Xp", "BarOffsetY", 0f, "Nudge the XP bar up (+) / down (-), in UI pixels.");
@@ -201,7 +212,7 @@ internal static class ModConfig
         BackpackPockets = cfg.Bind("Storage", "BackpackPockets", 2, "Pockets a backpack adds.");
         FannypackPockets = cfg.Bind("Storage", "FannypackPockets", 1, "Pockets a fanny pack adds.");
         Stacking = cfg.Bind("Storage", "Stacking", true, "The same item picked up again joins its pocket (up to 3): food, pitons, bandages and drinks count up; spools, lanterns and multi-use items bring their next copy when one runs out; gliders glide longer. A dropped stack spills into a pile. Fusions never stack.");
-        StackByLevel = cfg.Bind("Storage", "StackByLevel", true, "A tree item stacks only as high as its level, but always to at least 2 (level 1-2 = 2, level 3 = 3). Off = everything stacks to 3.");
+        StackByLevel = cfg.Bind("Storage", "StackByLevel", false, "A tree item stacks only as high as its level, but always to at least 2 (level 1-2 = 2, level 3 = 3). Off = everything stacks to 3.");
         StackCrateOnly = cfg.Bind("Storage", "CrateItemsOnly", true, "Only items that can come out of a crate or luggage (and tree items, evolutions, earned items) stack. Wild food - berries, coconuts, mushrooms - never does.");
 
         MenuMusic = cfg.Bind("Ambiance", "MenuMusic", true, "Play the blood moon song on the main menu instead of the game's menu music.");
@@ -215,7 +226,7 @@ internal static class ModConfig
         DevTools = cfg.Bind("Dev", "DevTools", false, "Host-only cheats in the F8 panel (fly, god mode, item levels, time, blood moons). Off = the panel only shows builds.");
         DevShareRelics = cfg.Bind("Dev", "SharedRelicPickups", false, "Testing (host): when a scout binds a relic from an amulet, every other scout gets that colour's relic choice too. Shared relics don't raise the moon's tier, and the pickup's moon waits until everyone has chosen.");
         DevShareWait = cfg.Bind("Dev", "SharedRelicWait", 60f, "Testing (host): longest the pickup's moon waits for everyone to choose their shared relic (s).");
-        DevMoonEveryNight = cfg.Bind("Dev", "BloodMoonEveryNight", true, "Host: once the squad holds a relic, every nightfall raises a blood moon (skipped the night after a daytime pickup moon).");
+        DevMoonEveryNight = cfg.Bind("Dev", "BloodMoonEveryNight", true, "Host: once the squad holds a relic, every nightfall raises a blood moon (skipped the night after an afternoon or evening pickup moon; a morning pickup still gets its night).");
         DevMoonOnPickup = cfg.Bind("Dev", "BloodMoonOnPickup", true, "Host: binding a fresh relic raises a blood moon at once (by day a blood eclipse). Off = pickups raise nothing.");
         FlyKey = cfg.Bind("Dev", "FlyKey", Key.F9, "Toggle noclip flight (host, dev tools on).");
         FlySpeed = cfg.Bind("Dev", "FlySpeed", 14f, "Flight speed in m/s (Shift = 3x).");
@@ -283,6 +294,14 @@ internal static class ModConfig
             SunGreenFoodLife.Value = 20f;
             defaults.Value = 2;
             Plugin.Log.LogInfo("Config: green sun food storms every 120s, rained food gone after 20s (new defaults).");
+        }
+        if (defaults.Value < 3)
+        {
+            XpCrateLevels.Value = 1f;
+            XpItemLevels.Value = 1.5f;
+            StackByLevel.Value = false;
+            defaults.Value = 3;
+            Plugin.Log.LogInfo("Config: crate XP up to 1 level a biome, item XP up to 1.5, everything stacks to 3 (new defaults).");
         }
     }
 }

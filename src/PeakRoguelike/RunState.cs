@@ -68,6 +68,7 @@ internal static class RunState
         RelicDrops.Clear();
         Blessing.Reset();
         Xp.Reset();
+        Luck.Reset();
         Storage.Reset();
         ItemLevels.Reset();
         Publish();

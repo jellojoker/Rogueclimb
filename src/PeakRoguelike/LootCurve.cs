@@ -125,5 +125,7 @@ internal static class LootCurve
                 float m = Items.TryGet(id, out var b) && RunState.IsMaxed(Trees.Classify(b)) ? Mathf.Clamp01(ModConfig.MaxedTreeWeight.Value) : 1f;
                 spawnPoolDictionary[id] = Mathf.Max(1, Mathf.RoundToInt(even * 10 * m));
             }
+        // The one ingredient a maxed item in the roller's pockets is waiting for comes up more.
+        if (crate) Luck.PullIngredients(spawnPoolDictionary, even);
     }
 }

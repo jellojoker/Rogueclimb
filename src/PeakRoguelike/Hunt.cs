@@ -42,6 +42,7 @@ internal class ScoutmasterHunt : MonoBehaviour
             instance.stares.Clear();
             instance.lungeAt = instance.holding = null;
             Mode = HuntMode.Hunter;
+            instance.ShareSpent();
         }
         instance.until = Mathf.Max(instance.until, Time.time + seconds);
         instance.last = null;
@@ -195,7 +196,27 @@ internal class ScoutmasterHunt : MonoBehaviour
     {
         if (!spent.Add(c)) return;
         stares.Remove(c);
+        ShareSpent();
         Plugin.Log.LogInfo($"Scoutmaster: {c.characterName} {why} - he only watches them for the rest of the moon.");
+    }
+
+    private const string SpentKey = "prl.sm.spent";
+
+    /// <summary>Host: tell everyone who he's done with this moon (their screens stop building static).</summary>
+    private void ShareSpent()
+    {
+        if (!Photon.Pun.PhotonNetwork.InRoom) return;
+        var actors = spent.Where(c => c != null && c.photonView?.Owner != null).Select(c => c.photonView.Owner.ActorNumber).ToArray();
+        try { Photon.Pun.PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [SpentKey] = actors }); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Scoutmaster: couldn't share who's spent: {e.Message}"); }
+    }
+
+    /// <summary>Everyone: has he already had his one go at the local scout this moon?</summary>
+    internal static bool LocalSpent()
+    {
+        if (!Photon.Pun.PhotonNetwork.InRoom) return instance != null && Character.localCharacter is { } me && instance.spent.Contains(me);
+        return Photon.Pun.PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(SpentKey, out object raw)
+               && raw is int[] actors && actors.Contains(Photon.Pun.PhotonNetwork.LocalPlayer.ActorNumber);
     }
 
     /// <summary>
@@ -509,7 +530,7 @@ internal static class HuntPatches
         // T2: looking straight at him, the static builds (no words - you learn to look away).
         var me = Character.localCharacter;
         bool staring = BloodMoon.Tier == 2 && me != null && !me.data.dead && __instance.character != null
-                       && ScoutmasterHunt.StaringAt(me, __instance.character);
+                       && ScoutmasterHunt.StaringAt(me, __instance.character) && !ScoutmasterHunt.LocalSpent();
         localStare = staring ? localStare + Time.deltaTime : 0f;
         float want = Mathf.Clamp01(localStare / Mathf.Max(0.5f, ModConfig.BmStareLunge.Value)) * ModConfig.BmStareStatic.Value;
         var mat = __instance.mat;
