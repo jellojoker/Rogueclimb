@@ -236,6 +236,8 @@ internal static class BloodZombies
         }
     }
 
+    internal static bool IsOurs(MushroomZombie z) => spawned.Contains(z);
+
     /// <summary>Time's up: they crumble to bones.</summary>
     public static void Clear()
     {
@@ -491,5 +493,20 @@ internal class BloodTornado : MonoBehaviour
             }
             return false;
         }
+    }
+}
+
+/// <summary>
+/// Blood moon zombies can't see scouts on safe ground or veiled by a relic: the game's own AI
+/// re-picks the nearest scout every few seconds and would walk (and lunge) right back at them.
+/// </summary>
+[HarmonyPatch]
+internal static class BloodZombiePatches
+{
+    [HarmonyPostfix, HarmonyPatch(typeof(MushroomZombie), "TargetIsValid")]
+    private static void NotOnSafeGround(MushroomZombie __instance, Character target, ref bool __result)
+    {
+        if (!__result || target == null || !BloodZombies.IsOurs(__instance)) return;
+        if (Sanctuary.Safe(target) || Squad.Veiled(target)) __result = false;
     }
 }

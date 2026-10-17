@@ -84,7 +84,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> DevTools = null!;
     public static ConfigEntry<bool> DevShareRelics = null!, DevMoonEveryNight = null!, DevMoonOnPickup = null!;
     public static ConfigEntry<float> DevShareWait = null!;
-    public static ConfigEntry<float> BmScoutmasterGrabGrace = null!, BmScoutmasterStare = null!, BmScoutmasterSprintDistance = null!;
+    public static ConfigEntry<float> BmScoutmasterGrabGrace = null!, BmScoutmasterStare = null!, BmScoutmasterSprintDistance = null!, BmGrabPause = null!, BmGrabDelay = null!;
     public static ConfigEntry<float> BmScoutmasterFarDistance = null!, BmScoutmasterFarTime = null!, BmScoutmasterUnseen = null!, BmScoutmasterThrowForce = null!,
         BmHunterAppearMin = null!, BmHunterAppearMax = null!, BmNoticeWait = null!, BmHunterGrace = null!, BmHunterRecover = null!,
         BmWatchMin = null!, BmWatchMax = null!, BmStareLunge = null!, BmStareAngle = null!, BmStareStatic = null!, BmLungeTime = null!, SunYellowDrowsy = null!, SunBlueDamage = null!;
@@ -131,7 +131,9 @@ internal static class ModConfig
         // New key (was ScoutmasterGrabGrace 2) so the old value doesn't stick around.
         BmScoutmasterGrabGrace = cfg.Bind("BloodMoon", "ScoutmasterSightGrace", 5f, "During a hunt, for this many seconds after he gets his prey in sight he can't grab - a sprint right up to someone is a scare, not a catch. He never grabs a scout a tornado is carrying.");
         BmScoutmasterStare = cfg.Bind("BloodMoon", "ScoutmasterStare", 2f, "Catching sight of his prey after a sprint, he stops and stares this many seconds before walking on.");
-        BmScoutmasterSprintDistance = cfg.Bind("BloodMoon", "ScoutmasterSprintDistance", 25f, "He sprints while his prey is further than this (m), seen or not; closer he walks in.");
+        BmScoutmasterSprintDistance = cfg.Bind("BloodMoon", "ScoutmasterSprintDistance", 20f, "Hunting, unwatched: he sprints while his prey is further than this (m); closer he walks. Anyone looking at him freezes him at any range.");
+        BmGrabPause = cfg.Bind("BloodMoon", "GrabPause", 1f, "Hunting: seconds he stands right on his prey before he may grab...");
+        BmGrabDelay = cfg.Bind("BloodMoon", "GrabDelay", 1f, "...and he grabs only once nobody has looked at him for this long (turn to run and that's your head start).");
         BmScoutmasterFarDistance = cfg.Bind("BloodMoon", "ScoutmasterFarDistance", 60f, "During a hunt: still further than this (m) from his prey after ScoutmasterFarTime, he appears again out of sight...");
         BmScoutmasterFarTime = cfg.Bind("BloodMoon", "ScoutmasterFarTime", 20f, "...after this many seconds (0 = never).");
         BmScoutmasterUnseen = cfg.Bind("BloodMoon", "ScoutmasterUnseen", 4f, "During a hunt: out of his prey's line of sight this long, he appears somewhere in the open again - picked while nobody is looking at it (0 = never).");
@@ -320,6 +322,12 @@ internal static class ModConfig
             BmMoonLight.Value = 1.6f;
             defaults.Value = 4;
             Plugin.Log.LogInfo("Config: climb 2.5 levels a biome, fast clear over 20 min, 1 zombie per scout, brighter blood moonlight (new defaults).");
+        }
+        if (defaults.Value < 5)
+        {
+            BmScoutmasterSprintDistance.Value = 20f;
+            defaults.Value = 5;
+            Plugin.Log.LogInfo("Config: the Scoutmaster walks the last 20m (new default).");
         }
     }
 }

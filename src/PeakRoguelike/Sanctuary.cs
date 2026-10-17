@@ -8,7 +8,7 @@ using UnityEngine;
 namespace PeakRoguelike;
 
 /// <summary>
-/// Safe ground: inside a lit campfire's circle (the one the game uses for "everyone is resting")
+/// Safe ground: inside a campfire's circle, lit or not (the one the game uses for "everyone is resting")
 /// or up on the summit, the suns and blood moons can't touch you. The sky stays coloured and the
 /// moon stays red - only the danger and the music stop.
 /// </summary>
@@ -46,7 +46,7 @@ internal static class Sanctuary
         if (!ModConfig.SafeZones.Value || !MapHandler.Exists) return false;
         Rescan();
         foreach (var f in fires)
-            if (f != null && f.Lit && Vector3.Distance(f.transform.position, pos) <= Radius(f)) return true;
+            if (f != null && Vector3.Distance(f.transform.position, pos) <= Radius(f)) return true;
         if (crash != null && Vector3.Distance(crash.position, pos) <= ModConfig.SpawnRadius.Value * Squad.M) return true;
         return summit != null && Vector3.Distance(summit.position, pos) <= ModConfig.SummitRadius.Value * Squad.M;
     }
@@ -61,7 +61,7 @@ internal static class Sanctuary
         float best = float.MaxValue;
         foreach (var f in fires)
         {
-            if (f == null || !f.Lit) continue;
+            if (f == null) continue;
             float d = Vector3.Distance(f.transform.position, pos) - Radius(f);
             if (d < best) { best = d; centre = f.transform.position; radius = Radius(f); }
         }

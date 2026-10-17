@@ -265,6 +265,10 @@ internal class ScoutmasterHunt : MonoBehaviour
         Vector3.Angle(scout.data.lookDirection, him.Center - scout.Head) < 70f
         && HelperFunctions.LineCheck(scout.Head, him.Center, HelperFunctions.LayerType.TerrainMap).transform == null;
 
+    /// <summary>Any living scout has him in view right now (he freezes).</summary>
+    internal static bool Watched(Character him) =>
+        Squad.Alive().Any(c => !c.data.fullyPassedOut && InView(c, him));
+
     /// <summary>Nothing solid between the scout and that spot (whether or not they're facing it).</summary>
     private static bool ClearLine(Character scout, Vector3 spot) =>
         HelperFunctions.LineCheck(scout.Head, spot + Vector3.up * 1.2f, HelperFunctions.LayerType.TerrainMap).transform == null;
@@ -555,26 +559,19 @@ internal static class HuntPatches
     }
 
     private static Character? sightOf;
-    private static bool inSight, sprinted;
-    private static float sightSince, stareUntil;
 
-    // T1: after he appears he waits to be seen, holds the look, then comes.
-    private static float appearedAt = -100f, goAt;
-    private static bool noticed = true;
-
+    /// <summary>He just stepped in from out of sight (the grab clock starts over).</summary>
     internal static void Appeared()
     {
-        appearedAt = Time.time;
-        noticed = false;
+        reachSince = -1f;
     }
 
     /// <summary>
-    /// His pace on a hunt. Watching (T2 between charges, T3+, or once he's spent his grabs) he
-    /// stands and stares. Charging (T2) he sprints straight in from where he stood. Hunting (T1)
-    /// he first waits to be noticed, then runs in from afar and walks the last stretch; catching
-    /// sight of them after a sprint he stops and stares a moment, and for a while after he gets
-    /// them in view he can't grab - never while a tornado has them. Runs before <see cref="Lunge"/>
-    /// so a held-back reach isn't a miss.
+    /// His pace on a hunt. Watching (T3+, or once he's spent his grabs) he stands and stares.
+    /// Hunting (T1-2) he freezes whenever anyone looks at him, sprints in from afar, walks the last
+    /// stretch, and grabs only after a moment right on his prey with nobody looking - never while
+    /// a tornado has them or they're on safe ground. Runs before <see cref="Lunge"/> so a held-back
+    /// reach isn't a miss.
     /// </summary>
     [HarmonyLib.HarmonyPostfix, HarmonyLib.HarmonyPriority(HarmonyLib.Priority.High), HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "Chase")]
     private static void Pace(Scoutmaster __instance)
@@ -601,30 +598,30 @@ internal static class HuntPatches
                 return;
         }
 
-        if (!noticed)
-        {
-            if (ScoutmasterHunt.InView(prey, me)) { noticed = true; goAt = Time.time + ModConfig.BmScoutmasterStare.Value; }
-            else if (Time.time - appearedAt > ModConfig.BmNoticeWait.Value) { noticed = true; goAt = Time.time; }
-        }
-        if (!noticed || Time.time < goAt) { Stand(); return; }
+        // Hunting: while ANY scout looks at him he freezes. Unwatched, he sprints in from afar and
+        // walks the last SprintDistance. Right on his prey he stares a moment, then grabs once
+        // nobody has looked at him for a second - turn to run and that's your second.
+        if (prey != sightOf) { sightOf = prey; reachSince = -1f; }
+        bool watched = ScoutmasterHunt.Watched(me);
+        if (watched) lastWatched = Time.time;
+        float d = Vector3.Distance(me.Center, prey.Center);
+        bool atReach = d < Reach;
+        if (!atReach) reachSince = -1f;
+        else if (reachSince < 0f) reachSince = Time.time;
 
-        bool sees = ScoutmasterHunt.CanSee(__instance, prey);
-        if (prey != sightOf) { sightOf = prey; inSight = false; sprinted = true; stareUntil = 0f; }
-        if (sees && !inSight)
-        {
-            sightSince = Time.time;
-            if (sprinted) stareUntil = Time.time + Mathf.Max(0f, ModConfig.BmScoutmasterStare.Value);
-            sprinted = false;
-        }
-        inSight = sees;
-        bool far = Vector3.Distance(me.Center, prey.Center) > Mathf.Max(0f, ModConfig.BmScoutmasterSprintDistance.Value) * Squad.M;
-        // Far off he runs in, seen or not (walking 100m in plain sight, he never arrived); close up he walks.
-        input.sprintIsPressed = far;
-        if (input.sprintIsPressed) sprinted = true;
-        if (Time.time < stareUntil && !me.data.isClimbing) input.movementInput = Vector2.zero; // stops and stares (Chase already faces them)
-        bool grace = sees && Time.time - sightSince < ModConfig.BmHunterGrace.Value;
-        if (grace || Time.time < stareUntil || BloodTornado.Carrying(prey)) input.useSecondaryIsPressed = false;
+        if (atReach || watched) Stand();
+        else input.sprintIsPressed = d > Mathf.Max(0f, ModConfig.BmScoutmasterSprintDistance.Value) * Squad.M;
+
+        bool grab = atReach && !watched
+                    && Time.time - reachSince >= Mathf.Max(0f, ModConfig.BmGrabPause.Value)
+                    && Time.time - lastWatched >= Mathf.Max(0f, ModConfig.BmGrabDelay.Value)
+                    && !BloodTornado.Carrying(prey) && !Sanctuary.Safe(prey);
+        input.useSecondaryIsPressed = grab;
     }
+
+    /// <summary>The game's grab range (units).</summary>
+    private const float Reach = 3f;
+    private static float reachSince = -1f, lastWatched = -100f;
 
     private static float lungeSince = -1f;
 
