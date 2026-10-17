@@ -39,6 +39,7 @@ internal class ScoutmasterHunt : MonoBehaviour
         {
             // A new moon: everyone is fair game again.
             instance.spent.Clear();
+            instance.throws.Clear();
             instance.stares.Clear();
             instance.lungeAt = instance.holding = null;
             Mode = HuntMode.Hunter;
@@ -80,7 +81,7 @@ internal class ScoutmasterHunt : MonoBehaviour
         Plugin.Log.LogInfo($"Scoutmaster sped up x{ModConfig.BmScoutmasterSpeed.Value:0.##} for the hunt.");
     }
 
-    /// <summary>T1: he hunts. T2: he watches - stare at him too long and he charges. T3+: he only watches.</summary>
+    /// <summary>T1-2: he hunts (GrabsPerScout each). T3+: he only watches. (Lunge = the old T2 stare charge, unused.)</summary>
     internal enum HuntMode { Hunter, Lunge, Observer }
 
     /// <summary>Host: what he's doing right now (read by the Chase patches).</summary>
@@ -94,7 +95,6 @@ internal class ScoutmasterHunt : MonoBehaviour
 
     private void Update()
     {
-        if (Hunting && Photon.Pun.PhotonNetwork.IsMasterClient) Stares();
         if (Time.time < nextTick) return;
         nextTick = Time.time + 0.5f;
         Scoutmaster? sm = null;
@@ -127,10 +127,10 @@ internal class ScoutmasterHunt : MonoBehaviour
             if (sm.currentTarget != null) ResetStuck(sm, sm.currentTarget);
         }
 
-        // He goes after relic holders; anyone standing near one shares the danger. Scouts on safe
-        // ground (lit campfire / summit) are left alone. No relics in the squad (a dark rite): everyone.
+        // He goes after everyone in the open, relic holders first. Scouts on safe ground (lit
+        // campfire / summit) or veiled by a relic that just fired are left alone - he moves on.
         bool awake(Character c) => !c.data.fullyPassedOut && !c.data.dead;
-        var prey = (Squad.AnyHolders() ? Squad.Holders() : Squad.Pursued()).Where(awake).ToList();
+        var prey = Squad.Pursued().Where(awake).ToList();
         var marked = Squad.Marked().Where(awake).ToList();
         var current = sm.currentTarget;
         if (prey.Count == 0)
@@ -141,7 +141,7 @@ internal class ScoutmasterHunt : MonoBehaviour
                 sm!.view.RPC("RPCA_SetCurrentTarget", Photon.Pun.RpcTarget.All, -1, 0f);
                 HuntPatches.Target(sm) = null!;
                 last = null;
-                Plugin.Log.LogInfo("Scoutmaster: no relic holder in sight (safe ground / relic veil) - he backs off.");
+                Plugin.Log.LogInfo("Scoutmaster: nobody in the open (safe ground / relic veil) - he backs off.");
             }
             return;
         }
@@ -153,9 +153,7 @@ internal class ScoutmasterHunt : MonoBehaviour
             lungeAt = null;
         }
         var fresh = prey.Where(c => !spent.Contains(c)).ToList();
-        var mode = BloodMoon.Tier <= 1 && fresh.Count > 0 ? HuntMode.Hunter
-            : BloodMoon.Tier == 2 && lungeAt != null ? HuntMode.Lunge
-            : HuntMode.Observer;
+        var mode = BloodMoon.Tier <= 2 && fresh.Count > 0 ? HuntMode.Hunter : HuntMode.Observer;
         if (mode != Mode) Plugin.Log.LogInfo($"Scoutmaster: {Mode} -> {mode} (tier {BloodMoon.Tier}).");
         Mode = mode;
         var pool = mode == HuntMode.Hunter ? fresh : mode == HuntMode.Lunge ? new List<Character> { lungeAt! } : prey;
@@ -173,8 +171,10 @@ internal class ScoutmasterHunt : MonoBehaviour
         }
 
         // Just threw someone (or lost them): on to the next scout, nearest first.
+        // A holder whose relic just fired is veiled (not in the pool): he turns to whoever is left.
         var next = pool.Where(c => c != last || pool.Count == 1)
-            .OrderBy(c => Vector3.Distance(c.Center, Pos(sm)))
+            .OrderBy(Squad.Priority)
+            .ThenBy(c => Vector3.Distance(c.Center, Pos(sm)))
             .FirstOrDefault();
         if (next == null) return;
         last = next;
@@ -192,8 +192,16 @@ internal class ScoutmasterHunt : MonoBehaviour
         ResetStuck(sm, next);
     }
 
+    /// <summary>Throws per scout this moon; at the tier's grab count he only watches them.</summary>
+    private readonly Dictionary<Character, int> throws = new();
+
+    private static int Grabs => Mathf.Max(1, BloodMoon.Tier <= 1 ? ModConfig.BmGrabsTier1.Value : ModConfig.BmGrabsTier2.Value);
+
     private void Spend(Character c, string why)
     {
+        int n = (throws.TryGetValue(c, out int t) ? t : 0) + 1;
+        throws[c] = n;
+        if (n < Grabs) { Plugin.Log.LogInfo($"Scoutmaster: {c.characterName} {why} ({n}/{Grabs})."); return; }
         if (!spent.Add(c)) return;
         stares.Remove(c);
         ShareSpent();
@@ -297,7 +305,7 @@ internal class ScoutmasterHunt : MonoBehaviour
     private void Recover(Scoutmaster sm, string why)
     {
         standIn = null;
-        float s = BloodMoon.Tier <= 1 ? ModConfig.BmHunterRecover.Value : ModConfig.BmScoutmasterRecover.Value;
+        float s = BloodMoon.Tier <= 2 ? ModConfig.BmHunterRecover.Value : ModConfig.BmScoutmasterRecover.Value;
         if (s <= 0f) return;
         sm.chillForSeconds = s;
         TargetForcedUntil(sm) = Time.time; // free to pick someone new once he's recovered
@@ -519,26 +527,24 @@ internal static class HuntPatches
 
     /// <summary>
     /// His static filter and fear music both come from here (the music follows the "Myers
-    /// distance" this sets on his target). Under a blood moon our song plays alone: the distance
-    /// is never set, so his music fades, and the static only rises while you stare at him (T2).
-    /// Vanilla otherwise.
+    /// distance" this sets on his target). The static is gone for good - vanilla's can stick on
+    /// screen. Under a blood moon our song plays alone: the distance is never set, so his music
+    /// fades; otherwise his music is vanilla.
     /// </summary>
     [HarmonyLib.HarmonyPrefix, HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "DoVisuals")]
     private static bool QuietUnderBloodMoon(Scoutmaster __instance)
     {
-        if (!BloodMoon.Active) { localStare = 0f; return true; }
-        // T2: looking straight at him, the static builds (no words - you learn to look away).
-        var me = Character.localCharacter;
-        bool staring = BloodMoon.Tier == 2 && me != null && !me.data.dead && __instance.character != null
-                       && ScoutmasterHunt.StaringAt(me, __instance.character) && !ScoutmasterHunt.LocalSpent();
-        localStare = staring ? localStare + Time.deltaTime : 0f;
-        float want = Mathf.Clamp01(localStare / Mathf.Max(0.5f, ModConfig.BmStareLunge.Value)) * ModConfig.BmStareStatic.Value;
-        var mat = __instance.mat;
-        if (mat != null) mat.SetFloat(StaticStrength, Mathf.MoveTowards(mat.GetFloat(StaticStrength), want, Time.deltaTime * (want > 0f ? 1.5f : 1f)));
+        if (!BloodMoon.Active) return true;
+        NoStatic(__instance);
         return false;
     }
 
-    private static float localStare;
+    [HarmonyLib.HarmonyPostfix, HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "DoVisuals")]
+    private static void NoStatic(Scoutmaster __instance)
+    {
+        var mat = __instance.mat;
+        if (mat != null && mat.GetFloat(StaticStrength) != 0f) mat.SetFloat(StaticStrength, 0f);
+    }
 
     /// <summary>His throws carry him less far under a blood moon (damage untouched: the landing decides).</summary>
     [HarmonyLib.HarmonyPrefix, HarmonyLib.HarmonyPatch(typeof(CharacterGrabbing), "Throw")]

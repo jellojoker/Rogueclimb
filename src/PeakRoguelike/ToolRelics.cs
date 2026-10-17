@@ -7,9 +7,9 @@ using UnityEngine;
 namespace PeakRoguelike;
 
 /// <summary>
-/// Movement relics fire when you get OFF a tool, not when you put it down: letting go of a
-/// rope or chain, a piton, stepping off a beanstalk, a glide ending, the last balloon popping,
-/// a jetpack / rocket burn ending - after at least a second on it.
+/// Tool relics fire when you get OFF a tool, not when you put it down: letting go of any
+/// rope (the map's too) or chain, a piton (0.3s is enough), stepping off a beanstalk, a glide
+/// ending, the last balloon popping, a jetpack / rocket burn ending - after at least a second on it.
 ///
 /// Placed tools belong to whoever placed them: anyone who lets go of one also gets the
 /// placer's movement relics (the placer pays their glass, the user takes theirs).
@@ -32,7 +32,7 @@ internal class ToolRelics : MonoBehaviour
 
     /// <summary>Tools whose relics fire on getting off them (everything else fires on use).</summary>
     internal static bool FiresOnDismount(Item item) =>
-        item.GetComponent<RopeSpool>() || item.GetComponent<RopeShooter>() || item.GetComponent<ClimbingSpikeComponent>()
+        item.GetComponent<RopeSpool>() || item.GetComponent<RopeShooter>() || item.GetComponent<VineShooter>() || item.GetComponent<ClimbingSpikeComponent>()
         || item.GetComponentInChildren<Glider>(true) || item.GetComponent<Balloon>() || item.GetComponent<MagicBean>()
         || item.GetComponent<JetpackItem>();
 
@@ -62,7 +62,9 @@ internal class ToolRelics : MonoBehaviour
 
     private static int Me => PhotonNetwork.LocalPlayer?.ActorNumber ?? -1;
 
+    private const float PitonMin = 0.3f;
     private Rope? rope; private float ropeTime; private int ropePlacer;
+    private JungleVine? vine; private float vineTime; private int vinePlacer;
     private ClimbHandle? handle; private float handleTime; private int handlePlacer;
     private MagicBeanVine? bean; private float beanTime; private float nextBeanCheck; private bool onBean;
     private float glideTime, balloonTime, rocketTime;
@@ -74,28 +76,39 @@ internal class ToolRelics : MonoBehaviour
         var me = Character.localCharacter;
         if (me == null || me.data.dead || !ModConfig.Relics.Value || RunState.Relics.Count == 0 && !AnyOtherRelics())
         {
-            rope = null; handle = null; bean = null; ropeTime = handleTime = beanTime = glideTime = glideGap = balloonTime = rocketTime = 0f;
+            rope = null; vine = null; handle = null; bean = null; vineTime = 0f; ropeTime = handleTime = beanTime = glideTime = glideGap = balloonTime = rocketTime = 0f;
             onBean = wasRocket = Jetting = false;
             return;
         }
         float dt = Time.deltaTime;
 
-        // Ropes and chains a scout put up (the map's own ropes have no creator and don't count).
+        // Any rope, the map's own too (a scout's rope also fires its placer's relics on us).
         var held = me.data.isRopeClimbing ? me.data.heldRope : null;
         if (held != rope)
         {
-            if (rope != null && ropeTime >= MinUse && ropePlacer > 0) Dismount("rope", ropePlacer);
+            if (rope != null) Leave("rope", ropeTime, MinUse, ropePlacer);
             rope = held;
             ropeTime = 0f;
             ropePlacer = held != null && held.photonView != null ? held.photonView.CreatorActorNr : 0;
         }
         if (rope != null) ropeTime += dt;
 
-        // Pitons: only handles someone hammered in.
+        // Chains (the Chain Launcher's) and vines: the game climbs them as vines, not ropes.
+        var v = me.data.isVineClimbing ? me.data.heldVine : null;
+        if (v != vine)
+        {
+            if (vine != null) Leave("chain / vine", vineTime, MinUse, vinePlacer);
+            vine = v;
+            vineTime = 0f;
+            vinePlacer = v != null && v.photonView != null ? v.photonView.CreatorActorNr : 0;
+        }
+        if (vine != null) vineTime += dt;
+
+        // Pitons: any handle - you're rarely on one for long, so a short hold counts.
         var h = me.data.currentClimbHandle;
         if (h != handle)
         {
-            if (handle != null && handleTime >= MinUse && handlePlacer > 0) Dismount("piton", handlePlacer);
+            if (handle != null) Leave("piton", handleTime, PitonMin, handlePlacer);
             handle = h;
             handleTime = 0f;
             handlePlacer = h != null ? PlacerNear(h.transform.position, 1.5f) : 0;
@@ -175,7 +188,19 @@ internal class ToolRelics : MonoBehaviour
         return null;
     }
 
-    /// <summary>Got off a tool: our own movement relics fire, and the placer's fire on us.</summary>
+    /// <summary>Let go of a rope / chain / piton: logged either way, fires if we were on it long enough.</summary>
+    private static void Leave(string what, float time, float min, int placer)
+    {
+        if (time < min)
+        {
+            Plugin.Log.LogInfo($"Tool relics: let go of a {what} after {time:0.0}s (under {min:0.#}s - doesn't count).");
+            return;
+        }
+        Plugin.Log.LogInfo($"Tool relics: let go of a {what} after {time:0.0}s ({(placer > 0 ? $"placed by actor {placer}" : "map / unknown placer")}).");
+        Dismount(what, placer, always: true);
+    }
+
+    /// <summary>Got off a tool: our own tool relics fire, and the placer's fire on us.</summary>
     private static void Dismount(string what, int placer, bool always = false)
     {
         Plugin.Log.LogInfo($"Tool relics: got off a {what}{(placer > 0 ? $" placed by actor {placer}" : "")}.");

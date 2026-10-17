@@ -207,6 +207,8 @@ internal class Offer
     public ushort Carried;
     /// <summary>Crates: copies of this spare already in one pocket.</summary>
     public int Have;
+    /// <summary>XP level-up of a tree you found before but don't carry: claiming it hands you a copy.</summary>
+    public bool Fresh;
 }
 
 /// <summary>
@@ -296,7 +298,11 @@ internal static class Offers
         return true;
     }
 
-    /// <summary>XP level-ups: one card per tree you carry that can still go up, closest to max first.</summary>
+    /// <summary>
+    /// XP level-ups: one card per tree that can still go up - every tree you carry, and every tree
+    /// you've picked up before this run (those come with a copy). Your carried item closest to max
+    /// always shows; up to [Xp] LevelCards cards.
+    /// </summary>
     public static List<Offer> Carried()
     {
         var list = new List<Offer>();
@@ -312,10 +318,21 @@ internal static class Offers
             o.Carried = s.prefab.itemID;
             list.Add(o);
         }
+        int carried = list.Count;
+        // Trees found earlier but not in your pockets now: levelling one hands you a copy.
+        foreach (var tree in Trees.All.Values)
+        {
+            if (trees.Contains(tree.Id) || RunState.Level(tree.Id) < 1 || Items.Find(Trees.BaseRole(tree.Id)) is not { } baseItem) continue;
+            var o = Resolve(baseItem);
+            if (o.Tree == null || o.Kind is not (OfferKind.TreeLevel or OfferKind.Fork)) continue;
+            o.Fresh = true;
+            list.Add(o);
+        }
+        int cards = Mathf.Clamp(ModConfig.XpLevelCards.Value, 1, 6);
         if (list.Count <= 1) return list;
         int Left(Offer o) => o.Tree!.MaxFor(o.Branch) - (o.Level - 1);
-        var first = list.OrderBy(Left).ThenBy(_ => Random.value).First();
-        return new[] { first }.Concat(list.Where(o => o != first).OrderBy(_ => Random.value).Take(2)).ToList();
+        var first = (carried > 0 ? list.Take(carried) : list).OrderBy(Left).ThenBy(_ => Random.value).First();
+        return new[] { first }.Concat(list.Where(o => o != first).OrderBy(_ => Random.value).Take(cards - 1)).ToList();
     }
 
     /// <summary>
@@ -336,6 +353,14 @@ internal static class Offers
             ? o.Level > k.Max || (k.Branch != 0 && !k.BothPaths && branch != k.Branch)
             : carried.itemID != next.itemID);
         LuggagePatches.LevelUp(tree, o.Level, branch);
+        if (o.Fresh && me != null && next != null)
+        {
+            // A tree you found before: here's one at the new level.
+            Xp.ExpectCrateItem(next);
+            GameUtils.instance.InstantiateAndGrab(next, me);
+            Plugin.Log.LogInfo($"Level-up: {tree.Name} {o.Level} - a fresh {next.gameObject.name}.");
+            return;
+        }
         if (!evolves || p == null || me == null) return;
         var s = p.GetItemSlot(o.Slot);
         if (s != null && !s.IsEmpty() && s.prefab != null && s.prefab.itemID == o.Carried && !Stacks.TakeOne(p, o.Slot))
@@ -451,10 +476,12 @@ internal static class CrateCards
             card.Title = $"{tree.Name}: Fork";
             card.TagColor = Trees.Steel;
             card.Body = string.Join("  or  ", Offers.Paths(tree, o.Level).Select(x => x.Name)) + "\nChoose your path on claim.";
-            card.Footer = $"{tree.Name}{Dot}level {o.Level}";
+            card.Footer = $"{tree.Name}{Dot}level {o.Level}" + (o.Fresh ? $"{Dot}+1 item" : "");
             return card;
         }
-        return Level(card, o);
+        card = Level(card, o);
+        if (o.Fresh) card.Footer += $"{Dot}+1 item";
+        return card;
     }
 
     public static CardSpec ForPath(TreeDef tree, int level, LevelDef option, Item crateItem)

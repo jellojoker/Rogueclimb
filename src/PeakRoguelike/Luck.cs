@@ -14,7 +14,7 @@ namespace PeakRoguelike;
 ///   statues         - the missing-ingredient / finished-fusion odds rise at the same point;
 ///   lucky fusion    - reaching the second biome's campfire, about one squad in ten finds a
 ///                     finished fusion on someone's next level-up;
-///   guarantee       - reaching the Kiln's campfire with no fusion made by anyone, one scout (the
+///   guarantee       - reaching the campfire before the Kiln with no fusion made by anyone, one scout (the
 ///                     closest to a fusion) is offered one. Leaving it passes it to the next scout.
 /// </summary>
 internal class Luck : MonoBehaviourPunCallbacks
@@ -155,11 +155,12 @@ internal class Luck : MonoBehaviourPunCallbacks
             if (roll < chance) lucky = FittingFusion();
             Plugin.Log.LogInfo($"Luck: second campfire - lucky fusion roll {roll:0.000} vs {chance:0.000}" + (lucky != null ? $" -> {lucky.Name} on the next level-up." : "."));
         }
-        if (b == (int)Segment.TheKiln && PhotonNetwork.InRoom)
+        // The Kiln has no campfire of its own: the guarantee comes as it starts (the Caldera / Gloom campfire).
+        if (b == (int)Segment.Caldera && PhotonNetwork.InRoom)
         {
             try { PhotonNetwork.LocalPlayer.SetCustomProperties(new Hashtable { [KilnKey] = 1 }); }
-            catch (System.Exception e) { Plugin.Log.LogWarning($"Luck: couldn't share the Kiln campfire: {e.Message}"); }
-            Plugin.Log.LogInfo("Luck: reached the Kiln's campfire.");
+            catch (System.Exception e) { Plugin.Log.LogWarning($"Luck: couldn't share the campfire: {e.Message}"); }
+            Plugin.Log.LogInfo("Luck: reached the campfire before the Kiln.");
         }
     }
 
@@ -202,7 +203,7 @@ internal class Luck : MonoBehaviourPunCallbacks
         catch { /* next tick */ }
     }
 
-    /// <summary>Host: once a scout reaches the Kiln's campfire and nobody has a fusion, pick who's offered one.</summary>
+    /// <summary>Host: once a scout reaches the campfire before the Kiln and nobody has a fusion, pick who's offered one.</summary>
     private static void Choose()
     {
         if (Room(FusedKey) != null || Room(ChosenKey) is int) return;

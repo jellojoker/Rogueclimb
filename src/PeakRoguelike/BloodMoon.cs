@@ -352,7 +352,7 @@ internal class BloodMoon : MonoBehaviour
             huntDone = true;
             if (ModConfig.BmScoutmaster.Value) ScoutmasterHunt.Steer(left);
         }
-        if (Tier >= 2 && !zombiesDone)
+        if (Tier >= 1 && !zombiesDone)
         {
             zombiesDone = true;
             if (ModConfig.BmZombies.Value) BloodZombies.Spawn(left);
@@ -565,7 +565,6 @@ internal class BloodMoon : MonoBehaviour
     [HarmonyPatch]
     internal static class Visuals
     {
-        private static Image? tint, vignette;
         private static GameObject? disc;
         private static Material? discMat;
         private static Light? movedMoon;
@@ -573,68 +572,18 @@ internal class BloodMoon : MonoBehaviour
 
         internal static void Tick()
         {
-            float b = Blend;
-            EnsureOverlay();
-            float strength = Mathf.Clamp01(ModConfig.BmTint.Value) * b;
-            if (tint != null)
-            {
-                tint.enabled = strength > 0.001f;
-                tint.color = new Color(0.62f, 0.02f, 0.01f, strength);
-            }
-            if (vignette != null)
-            {
-                vignette.enabled = strength > 0.001f;
-                vignette.color = new Color(0.45f, 0f, 0f, Mathf.Clamp01(strength * 3.5f));
-            }
-            if (b <= 0f && movedMoon != null)
+            // No screen filter: the moon lights the world red, the way a red sun does by day.
+            if (Blend <= 0f && movedMoon != null)
             {
                 movedMoon.transform.localRotation = moonLocal;
                 movedMoon = null;
             }
         }
 
-        private static void EnsureOverlay()
-        {
-            if (tint != null) return;
-            var go = new GameObject("PEAK Roguelike - Blood Filter");
-            Object.DontDestroyOnLoad(go);
-            var canvas = go.AddComponent<Canvas>();
-            canvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            canvas.sortingOrder = -50; // under the game's HUD
-            tint = Full(go.transform, "Tint", null);
-            vignette = Full(go.transform, "Vignette", VignetteSprite());
-            tint.enabled = vignette.enabled = false;
-        }
-
-        private static Image Full(Transform parent, string name, Sprite? sprite)
-        {
-            var go = new GameObject(name, typeof(RectTransform));
-            go.transform.SetParent(parent, false);
-            var rt = (RectTransform)go.transform;
-            rt.anchorMin = Vector2.zero;
-            rt.anchorMax = Vector2.one;
-            rt.offsetMin = rt.offsetMax = Vector2.zero;
-            var img = go.AddComponent<Image>();
-            img.sprite = sprite;
-            img.raycastTarget = false;
-            return img;
-        }
-
-        private static Sprite VignetteSprite()
-        {
-            const int n = 128;
-            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
-            for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++)
-            {
-                float dx = (x + 0.5f) / n * 2f - 1f, dy = (y + 0.5f) / n * 2f - 1f;
-                float d = Mathf.Sqrt(dx * dx + dy * dy) / 1.414f;
-                float a = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.45f, 1f, d));
-                tex.SetPixel(x, y, new Color(1f, 1f, 1f, a));
-            }
-            tex.Apply();
-            return Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f));
-        }
+        // A blood moon night is lit like a red-sun day, only redder: bright saturated sky (it also
+        // feeds the ambient light) and a light red moonlight - you can see where you're going.
+        private static readonly Color NightTop = new(0.75f, 0.06f, 0.04f), NightMid = new(1f, 0.18f, 0.08f), NightBottom = new(1f, 0.3f, 0.15f);
+        private static readonly Color MoonLightColour = new(1f, 0.5f, 0.4f);
 
         /// <summary>After the game lights the sky: red moonlight, a red sky, and the moon's direction raised.</summary>
         [HarmonyPostfix, HarmonyPatch(typeof(DayNightManager), nameof(DayNightManager.UpdateCycle))]
@@ -658,9 +607,9 @@ internal class BloodMoon : MonoBehaviour
                     return;
                 }
 
-                Shader.SetGlobalColor("SkyTopColor", Color.Lerp(Shader.GetGlobalColor("SkyTopColor"), new Color(0.10f, 0.0f, 0.01f), b * 0.85f));
-                Shader.SetGlobalColor("SkyMidColor", Color.Lerp(Shader.GetGlobalColor("SkyMidColor"), new Color(0.32f, 0.02f, 0.02f), b * 0.85f));
-                Shader.SetGlobalColor("SkyBottomColor", Color.Lerp(Shader.GetGlobalColor("SkyBottomColor"), new Color(0.45f, 0.05f, 0.03f), b * 0.85f));
+                Shader.SetGlobalColor("SkyTopColor", Color.Lerp(Shader.GetGlobalColor("SkyTopColor"), NightTop, b));
+                Shader.SetGlobalColor("SkyMidColor", Color.Lerp(Shader.GetGlobalColor("SkyMidColor"), NightMid, b));
+                Shader.SetGlobalColor("SkyBottomColor", Color.Lerp(Shader.GetGlobalColor("SkyBottomColor"), NightBottom, b));
 
                 // Keep the moon high in the sky so it lights the mountain from above.
                 Vector3 dir = -moon.transform.forward;
@@ -679,8 +628,8 @@ internal class BloodMoon : MonoBehaviour
                 Vector3 vanillaDir = -moon.transform.forward;
                 moon.transform.rotation = Quaternion.LookRotation(-Vector3.Slerp(vanillaDir, dir, b));
 
-                moon.color = Color.Lerp(moon.color, Blood, b);
-                moon.intensity = Mathf.Lerp(moon.intensity, ModConfig.BmMoonLight.Value, b);
+                moon.color = Color.Lerp(moon.color, MoonLightColour, b);
+                moon.intensity = Mathf.Lerp(moon.intensity, Mathf.Max(moon.intensity, ModConfig.BmMoonLight.Value), b);
                 ShowNightDisc(__instance, dir, b);
             }
             catch (System.Exception e)

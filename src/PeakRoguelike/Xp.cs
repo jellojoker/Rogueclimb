@@ -57,6 +57,9 @@ internal class Xp : MonoBehaviour
         instance.deferUntil = 0f;
         instance.flatSince = -1f;
         instance.targets.Clear();
+        instance.summits.Clear();
+        instance.landings.Clear();
+        instance.landed = 0f;
         instance.counted = false;
         crateItems.Clear();
         expected.Clear();
@@ -216,34 +219,77 @@ internal class Xp : MonoBehaviour
             clockFrom = Time.time;
             Plugin.Log.LogInfo($"XP: left camp - the fast-clear clock runs ({ModConfig.XpBiomeMinutes.Value:0} min).");
         }
-        // Height only. A biome that barely climbs pays its climb on arrival instead.
-        float span = to.y - from.y;
-        if (span >= ModConfig.XpMinClimb.Value * Squad.M)
+        if (Flat) Landing(me);
+        else
         {
-            float frac = Mathf.Clamp01((pos.y - from.y) / span);
-            if (frac > best)
+            // Height only. A biome that barely climbs pays its climb on arrival instead.
+            float span = to.y - from.y;
+            if (span >= ModConfig.XpMinClimb.Value * Squad.M)
             {
-                xp += (frac - best) * ClimbXp;
-                best = frac;
+                float frac = Mathf.Clamp01((pos.y - from.y) / span);
+                if (frac > best)
+                {
+                    xp += (frac - best) * ClimbXp;
+                    best = frac;
+                }
             }
         }
         if (Vector3.Distance(pos, to) > arrive) return;
 
-        // Reached the campfire (or the summit): the rest of the climb, the fast-clear bonus and the fire's own.
-        xp += (1f - best) * ClimbXp;
+        // Reached the campfire (or the summit): the rest of the climb (flat biomes: the landings
+        // topped up to their floor), the fast-clear bonus and the fire's own.
+        float climbed;
+        if (Flat)
+        {
+            float floor = Mathf.Max(0f, ModConfig.XpLandingFloor.Value) * PerLevel;
+            float top = Mathf.Max(0f, floor - landed);
+            xp += top;
+            climbed = landed + top;
+        }
+        else
+        {
+            xp += (1f - best) * ClimbXp;
+            climbed = ClimbXp;
+        }
         int bonus = Mathf.RoundToInt(BonusLeft * FastXp);
         int fire = Mathf.Max(0, ModConfig.XpCampfire.Value);
         xp += bonus + fire;
         Plugin.Log.LogInfo($"XP: cleared biome {biome} in {(clockFrom < 0f ? 0f : Time.time - clockFrom):0}s - fast clear +{bonus}, campfire +{fire} (total {xp:0}).");
         if (bonus + fire > 0) Hud.Toast($"Fast clear  +{bonus + fire} XP", Trees.Gold);
         // For tuning: what this biome paid, in levels.
-        Plugin.Log.LogInfo($"Biome done: {(Segment)biome} - {(ClimbXp + crateXp + itemXp + bonus + fire) / PerLevel:0.##} levels "
-            + $"(climb {ClimbXp / PerLevel:0.##} / crates {crateXp / PerLevel:0.##} / items {itemXp / PerLevel:0.##} / fast clear {bonus / PerLevel:0.##} / campfire {fire / PerLevel:0.##}), "
+        Plugin.Log.LogInfo($"Biome done: {(Segment)biome} - {(climbed + crateXp + itemXp + bonus + fire) / PerLevel:0.##} levels "
+            + $"({(Flat ? $"landings {landings.Count} = " : "climb ")}{climbed / PerLevel:0.##} / crates {crateXp / PerLevel:0.##} / items {itemXp / PerLevel:0.##} / fast clear {bonus / PerLevel:0.##} / campfire {fire / PerLevel:0.##}), "
             + $"{merges} merge(s); {Earned} levels earned this run.");
         Luck.BiomeCleared(biome);
-        bool last = biome + 1 >= map.segments.Length || !Ends(biome + 1, out _, out _, out _);
+        bool last = summits.Contains(biome) || biome + 1 >= map.segments.Length || !Ends(biome + 1, out _, out _, out _);
         if (last) { biome = int.MaxValue; Plugin.Log.LogInfo("XP: summit - no more biomes."); }
         else StartBiome(biome + 1);
+    }
+
+    // --- flat biomes: new ground instead of new height --------------------------------------------
+
+    /// <summary>Caldera / Gloom: crossing, not climbing - XP comes from landing on new ground.</summary>
+    private bool Flat => biome == (int)Segment.Caldera;
+
+    private readonly List<Vector3> landings = new();
+    private float landed, groundedSince = -1f;
+
+    private void Landing(Character me)
+    {
+        var d = me.data;
+        if (!d.isGrounded || d.isClimbingAnything || d.isCarried || BloodTornado.Carrying(me)) { groundedSince = -1f; return; }
+        if (groundedSince < 0f) groundedSince = Time.time;
+        if (Time.time - groundedSince < 0.5f) return;
+        float cap = Mathf.Max(0f, ModConfig.XpLandingCap.Value) * PerLevel;
+        if (landed >= cap) return;
+        Vector3 pos = me.Center;
+        float gap = Mathf.Max(1f, ModConfig.XpLandingSpacing.Value) * Squad.M;
+        if (landings.Any(l => Vector3.Distance(l, pos) < gap)) return;
+        landings.Add(pos);
+        float add = Mathf.Min(Mathf.Max(0f, ModConfig.XpLandingXp.Value), cap - landed);
+        landed += add;
+        xp += add;
+        Plugin.Log.LogInfo($"XP: landed on new ground +{add:0} ({landings.Count}, {landed:0}/{cap:0}).");
     }
 
     private void StartBiome(int b)
@@ -251,6 +297,9 @@ internal class Xp : MonoBehaviour
         biome = b;
         best = crateXp = itemXp = 0f;
         merges = 0;
+        landings.Clear();
+        landed = 0f;
+        groundedSince = -1f;
         clockFrom = -1f;
         if (Ends(b, out var from, out var to, out _))
         {
@@ -285,6 +334,8 @@ internal class Xp : MonoBehaviour
     }
 
     private readonly Dictionary<int, (Vector3 pos, float radius)> targets = new();
+    /// <summary>Biomes that end at the summit (nothing after them).</summary>
+    private readonly HashSet<int> summits = new();
 
     /// <summary>Where biome b starts and ends, and how close counts as arriving.</summary>
     private bool Ends(int b, out Vector3 from, out Vector3 to, out float arrive)
@@ -322,8 +373,10 @@ internal class Xp : MonoBehaviour
             pos = fire.transform.position;
             radius = fire.moraleBoostRadius > 1f ? fire.moraleBoostRadius : 15f * Squad.M;
         }
-        else if (b == map.segments.Length - 1 || (Segment)b >= Segment.Peak)
+        // No campfire of its own (the Kiln runs straight on to the summit): the summit ends it.
+        else if (b == map.segments.Length - 1 || (Segment)b >= Segment.TheKiln)
         {
+            summits.Add(b);
             var peak = FindObjectsByType<PeakSequence>(FindObjectsInactive.Include, FindObjectsSortMode.None).FirstOrDefault();
             if (peak == null) return false;
             pos = peak.transform.position;

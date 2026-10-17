@@ -59,18 +59,13 @@ internal static class Squad
         .ToList();
 
     /// <summary>
-    /// Who the Scoutmaster and the tornado may hurt: relic holders and anyone standing within the
-    /// aura of one (a veiled holder casts none). With no relics in the squad at all (a dark rite),
-    /// everyone on open ground. Veiled scouts are never marked.
+    /// Who the Scoutmaster and the tornado may hurt: everyone on open ground who isn't veiled by a
+    /// relic - relic holders first (see <see cref="Priority"/>).
     /// </summary>
-    public static List<Character> Marked()
-    {
-        var hunted = Pursued();
-        if (!AnyHolders()) return hunted;
-        var holders = Holders();
-        float aura = Aura;
-        return hunted.Where(c => holders.Contains(c) || holders.Any(h => Vector3.Distance(h.Center, c.Center) <= aura)).ToList();
-    }
+    public static List<Character> Marked() => Pursued();
+
+    /// <summary>Sort key: relic holders (and skull / dagger carriers) before everyone else.</summary>
+    public static int Priority(Character c) => HoldsRelic(c) || CarriesRite(c) ? 0 : 1;
 
     /// <summary>Carries at least one relic (copies included).</summary>
     public static bool HoldsRelic(Character c) =>
@@ -151,19 +146,22 @@ internal static class BloodZombies
     }
 
     /// <summary>
-    /// Zombies (ZombiesPerScout) rise right beside every scout out in the open who carries a relic (copies
-    /// included), the Cursed Skull or the Ritual Dagger.
+    /// Zombies rise right beside every scout out in the open (ZombiesPerScout each); from tier 2,
+    /// scouts carrying a relic (copies included), the Cursed Skull or the Ritual Dagger get
+    /// ZombiesPerCarrier more.
     /// </summary>
     public static void Spawn(float seconds)
     {
-        var marked = Squad.Alive().Where(c => !Sanctuary.Safe(c) && (Squad.HoldsRelic(c) || Squad.CarriesRite(c))).ToList();
+        var marked = Squad.Alive().Where(c => !Sanctuary.Safe(c)).ToList();
         if (marked.Count == 0) return;
         until = Time.time + seconds;
         float near = Mathf.Max(1f, ModConfig.BmZombieNear.Value) * Squad.M;
-        int each = Mathf.Max(1, ModConfig.BmZombiesPerScout.Value);
         int made = 0;
         foreach (var scout in marked)
         {
+            int each = Mathf.Max(0, ModConfig.BmZombiesPerScout.Value)
+                       + (BloodMoon.Tier >= 2 && Squad.Priority(scout) == 0 ? Mathf.Max(0, ModConfig.BmZombiesPerCarrier.Value) : 0);
+            if (each <= 0) continue;
             // Spread evenly around the scout (two = opposite sides), so they're flanked, not walled in.
             float start = Random.Range(0f, 360f);
             for (int n = 0; n < each; n++)
@@ -388,7 +386,10 @@ internal class BloodTornado : MonoBehaviour
         // Far away it heads straight for the nearest scout; close up it picks prey every few seconds.
         bool far = Nearest(alive) > ModConfig.BmTornadoNear.Value;
         nextPick = Time.time + (far ? 2f : Random.Range(6f, 12f));
-        var prey = far ? alive.OrderBy(c => Vector3.Distance(c.Center, transform.position)).First() : alive[Random.Range(0, alive.Count)];
+        // Relic holders first: it heads for the nearest one, and up close favours them two to one.
+        var weighted = alive.SelectMany(c => Squad.Priority(c) == 0 ? new[] { c, c } : new[] { c }).ToList();
+        var prey = far ? alive.OrderBy(Squad.Priority).ThenBy(c => Vector3.Distance(c.Center, transform.position)).First()
+            : weighted[Random.Range(0, weighted.Count)];
         Vector2 jitter = far ? Vector2.zero : Random.insideUnitCircle * 8f;
         Net.TornadoTarget(tornado.view.ViewID, prey.Center + new Vector3(jitter.x, 0f, jitter.y));
     }

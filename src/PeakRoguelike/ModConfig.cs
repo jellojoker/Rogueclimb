@@ -48,13 +48,13 @@ internal static class ModConfig
     public static ConfigEntry<bool> BloodMoon = null!, BmDarkRites = null!, BmWarning = null!;
     public static ConfigEntry<bool> BmScoutmaster = null!, BmZombies = null!, BmTornado = null!, BmGlassMeteors = null!, BmMeteors = null!;
     public static ConfigEntry<float> BmMeteorRate = null!;
-    public static ConfigEntry<float> BmTint = null!, BmMoonLight = null!;
+    public static ConfigEntry<float> BmMoonLight = null!;
     public static ConfigEntry<float> BmMusicVolume = null!;
     public static ConfigEntry<bool> BmMusicLoop = null!;
     public static ConfigEntry<float> BmScoutmasterSpawnMin = null!, BmScoutmasterSpawnMax = null!, BmScoutmasterSpawnHeight = null!,
         BmScoutmasterStuck = null!, BmScoutmasterRecover = null!;
     public static ConfigEntry<float> BmZombieNear = null!;
-    public static ConfigEntry<int> BmZombiesPerScout = null!;
+    public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
 
@@ -91,7 +91,9 @@ internal static class ModConfig
     public static ConfigEntry<bool> Xp = null!;
     public static ConfigEntry<int> XpPerCrate = null!, XpHealingUse = null!, XpFoodUse = null!, XpItemUse = null!, XpCampfire = null!;
     public static ConfigEntry<float> XpCrateLevels = null!, XpItemLevels = null!, XpMinClimb = null!;
-    public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!;
+    public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!,
+        XpLandingXp = null!, XpLandingSpacing = null!, XpLandingCap = null!, XpLandingFloor = null!;
+    public static ConfigEntry<int> XpLevelCards = null!;
     public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckStatueFusionLate = null!, LuckFusionChance = null!;
     public static ConfigEntry<int> LuckLateFrom = null!;
     public static ConfigEntry<bool> LuckGuarantee = null!;
@@ -109,13 +111,15 @@ internal static class ModConfig
         BmScoutmaster = cfg.Bind("BloodMoon", "Scoutmaster", true, "1 relic: the Scoutmaster hunts relic holders.");
         BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: zombies rise beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
         BmZombieNear = cfg.Bind("BloodMoon", "ZombieDistance", 4f, "How far (m, +-25%) from its scout each blood moon zombie rises.");
-        BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 2, "How many zombies rise beside each marked scout (spread evenly around them).");
+        BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 1, "How many zombies rise beside every scout in the open, from tier 1 (spread evenly around them).");
+        BmZombiesPerCarrier = cfg.Bind("BloodMoon", "ZombiesPerCarrier", 1, "From tier 2: this many more beside each scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
+        BmGrabsTier1 = cfg.Bind("BloodMoon", "GrabsPerScoutTier1", 1, "Tier 1: grabs per scout per moon before the Scoutmaster only watches them.");
+        BmGrabsTier2 = cfg.Bind("BloodMoon", "GrabsPerScoutTier2", 2, "Tier 2: the same (from tier 3 he only watches).");
         BmTornado = cfg.Bind("BloodMoon", "Tornado", true, "3 relics: a tornado that heads for relic holders (sand on Mesa, snow on Alpine).");
         BmGlassMeteors = cfg.Bind("BloodMoon", "GlassMeteors", true, "4 relics, Gloom runs (Gloom + Citadel): a shower of purple glass - a direct hit adds glass.");
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
         BmMeteorRate = cfg.Bind("BloodMoon", "MeteorRate", 1f, "Meteors per second around each scout.");
-        BmTint = cfg.Bind("BloodMoon", "ScreenTint", 0.16f, "Strength of the red screen filter (0 = off).");
-        BmMoonLight = cfg.Bind("BloodMoon", "MoonLight", 1.1f, "Brightness of the red moonlight.");
+        BmMoonLight = cfg.Bind("BloodMoon", "MoonLight", 1.6f, "Brightness of the red moonlight (a blood moon night is lit like a red-sun day; never darker than the vanilla moon).");
         BmMusicVolume = cfg.Bind("BloodMoon", "MusicVolume", 0.3f, "Volume of BloodMoon.ogg/.wav/.mp3 placed next to the mod DLL (no file = no music).");
         BmMusicLoop = cfg.Bind("BloodMoon", "MusicLoop", true, "Loop the blood moon music for the whole blood moon (off = play once).");
         // New key so the old 1.25 doesn't stick around in existing configs.
@@ -144,8 +148,13 @@ internal static class ModConfig
         BmStareStatic = cfg.Bind("BloodMoon", "StareStatic", 0.9f, "Tier 2: how strong his static gets as your stare runs out (0 = none).");
         BmLungeTime = cfg.Bind("BloodMoon", "LungeTime", 8f, "Tier 2: how long a charge lasts before he gives up (it still counts as his one try).");
         Xp = cfg.Bind("Xp", "Enabled", true, "A gold XP bar: per biome, climbing (new height only), crates and using up crate items each fill up to 2 levels; reaching camp adds the fast-clear bonus and 100. Each level opens a crate card pick once you stand on flat ground.");
-        XpBiomeMinutes = cfg.Bind("Xp", "BiomeMinutes", 10f, "The fast-clear bonus drains to nothing over this many minutes (starts when you leave camp).");
-        XpClimbLevels = cfg.Bind("Xp", "ClimbLevels", 2f, "Levels a whole biome's climb is worth (bottom to campfire).");
+        XpBiomeMinutes = cfg.Bind("Xp", "BiomeMinutes", 20f, "The fast-clear bonus drains to nothing over this many minutes (starts when you leave camp).");
+        XpClimbLevels = cfg.Bind("Xp", "ClimbLevels", 2.5f, "Levels a whole biome's climb is worth (bottom to campfire).");
+        XpLevelCards = cfg.Bind("Xp", "LevelCards", 4, "Cards on a level-up: items you carry and trees you found before this run (those come with a copy).");
+        XpLandingXp = cfg.Bind("Xp", "LandingXp", 125f, "Caldera / Gloom (flat biomes): XP for landing on new ground instead of climbing...");
+        XpLandingSpacing = cfg.Bind("Xp", "LandingSpacing", 15f, "...at least this many metres from every spot you've landed on in that biome...");
+        XpLandingCap = cfg.Bind("Xp", "LandingLevels", 3f, "...up to this many levels...");
+        XpLandingFloor = cfg.Bind("Xp", "LandingFloor", 2f, "...and reaching the campfire tops it up to at least this many.");
         XpFastClearLevels = cfg.Bind("Xp", "FastClearLevels", 1f, "Levels the fast-clear bonus is worth with the full time left.");
         XpMinClimb = cfg.Bind("Xp", "MinClimb", 50f, "A biome whose campfire is less than this many metres above its start pays its climb on arrival instead.");
         XpCampfire = cfg.Bind("Xp", "CampfireXp", 100, "XP for reaching each campfire (and the summit), on top of the fast-clear bonus.");
@@ -162,7 +171,7 @@ internal static class ModConfig
         LuckStatueIngredientLate = cfg.Bind("Luck", "StatueIngredientLate", 0.3f, "Late luck: statue / Ancient Luggage chance of the missing ingredient (early = [Fusion] StatueIngredientChance).");
         LuckStatueFusionLate = cfg.Bind("Luck", "StatueFusionLate", 0.05f, "Late luck: statue / Ancient Luggage chance of a finished fusion (early = [Fusion] StatueFusionChance).");
         LuckFusionChance = cfg.Bind("Luck", "LuckyFusionChance", 0.1f, "Reaching the second biome's campfire: chance per SQUAD that a scout's next level-up offers a finished fusion (each scout rolls this divided by the squad size).");
-        LuckGuarantee = cfg.Bind("Luck", "SquadGuarantee", true, "Reaching the Kiln's campfire with no fusion made by anyone: one scout (the closest to a fusion) is offered a guaranteed one.");
+        LuckGuarantee = cfg.Bind("Luck", "SquadGuarantee", true, "Reaching the campfire before the Kiln (Caldera / Gloom) with no fusion made by anyone: one scout (the closest to a fusion) is offered a guaranteed one.");
         XpBarScale = cfg.Bind("Xp", "BarScale", 0.75f, "Size of the XP bar (a copy of the stamina bar).");
         XpBarX = cfg.Bind("Xp", "BarOffsetX", 0f, "Nudge the XP bar right (+) / left (-), in UI pixels.");
         XpBarY = cfg.Bind("Xp", "BarOffsetY", 0f, "Nudge the XP bar up (+) / down (-), in UI pixels.");
@@ -302,6 +311,15 @@ internal static class ModConfig
             StackByLevel.Value = false;
             defaults.Value = 3;
             Plugin.Log.LogInfo("Config: crate XP up to 1 level a biome, item XP up to 1.5, everything stacks to 3 (new defaults).");
+        }
+        if (defaults.Value < 4)
+        {
+            XpClimbLevels.Value = 2.5f;
+            XpBiomeMinutes.Value = 20f;
+            BmZombiesPerScout.Value = 1;
+            BmMoonLight.Value = 1.6f;
+            defaults.Value = 4;
+            Plugin.Log.LogInfo("Config: climb 2.5 levels a biome, fast clear over 20 min, 1 zombie per scout, brighter blood moonlight (new defaults).");
         }
     }
 }

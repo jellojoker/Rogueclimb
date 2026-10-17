@@ -12,6 +12,12 @@ namespace PeakRoguelike;
 public enum RelicGem { Tenacity, Initiative, Generosity, Ambition }
 public enum RelicTrigger { Food, Healing, Movement }
 
+internal static class RelicTriggerNames
+{
+    /// <summary>What the cards call the class (Movement shows as Tools: ropes, pitons and the rest count).</summary>
+    public static string Label(this RelicTrigger t) => t == RelicTrigger.Movement ? "Tools" : t.ToString();
+}
+
 public class RelicDef
 {
     public RelicGem Gem;
@@ -33,16 +39,16 @@ internal class Relics : MonoBehaviour
     {
         R(RelicGem.Tenacity, RelicTrigger.Food, "Gourmet Shield", "Eating any food heals you and\nmakes you invincible."),
         R(RelicGem.Tenacity, RelicTrigger.Healing, "Medic Shield", "Using any healing item heals you\nmore and makes you invincible."),
-        R(RelicGem.Tenacity, RelicTrigger.Movement, "Kinetic Shield", "Using a movement tool heals you\nand makes you invincible."),
+        R(RelicGem.Tenacity, RelicTrigger.Movement, "Kinetic Shield", "Using a tool heals you\nand makes you invincible."),
         R(RelicGem.Initiative, RelicTrigger.Food, "Sugar Launch", "Eating any food launches you and\nnearby scouts into a super jump."),
         R(RelicGem.Initiative, RelicTrigger.Healing, "Purge Rocket", "Using any healing item launches\nyou and nearby scouts skyward."),
-        R(RelicGem.Initiative, RelicTrigger.Movement, "Overdrive Leap", "Using a movement tool launches\nyou and nearby scouts skyward."),
+        R(RelicGem.Initiative, RelicTrigger.Movement, "Overdrive Leap", "Using a tool launches\nyou and nearby scouts skyward."),
         R(RelicGem.Generosity, RelicTrigger.Food, "Second Helping", "Take food from a crate\nand you may take another card."),
         R(RelicGem.Generosity, RelicTrigger.Healing, "Spare Supplies", "Take a healing item from a crate\nand you may take another card."),
-        R(RelicGem.Generosity, RelicTrigger.Movement, "Twin Gear", "Take a movement tool from a crate\nand you may take another card."),
+        R(RelicGem.Generosity, RelicTrigger.Movement, "Twin Gear", "Take a tool from a crate\nand you may take another card."),
         R(RelicGem.Ambition, RelicTrigger.Food, "Glucose Engine", "Eating any food radiates\ninfinite stamina around you."),
         R(RelicGem.Ambition, RelicTrigger.Healing, "Adrenaline Rush", "Using any healing item radiates\ninfinite stamina around you."),
-        R(RelicGem.Ambition, RelicTrigger.Movement, "Momentum Flow", "Using a movement tool radiates\ninfinite stamina around you."),
+        R(RelicGem.Ambition, RelicTrigger.Movement, "Momentum Flow", "Using a tool radiates\ninfinite stamina around you."),
     };
 
     static RelicDef R(RelicGem g, RelicTrigger t, string n, string d) => new() { Gem = g, Trigger = t, Name = n, Desc = d };
@@ -202,7 +208,7 @@ internal class Relics : MonoBehaviour
                 Title = o.Name,
                 Heading = GemName(gem),
                 Body = o.Desc,
-                Tag = o.Trigger.ToString(),
+                Tag = o.Trigger.Label(),
                 Icon = Items.Icon(slot.prefab),
             }).ToList(),
             StillValid = () => Player.localPlayer != null && !slot.IsEmpty() && slot.prefab != null && slot.prefab.itemID == amuletId,
@@ -268,7 +274,7 @@ internal class Relics : MonoBehaviour
                     Title = relic.Name,
                     Heading = "Cursed copy",
                     Body = relic.Desc + "\nShatters if you die.",
-                    Tag = relic.Trigger.ToString(),
+                    Tag = relic.Trigger.Label(),
                     Icon = amulet != null ? Items.Icon(amulet) : null,
                 },
             },
@@ -306,7 +312,7 @@ internal class Relics : MonoBehaviour
                 Title = o.Name,
                 Heading = GemName(gem),
                 Body = o.Desc,
-                Tag = o.Trigger.ToString(),
+                Tag = o.Trigger.Label(),
                 Icon = amulet != null ? Items.Icon(amulet) : null,
             }).ToList(),
             StillValid = () => Player.localPlayer != null,
@@ -452,7 +458,7 @@ internal class Relics : MonoBehaviour
                 Title = Get(o.gem, o.trigger).Name,
                 Heading = o.stack ? "Stack it" : "Cursed copy",
                 Body = o.stack ? $"Your {GemName(o.gem)} grows:\nit recharges faster." : $"A cursed copy of {name}'s\nrelic. Shatters if you die.",
-                Tag = o.trigger.ToString(),
+                Tag = o.trigger.Label(),
                 Icon = Items.Icon(Amulet(o.gem)),
             }).ToList(),
             OnConfirm = i =>
@@ -559,7 +565,10 @@ internal class Relics : MonoBehaviour
     internal static bool IsMovementItem(Item item)
     {
         var tree = Trees.Classify(item);
+        // The Tools class: anti-ropes, the Chain Launcher and Rescue Claw are tools too, tree or not.
         return tree is TreeId.Rope or TreeId.Piton or TreeId.Glider or TreeId.Balloons
+            || item.GetComponent<RopeSpool>() || item.GetComponent<RopeShooter>() || item.GetComponent<VineShooter>()
+            || item.GetComponent<RescueHook>() || item.GetComponent<CloudFungus>()
             || item.GetComponent<MagicBean>() || item.GetComponent<ShelfShroom>() || item.GetComponent<JetpackItem>()
             || item.GetComponent<Action_LaunchPlayer>() || item.GetComponent<Parasol>() || item.GetComponent<Antigrav>();
     }
