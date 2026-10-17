@@ -363,7 +363,7 @@ public class ChoiceScreen : MonoBehaviour
         [HarmonyPostfix, HarmonyPatch(typeof(GUIManager), nameof(GUIManager.UpdateWindowStatus))]
         private static void BlockInput(GUIManager __instance)
         {
-            if (!IsOpen && !DevPanel.Interactive) return;
+            if (!IsOpen && !DevPanel.Interactive && !BugReports.Typing) return;
             __instance.windowShowingCursor = true;
             __instance.windowBlockingInput = true;
         }
@@ -371,8 +371,14 @@ public class ChoiceScreen : MonoBehaviour
         [HarmonyPrefix, HarmonyPatch(typeof(GUIManager), nameof(GUIManager.UpdatePaused))]
         private static bool EscapeCloses()
         {
-            if (!IsOpen) return true;
             var ch = Character.localCharacter;
+            if (!IsOpen)
+            {
+                // Esc closes the bug note box (it handles the key itself), not the pause menu.
+                if (!BugReports.Typing) return true;
+                if (ch != null) ch.input.pauseWasPressed = false;
+                return false;
+            }
             if (ch != null && ch.input.pauseWasPressed)
             {
                 ch.input.pauseWasPressed = false;

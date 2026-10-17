@@ -20,6 +20,11 @@ internal static class ModConfig
     public static ConfigEntry<Key> DevPanelKey = null!;
     public static ConfigEntry<float> SugarRushSeconds = null!;
 
+    // --- bug reports ---------------------------------------------------------------------
+    public static ConfigEntry<Key> BugReportKey = null!;
+    public static ConfigEntry<bool> BugReportOnError = null!;
+    public static ConfigEntry<float> BugReportLogMinutes = null!;
+
     // --- relics --------------------------------------------------------------------------
     public static ConfigEntry<int> GlassPerTrigger = null!;
     public static ConfigEntry<float> RelicCooldown = null!, RelicVeil = null!, DaggerStackCooldown = null!;
@@ -249,6 +254,9 @@ internal static class ModConfig
 
         FusionKey = cfg.Bind("Fusion", "OpenFusionKey", Key.J, "Re-open the fusion screen after choosing 'Not now'.");
         DevPanelKey = cfg.Bind("Dev", "BuildPanelKey", Key.F8, "Show which build of the mod every player in the lobby is running.");
+        BugReportKey = cfg.Bind("BugReports", "Key", Key.F7, "Save a bug report (screenshot, recent log, run state, config) on every modded player's PC. Saved in BepInEx/BugReports.");
+        BugReportOnError = cfg.Bind("BugReports", "AutoOnError", true, "Save a report by itself the first time the mod hits an error in a run.");
+        BugReportLogMinutes = cfg.Bind("BugReports", "LogMinutes", 5f, "Minutes of log kept in each report.");
         SugarRushSeconds = cfg.Bind("Fusion", "SugarRushShieldSeconds", 8f, "Sugar-Rush Cocktail: how long its milk shield and infinite stamina last before the healing crash (the energy drink and lollipop inside it run their own vanilla times).");
         JetpackFuel = cfg.Bind("Fusion", "JetpackFuel", 1.5f, "Fused Jetpack: fuel multiplier (its twist).");
         FaerieBoost = cfg.Bind("Fusion", "FaerieLanternBoost", 1.5f, "Fused Faerie Lantern: range, healing and burn time multiplier (its twist).");

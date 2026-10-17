@@ -9,13 +9,15 @@ public class Plugin : BaseUnityPlugin
 {
     public const string Id = "rey.PeakRoguelike";
     public const string Name = "Rogue Climb";
-    public const string Version = "0.12.12";
+    public const string Version = "0.12.13";
 
     internal static ManualLogSource Log = null!;
+    internal static string ConfigPath = "";
 
     private void Awake()
     {
         Log = Logger;
+        ConfigPath = Config.ConfigFilePath;
         ModConfig.Bind(Config);
         var harmony = new Harmony(Id);
         // One class at a time: a hook the game no longer has costs only that class, not the whole mod.
@@ -48,6 +50,7 @@ public class Plugin : BaseUnityPlugin
         DevPanel.Install();
         Modless.Install();
         DeathDrops.Install();
+        BugReports.Install();
         Log.LogInfo($"{Name} {Version} loaded - crates, item trees, fusions, relics and blood moons.");
     }
 }

@@ -56,7 +56,7 @@ internal class DevPanel : MonoBehaviour
     internal static bool ToolsAllowed => ModConfig.DevTools.Value && (!PhotonNetwork.InRoom || PhotonNetwork.IsMasterClient);
 
     /// <summary>The panel is open with clickable tools: free the cursor, block game input.</summary>
-    internal static bool Interactive => instance != null && instance.open && ToolsAllowed;
+    internal static bool Interactive => instance != null && instance.open && (ToolsAllowed || BugReports.PanelClickable);
 
     internal static void Install()
     {
@@ -112,7 +112,7 @@ internal class DevPanel : MonoBehaviour
         }
 
         var kb = Keyboard.current;
-        if (kb != null && kb[ModConfig.DevPanelKey.Value].wasPressedThisFrame) open = !open;
+        if (kb != null && kb[ModConfig.DevPanelKey.Value].wasPressedThisFrame) { open = !open; if (open) BugReports.AskCounts(); }
         if (kb != null && ToolsAllowed && kb[ModConfig.FlyKey.Value].wasPressedThisFrame && !ChoiceScreen.IsOpen)
             DevCheats.SetFly(!DevCheats.Fly);
         if (DevCheats.Fly && !ToolsAllowed) DevCheats.SetFly(false); // lost host
@@ -131,6 +131,7 @@ internal class DevPanel : MonoBehaviour
 
         if (Time.unscaledTime < nextRefresh) return;
         nextRefresh = Time.unscaledTime + 0.5f;
+        if (tab == Tab.Build && bugKey != BugReports.PanelKey) Rebuild(); // bug report buttons changed
         WarnHost();
         if (alpha > 0f) Refresh();
     }
@@ -247,9 +248,19 @@ internal class DevPanel : MonoBehaviour
 
     // --- Build tab --------------------------------------------------------------------------------
 
+    private string bugKey = "";
+
     private void BuildTab()
     {
-        text = Label("", 700f, 20);
+        text = Label("", 560f, 20);
+        bugKey = BugReports.PanelKey;
+        if (!PhotonNetwork.InRoom) return;
+        if (BugReports.IsHost)
+            Row(BugReports.Collecting ? B("Stop collecting", BugReports.StopCollect, RedColor) : B("Collect bug reports", BugReports.Collect, OnColor));
+        else if (BugReports.Sending)
+            Row(B("Sending reports...", () => { }));
+        else
+            Row(BugReports.InAirport ? B("Send my bug reports", BugReports.SendMine, OnColor) : B("Send my bug reports (airport only)", () => { }));
     }
 
     private static string BuildOf(Photon.Realtime.Player p) =>
@@ -277,8 +288,19 @@ internal class DevPanel : MonoBehaviour
                 : build == Build ? $"<color=#9BE07A>{build}</color>"
                 : VersionOf(build) == Plugin.Version ? $"<color=#FFD24A>{build}  (same version, other build)</color>"
                 : $"<color=#FF6345>{build}  (MISMATCH)</color>";
-            sb.Append($"{who}{tags}\n    {shown}\n");
+            int waiting = PhotonNetwork.IsMasterClient && !p.IsLocal ? BugReports.Waiting(p.ActorNumber) : 0;
+            string bugs = waiting > 0 ? $"  <color=#FFD24A>· {waiting} bug report{(waiting == 1 ? "" : "s")} waiting</color>" : "";
+            sb.Append($"{who}{tags}{bugs}\n    {shown}\n");
         }
+
+        sb.Append($"\n<size=16><color=#D9C9A3>Bug reports: [{ModConfig.BugReportKey.Value}] saves one on everyone's PC.");
+        if (!PhotonNetwork.IsMasterClient)
+        {
+            int mine = BugReports.MyUnsent;
+            sb.Append(mine > 0 ? $" You have {mine} unsent." : " Nothing unsent.");
+        }
+        if (BugReports.Status.Length > 0) sb.Append($"\n<color=#9BE07A>{BugReports.Status}</color>");
+        sb.Append("</color></size>");
         return sb.ToString();
     }
 

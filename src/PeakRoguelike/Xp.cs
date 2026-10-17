@@ -66,6 +66,10 @@ internal class Xp : MonoBehaviour
         seen.Clear();
     }
 
+    /// <summary>One line for bug reports.</summary>
+    internal static string Summary => instance == null ? "-"
+        : $"{instance.xp:0} ({Mathf.FloorToInt(instance.xp / PerLevel)} levels, {instance.claimed} picked), biome {instance.biome}, best {instance.best:0.00}, crate {instance.crateXp:0}, items {instance.itemXp:0}";
+
     internal static void DevAdd(float amount)
     {
         if (instance == null) return;

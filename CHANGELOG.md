@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.13
+- Bug reports: press F7 to save one on every modded player's PC (screenshot, the last 5 minutes of log, the run's state and your config) in BepInEx/BugReports. Whoever pressed it can type what happened.
+- The first mod error in a run saves a report by itself.
+- The host collects everyone's unsent reports from the F8 panel, anywhere; other players can send theirs from the airport.
+
 ## 0.12.12
 - Fixed: merging a third copy (including the Rope Cannon evolution) ate your stack and handed out nothing.
 - Fixed: a picked item joining a lower-level stack now raises the stack to the level you were offered.
