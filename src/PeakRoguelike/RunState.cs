@@ -71,6 +71,8 @@ internal static class RunState
         Luck.Reset();
         Storage.Reset();
         ItemLevels.Reset();
+        PerkLuggage.ClearRoom();
+        DeathDrops.Reset();
         Publish();
         Changed?.Invoke();
         Plugin.Log.LogInfo("Run progress reset.");

@@ -153,8 +153,8 @@ internal class ScoutmasterHunt : MonoBehaviour
             lungeAt = null;
         }
         var fresh = prey.Where(c => !spent.Contains(c)).ToList();
-        var mode = BloodMoon.Tier <= 2 && fresh.Count > 0 ? HuntMode.Hunter : HuntMode.Observer;
-        if (mode != Mode) Plugin.Log.LogInfo($"Scoutmaster: {Mode} -> {mode} (tier {BloodMoon.Tier}).");
+        var mode = BloodMoon.ScoutmasterTier <= 2 && fresh.Count > 0 ? HuntMode.Hunter : HuntMode.Observer;
+        if (mode != Mode) Plugin.Log.LogInfo($"Scoutmaster: {Mode} -> {mode} (tier {BloodMoon.ScoutmasterTier}).");
         Mode = mode;
         var pool = mode == HuntMode.Hunter ? fresh : mode == HuntMode.Lunge ? new List<Character> { lungeAt! } : prey;
 
@@ -195,7 +195,7 @@ internal class ScoutmasterHunt : MonoBehaviour
     /// <summary>Throws per scout this moon; at the tier's grab count he only watches them.</summary>
     private readonly Dictionary<Character, int> throws = new();
 
-    private static int Grabs => Mathf.Max(1, BloodMoon.Tier <= 1 ? ModConfig.BmGrabsTier1.Value : ModConfig.BmGrabsTier2.Value);
+    private static int Grabs => Mathf.Max(1, BloodMoon.ScoutmasterTier <= 1 ? ModConfig.BmGrabsTier1.Value : ModConfig.BmGrabsTier2.Value);
 
     private void Spend(Character c, string why)
     {
@@ -233,7 +233,7 @@ internal class ScoutmasterHunt : MonoBehaviour
     /// </summary>
     private void Stares()
     {
-        if (BloodMoon.Tier != 2 || lungeAt != null || restUntil > 0f || !Scoutmaster.GetPrimaryScoutmaster(out var sm)
+        if (BloodMoon.ScoutmasterTier != 2 || lungeAt != null || restUntil > 0f || !Scoutmaster.GetPrimaryScoutmaster(out var sm)
             || sm == null || sm.character == null || Busy(sm))
         {
             stares.Clear();
@@ -309,7 +309,7 @@ internal class ScoutmasterHunt : MonoBehaviour
     private void Recover(Scoutmaster sm, string why)
     {
         standIn = null;
-        float s = BloodMoon.Tier <= 2 ? ModConfig.BmHunterRecover.Value : ModConfig.BmScoutmasterRecover.Value;
+        float s = BloodMoon.ScoutmasterTier <= 2 ? ModConfig.BmHunterRecover.Value : ModConfig.BmScoutmasterRecover.Value;
         if (s <= 0f) return;
         sm.chillForSeconds = s;
         TargetForcedUntil(sm) = Time.time; // free to pick someone new once he's recovered
@@ -440,7 +440,8 @@ internal class ScoutmasterHunt : MonoBehaviour
         min = Mathf.Max(5f * Squad.M, min);
         max = Mathf.Max(min + 1f, max);
         float h = Mathf.Max(2f, ModConfig.BmScoutmasterSpawnHeight.Value) * Squad.M;
-        bool ok = WarpTo(sm, prey, min, max, -h, h);
+        // Never above his prey: he has to come to them on their level.
+        bool ok = WarpTo(sm, prey, min, max, -h, HuntPatches.LevelGap * Squad.M);
         if (ok && Mode == HuntMode.Hunter) HuntPatches.Appeared();
         return ok;
     }
@@ -594,7 +595,7 @@ internal static class HuntPatches
                 return;
             case ScoutmasterHunt.HuntMode.Lunge:
                 input.sprintIsPressed = true;
-                if (BloodTornado.Carrying(prey)) input.useSecondaryIsPressed = false;
+                if (BloodTornado.Carrying(prey) || !Level(me, prey)) input.useSecondaryIsPressed = false;
                 return;
         }
 
@@ -605,7 +606,8 @@ internal static class HuntPatches
         bool watched = ScoutmasterHunt.Watched(me);
         if (watched) lastWatched = Time.time;
         float d = Vector3.Distance(me.Center, prey.Center);
-        bool atReach = d < Reach;
+        // Only level with his prey: no dropping on someone from a ledge above (or snatching from below).
+        bool atReach = d < Reach && Level(me, prey);
         if (!atReach) reachSince = -1f;
         else if (reachSince < 0f) reachSince = Time.time;
 
@@ -621,6 +623,12 @@ internal static class HuntPatches
 
     /// <summary>The game's grab range (units).</summary>
     private const float Reach = 3f;
+
+    /// <summary>Within LevelGap (m) up or down: high enough above or below, he can't grab.</summary>
+    private static bool Level(Character me, Character prey) =>
+        Mathf.Abs(me.Center.y - prey.Center.y) <= LevelGap * Squad.M;
+
+    internal const float LevelGap = 2f;
     private static float reachSince = -1f, lastWatched = -100f;
 
     private static float lungeSince = -1f;

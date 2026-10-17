@@ -179,14 +179,16 @@ internal class Relics : MonoBehaviour
             Plugin.Log.LogInfo($"Cursed {gem} relic shattered.");
         }
         if (!ModConfig.RelicDrops.Value || RunState.Relics.Count == 0) return;
+        // The host lays the amulets where we last stood on solid ground (not off a ledge or mid-air).
+        var gems = new List<int>();
         foreach (var kv in RunState.Relics.ToList())
         {
-            if (Amulet(kv.Key) is not { } amulet) continue;
-            Net.SpawnItem(amulet.gameObject.name, me.Center + Vector3.up * 0.8f + Random.insideUnitSphere * 0.4f);
+            gems.Add((int)kv.Key);
             RelicDrops.Add(kv.Key, kv.Value);
             RunState.RemoveRelic(kv.Key);
             Plugin.Log.LogInfo($"Dropped relic {Get(kv.Key, kv.Value).Name} on death.");
         }
+        if (gems.Count > 0) Net.DeathDrop(gems.ToArray());
     }
 
     private void Offer(ItemSlot slot, RelicGem gem, System.Guid guid)

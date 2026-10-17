@@ -266,6 +266,8 @@ internal static class Offers
                 int n = Stacks.Count(s.data);
                 if (n > have) { have = n; slot = s.itemSlotID; }
             }
+        // The green sun: nothing joins a stack, so no merges either.
+        if (Stacks.GreenBlocks(Player.localPlayer)) have = 0;
         if (have >= 2 && Stacks.On)
         {
             o.Merge = true;
@@ -290,11 +292,12 @@ internal static class Offers
             return false;
         }
         int n = Stacks.Count(s.data);
+        string name = s.prefab.gameObject.name; // the slot forgets its prefab once emptied
         bool held = me.refs.items.currentSelectedSlot.IsSome && me.refs.items.currentSelectedSlot.Value == o.Slot;
         p.EmptySlot(Zorro.Core.Optionable<byte>.Some(o.Slot));
         if (held) me.refs.items.EquipSlot(Zorro.Core.Optionable<byte>.None);
         Xp.Merged();
-        Plugin.Log.LogInfo($"Merge: {s.prefab.gameObject.name} x{n} + 1 -> {o.Tree?.Name} level {o.Level}.");
+        Plugin.Log.LogInfo($"Merge: {name} x{n} + 1 -> {o.Tree?.Name} level {o.Level}.");
         return true;
     }
 
@@ -418,7 +421,7 @@ internal static class CrateCards
                 card.Tag = $"Lv {o.Level}";
                 card.TagColor = Trees.LevelColor(tree.Id, o.Level, o.Branch);
                 card.Body = CardStats.Tree(tree, def, o.Level, o.Branch);
-                card.Footer = $"{tree.Name}{Dot}x{o.Have + 1} / 3";
+                card.Footer = Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) ? $"{tree.Name}{Dot}x{o.Have + 1} / 3" : $"{tree.Name}{Dot}level {o.Level}";
                 card.Icon = Items.Icon(o.Grant);
                 return card;
             }

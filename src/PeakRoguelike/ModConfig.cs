@@ -108,13 +108,13 @@ internal static class ModConfig
         BmWaveGap = cfg.Bind("BloodMoon", "WaveGap", 20f, "Seconds each tier above 1 adds to a blood moon. A moon lasts (tier-1) x WaveGap + WaveLength; every wave runs the whole moon.");
         BmWaveLength = cfg.Bind("BloodMoon", "WaveLength", 60f, "How long a tier 1 blood moon lasts (s).");
         BmRelicAura = cfg.Bind("BloodMoon", "RelicAura", 24f, "The Scoutmaster and the tornado go after relic holders and anyone within this many metres of one (24 = vanilla's buddy distance). A holder with someone this close is 'grouped' (the tornado slows).");
-        BmScoutmaster = cfg.Bind("BloodMoon", "Scoutmaster", true, "1 relic: the Scoutmaster hunts relic holders.");
+        BmScoutmaster = cfg.Bind("BloodMoon", "Scoutmaster", true, "From tier 2: the Scoutmaster hunts (tiers 2-3), then only watches (tier 4).");
         BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: zombies rise beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
         BmZombieNear = cfg.Bind("BloodMoon", "ZombieDistance", 4f, "How far (m, +-25%) from its scout each blood moon zombie rises.");
         BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 1, "How many zombies rise beside every scout in the open, from tier 1 (spread evenly around them).");
         BmZombiesPerCarrier = cfg.Bind("BloodMoon", "ZombiesPerCarrier", 1, "From tier 2: this many more beside each scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
-        BmGrabsTier1 = cfg.Bind("BloodMoon", "GrabsPerScoutTier1", 1, "Tier 1: grabs per scout per moon before the Scoutmaster only watches them.");
-        BmGrabsTier2 = cfg.Bind("BloodMoon", "GrabsPerScoutTier2", 2, "Tier 2: the same (from tier 3 he only watches).");
+        BmGrabsTier1 = cfg.Bind("BloodMoon", "GrabsPerScoutTier1", 1, "Tier 2 (his first): grabs per scout per moon before the Scoutmaster only watches them.");
+        BmGrabsTier2 = cfg.Bind("BloodMoon", "GrabsPerScoutTier2", 2, "Tier 3: the same (at tier 4 he only watches).");
         BmTornado = cfg.Bind("BloodMoon", "Tornado", true, "3 relics: a tornado that heads for relic holders (sand on Mesa, snow on Alpine).");
         BmGlassMeteors = cfg.Bind("BloodMoon", "GlassMeteors", true, "4 relics, Gloom runs (Gloom + Citadel): a shower of purple glass - a direct hit adds glass.");
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
@@ -235,7 +235,7 @@ internal static class ModConfig
         AirportSky = cfg.Bind("Ambiance", "AirportSky", 1f, "How blood red the sky outside the airport is, with a red moon in it (0 = vanilla).");
         AirportLight = cfg.Bind("Ambiance", "AirportLight", 0.35f, "Red sunlight at the airport - reddens the clouds and the view outside (0 = vanilla).");
         DevTools = cfg.Bind("Dev", "DevTools", false, "Host-only cheats in the F8 panel (fly, god mode, item levels, time, blood moons). Off = the panel only shows builds.");
-        DevShareRelics = cfg.Bind("Dev", "SharedRelicPickups", false, "Testing (host): when a scout binds a relic from an amulet, every other scout gets that colour's relic choice too. Shared relics don't raise the moon's tier, and the pickup's moon waits until everyone has chosen.");
+        DevShareRelics = cfg.Bind("Dev", "SharedRelicPickups", true, "Testing (host): when a scout binds a relic from an amulet, every other scout gets that colour's relic choice too. Shared relics don't raise the moon's tier, and the pickup's moon waits until everyone has chosen.");
         DevShareWait = cfg.Bind("Dev", "SharedRelicWait", 60f, "Testing (host): longest the pickup's moon waits for everyone to choose their shared relic (s).");
         DevMoonEveryNight = cfg.Bind("Dev", "BloodMoonEveryNight", true, "Host: once the squad holds a relic, every nightfall raises a blood moon (skipped the night after an afternoon or evening pickup moon; a morning pickup still gets its night).");
         DevMoonOnPickup = cfg.Bind("Dev", "BloodMoonOnPickup", true, "Host: binding a fresh relic raises a blood moon at once (by day a blood eclipse). Off = pickups raise nothing.");
@@ -328,6 +328,12 @@ internal static class ModConfig
             BmScoutmasterSprintDistance.Value = 20f;
             defaults.Value = 5;
             Plugin.Log.LogInfo("Config: the Scoutmaster walks the last 20m (new default).");
+        }
+        if (defaults.Value < 6)
+        {
+            DevShareRelics.Value = true;
+            defaults.Value = 6;
+            Plugin.Log.LogInfo("Config: shared relic pickups on (new default).");
         }
     }
 }

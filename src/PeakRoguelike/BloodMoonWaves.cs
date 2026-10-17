@@ -152,7 +152,7 @@ internal static class BloodZombies
     /// </summary>
     public static void Spawn(float seconds)
     {
-        var marked = Squad.Alive().Where(c => !Sanctuary.Safe(c)).ToList();
+        var marked = Squad.Alive().Where(c => !Sanctuary.Safe(c) && Modless.HasMod(c)).ToList();
         if (marked.Count == 0) return;
         until = Time.time + seconds;
         float near = Mathf.Max(1f, ModConfig.BmZombieNear.Value) * Squad.M;

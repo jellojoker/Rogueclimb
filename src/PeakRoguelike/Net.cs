@@ -46,6 +46,7 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     private const byte CureAllSplashEvent = 194;
     private const byte PandoraRollEvent = 195;
     private const byte XpFedEvent = 196;
+    private const byte DeathDropEvent = 197;
 
     internal static void Install()
     {
@@ -74,6 +75,13 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
 
     /// <summary>A copy of a stacked item was used up (the item stays as the next copy).</summary>
     public static void StackSpent(int itemViewId, int consumerViewId) => Send(StackSpentEvent, new object[] { itemViewId, consumerViewId });
+
+    /// <summary>I died carrying these relics: the host drops their amulets where I last stood.</summary>
+    public static void DeathDrop(int[] gems)
+    {
+        if (!PhotonNetwork.InRoom || PhotonNetwork.IsMasterClient) { DeathDrops.Received(Me, gems); return; }
+        Send(DeathDropEvent, new object[] { Me, gems }, ReceiverGroup.MasterClient);
+    }
 
     /// <summary>World items are room objects, so the host spawns them.</summary>
     public static void SpawnItem(string prefabName, Vector3 pos) =>
@@ -236,6 +244,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     break;
                 case SkullCopiesEvent when e.CustomData is object[] a:
                     Relics.ReceiveSkullCopies((string)a[0], (string)a[1]);
+                    break;
+                case DeathDropEvent when e.CustomData is object[] a && PhotonNetwork.IsMasterClient:
+                    DeathDrops.Received((int)a[0], (int[])a[1]);
                     break;
                 case XpFedEvent when e.CustomData is object[] a:
                     Xp.ReceiveFed((int)a[1]);

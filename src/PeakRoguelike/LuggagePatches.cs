@@ -29,6 +29,7 @@ internal static class LuggagePatches
     }
 
     private static bool openVanilla;
+    internal static bool OpeningVanilla => openVanilla;
 
     [HarmonyPrefix, HarmonyPatch(typeof(Luggage), nameof(Luggage.Interact_CastFinished))]
     private static bool OpenPerkScreen(Luggage __instance, Character interactor)
@@ -96,6 +97,7 @@ internal static class LuggagePatches
         var perk = luggage.GetComponent<PerkLuggage>();
         // Fusions you've made come along with their ingredients' cards.
         var fused = Offers.UnlockedFusions(items);
+        Vector3 from = Character.localCharacter != null ? Character.localCharacter.Center : luggage.Center();
         var cards = items.Select(CrateCards.ForItem).ToList();
         cards.AddRange(fused.Select(r => Fusion.ItemCard(r, "Fusion unlocked")));
 
@@ -105,8 +107,7 @@ internal static class LuggagePatches
             Subtitle = crateName,
             Confirm = "CLAIM",
             Cards = cards,
-            StillValid = () => luggage != null && !luggage.IsOpen && Character.localCharacter != null
-                               && Vector3.Distance(Character.localCharacter.Center, luggage.Center()) <= 8f,
+            StillValid = () => luggage != null && !luggage.IsOpen && LuggagePatches.StillHere(from),
             OnConfirm = i =>
             {
                 if (i < items.Count) Picked(luggage, items, i);
@@ -116,6 +117,10 @@ internal static class LuggagePatches
         });
         if (!shown) perk?.ReleaseLock();
     }
+
+    /// <summary>A crate screen stays open while you stay put: blown 5m away, or caught by a tornado, it closes.</summary>
+    internal static bool StillHere(Vector3 from) =>
+        Character.localCharacter is { } me && !BloodTornado.Carrying(me) && Vector3.Distance(me.Center, from) <= 5f * Squad.M;
 
     /// <summary>A card was chosen. Tree items may first ask for a path.</summary>
     private static void Picked(Luggage luggage, List<Item> items, int index, System.Action? back = null)
@@ -203,7 +208,7 @@ internal static class LuggagePatches
             int vanilla = spots?.Count ?? 0;
             if (vanilla == 0) return result;
             // One extra card per scout in the lobby (each still picks just one).
-            int scouts = PhotonNetwork.InRoom ? PhotonNetwork.PlayerList.Length : 1;
+            int scouts = PhotonNetwork.InRoom ? Mathf.Max(1, PhotonNetwork.PlayerList.Count(Modless.HasMod)) : 1;
             int count = Mathf.Min(vanilla + scouts, MaxCards);
             // Earned-only items (fusions, level unlocks) are thrown back, and no card shows twice;
             // the crate keeps rolling until it's full or its pool runs dry.
@@ -315,14 +320,14 @@ internal static class LuggagePatches
         void Show()
         {
             bonusFirst = firstSlot;
+            Vector3 from = Character.localCharacter != null ? Character.localCharacter.Center : luggage.Center();
             bool shown = ChoiceScreen.Show(new ScreenSpec
             {
                 Title = "CHOOSE YOUR PERK",
                 Subtitle = crateName,
                 Confirm = "CLAIM",
                 Cards = others.Select(i => CrateCards.ForItem(items[i])).ToList(),
-                StillValid = () => luggage != null && !luggage.IsOpen && Character.localCharacter != null
-                                   && Vector3.Distance(Character.localCharacter.Center, luggage.Center()) <= 8f,
+                StillValid = () => luggage != null && !luggage.IsOpen && LuggagePatches.StillHere(from),
                 OnConfirm = i => Picked(luggage, items, others[i], Show),
                 OnBack = Forfeit,
             });
@@ -376,12 +381,72 @@ public class PerkLuggage : MonoBehaviourPun
 
     private void Awake() => luggage = GetComponent<Luggage>();
 
+
     private static int LocalActor => PhotonNetwork.LocalPlayer?.ActorNumber ?? -1;
 
     private static bool InRoom(int actor) => !PhotonNetwork.InRoom ? actor == LocalActor : PhotonNetwork.CurrentRoom?.GetPlayer(actor) != null;
 
-    /// <summary>Not rolled yet (you'd be first), or you're one of its pickers and haven't picked.</summary>
-    public bool CanPick => pickers == null || (pickers.Contains(LocalActor) && !picked.Contains(LocalActor));
+    /// <summary>
+    /// Not rolled yet (you'd be first), or you haven't picked: one of its pickers, or a late joiner
+    /// while the crate isn't spent.
+    /// </summary>
+    public bool CanPick
+    {
+        get
+        {
+            Load();
+            return pickers == null || (!picked.Contains(LocalActor) && (pickers.Contains(LocalActor) || !Spent));
+        }
+    }
+
+    // --- room copy: late joiners get the roll and the picks ----------------------------------------
+
+    private const string RoomPrefix = "prl.lg.";
+    private bool loaded;
+
+    private string? RoomKey => photonView != null && photonView.ViewID != 0 ? RoomPrefix + photonView.ViewID : null;
+
+    /// <summary>Whoever changed the draft writes it to the room: "ids|pickers|picked".</summary>
+    private void Publish()
+    {
+        if (!PhotonNetwork.InRoom || rolled == null || RoomKey is not { } key) return;
+        string value = string.Join(",", rolled) + "|" + string.Join(",", pickers ?? new int[0]) + "|" + string.Join(",", picked);
+        try { PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [key] = value }); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Couldn't share a crate draft: {e.Message}"); }
+    }
+
+    /// <summary>First look at a crate someone opened before we joined: take its draft from the room.</summary>
+    private void Load()
+    {
+        if (loaded || rolled != null || !PhotonNetwork.InRoom || RoomKey is not { } key) return;
+        loaded = true;
+        if (!PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(key, out object raw) || raw is not string s) return;
+        var parts = s.Split('|');
+        if (parts.Length < 3) return;
+        static IEnumerable<int> Ints(string x) => x.Split(new[] { ',' }, System.StringSplitOptions.RemoveEmptyEntries).Select(int.Parse);
+        try
+        {
+            rolled = Ints(parts[0]).Select(i => (ushort)i).ToArray();
+            pickers = Ints(parts[1]).ToArray();
+            foreach (int a in Ints(parts[2])) picked.Add(a);
+        }
+        catch { rolled = null; pickers = null; picked.Clear(); return; }
+        Plugin.Log.LogInfo($"{luggage?.displayName}: draft from the room - {rolled.Length} cards, {picked.Count}/{pickers.Length} picked.");
+        if (Spent) RPC_PerkOpen();
+        else if (picked.Contains(LocalActor)) OpenForMe();
+    }
+
+    /// <summary>Host, new run: forget every crate draft.</summary>
+    internal static void ClearRoom()
+    {
+        if (!PhotonNetwork.InRoom || !PhotonNetwork.IsMasterClient || PhotonNetwork.CurrentRoom == null) return;
+        var clear = new ExitGames.Client.Photon.Hashtable();
+        foreach (var key in PhotonNetwork.CurrentRoom.CustomProperties.Keys)
+            if (key is string s && s.StartsWith(RoomPrefix)) clear[s] = null;
+        if (clear.Count == 0) return;
+        try { PhotonNetwork.CurrentRoom.SetCustomProperties(clear); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Couldn't clear crate drafts: {e.Message}"); }
+    }
 
     /// <summary>Someone else in the lobby still has a pick coming (worth re-rolling the card you took).</summary>
     public bool OthersLeft => pickers != null && pickers.Any(a => a != LocalActor && !picked.Contains(a) && InRoom(a));
@@ -410,6 +475,7 @@ public class PerkLuggage : MonoBehaviourPun
             else list.RemoveAt(slot);
             rolled = list.ToArray();
         }
+        if (actor == LocalActor) Publish();
         Plugin.Log.LogInfo($"{luggage?.displayName}: actor {actor} picked ({picked.Count}/{pickers?.Length ?? 1}){(reroll > 0 && Items.TryGet((ushort)reroll, out var it) ? $", card re-rolled to {it.gameObject.name}" : "")}.");
         if (Spent) RPC_PerkOpen();
         else if (actor == LocalActor) OpenForMe();
@@ -475,15 +541,18 @@ public class PerkLuggage : MonoBehaviourPun
     /// <summary>The crate's cards. Rolled once, then the same for every reopen and every player.</summary>
     public List<Item> GetOrRoll()
     {
+        Load();
         if (rolled == null)
         {
             var items = LuggagePatches.RollChoices(luggage);
             rolled = items.Select(i => i.itemID).ToArray();
-            pickers = PhotonNetwork.InRoom ? PhotonNetwork.PlayerList.Select(p => p.ActorNumber).ToArray() : new[] { LocalActor };
+            // Scouts without the mod never pick, so they aren't waited on.
+            pickers = PhotonNetwork.InRoom ? PhotonNetwork.PlayerList.Where(Modless.HasMod).Select(p => p.ActorNumber).ToArray() : new[] { LocalActor };
             if (rolled.Length > 0 && PhotonNetwork.InRoom)
             {
                 photonView.RPC(nameof(RPC_SetRoll), RpcTarget.Others, rolled.Select(x => (int)x).ToArray(), pickers);
                 Plugin.Log.LogInfo($"{luggage.displayName}: rolled here, shared {rolled.Length} cards with {pickers.Length - 1} other scout(s).");
+                Publish();
             }
         }
         var list = new List<Item>();
@@ -504,8 +573,6 @@ public class PerkLuggage : MonoBehaviourPun
         rolled = ids.Select(x => (ushort)x).ToArray();
         Plugin.Log.LogInfo($"{luggage?.displayName}: received {rolled.Length} cards from another scout.");
         pickers = actors;
-        // Joined after it was first opened: not one of its pickers.
-        if (!pickers.Contains(LocalActor)) OpenForMe();
     }
 
     /// <summary>The crate is spent: open for everyone.</summary>

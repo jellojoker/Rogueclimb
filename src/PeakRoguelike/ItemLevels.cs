@@ -179,16 +179,36 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         if (p.tempFullSlot is { } t && !t.IsEmpty() && t.prefab != null && t.data != null) yield return t;
     }
 
+    /// <summary>Items we just claimed (crate, level-up, gift), until they've had time to arrive.</summary>
+    private static readonly List<(ushort id, float until)> claimed = new();
+
+    /// <summary>
+    /// A claimed item arrives unstamped - and if it joins a stack, the stack's (maybe lower) stamp
+    /// would win. For a few seconds, a pocket of it below our level is raised to what the card offered.
+    /// </summary>
+    internal static void Claimed(Item item) => claimed.Add((item.itemID, Time.time + 5f));
+
     /// <summary>New items in our pockets (crate picks, world finds) take our discovery level.</summary>
     private void Update()
     {
         if (Time.time < nextScan) return;
         nextScan = Time.time + 0.25f;
         if (!ModConfig.ItemTrees.Value) return;
+        claimed.RemoveAll(c => Time.time > c.until);
         foreach (var s in Pockets())
         {
-            if (KindOf(s.prefab) is not { } k || Stamp(s.data) > 0) continue;
-            StampPath(s.data.guid, Discovered(k), OnSecondPath(k) ? 2 : 1, $"{s.prefab.gameObject.name} picked up (unstamped)");
+            if (KindOf(s.prefab) is not { } k) continue;
+            int cur = Stamp(s.data);
+            if (cur <= 0)
+            {
+                StampPath(s.data.guid, Discovered(k), OnSecondPath(k) ? 2 : 1, $"{s.prefab.gameObject.name} picked up (unstamped)");
+                continue;
+            }
+            int i = claimed.FindIndex(c => c.id == s.prefab.itemID);
+            if (i < 0 || (k.BothPaths && IsSecondPath(s.data) != OnSecondPath(k))) continue;
+            int target = Discovered(k);
+            if (target > cur) StampAs(s.data.guid, target, $"{s.prefab.gameObject.name} stack took the claimed level ({cur})");
+            claimed.RemoveAt(i);
         }
     }
 

@@ -45,6 +45,8 @@ internal class BloodMoon : MonoBehaviour
     // --- shared state (everyone, from the room property) --------------------------------------
     internal static bool Active { get; private set; }
     internal static int Tier { get; private set; }
+    /// <summary>The Scoutmaster rises a tier after the zombies: tier 2 is his first (hunter), tier 4 he only watches.</summary>
+    internal static int ScoutmasterTier => Tier - 1;
     internal static double StartTime { get; private set; }
     /// <summary>Who bound the relic that raised this moon ("" for a nightfall moon).</summary>
     internal static string Binder { get; private set; } = "";
@@ -303,7 +305,7 @@ internal class BloodMoon : MonoBehaviour
         if (instance == null || !PhotonNetwork.IsMasterClient || !ModConfig.DevShareRelics.Value || !ModConfig.Relics.Value) return;
         if (PhotonNetwork.PlayerList.All(p => p.ActorNumber == binderActor)) return; // solo: nobody to share with
         foreach (var p in PhotonNetwork.PlayerList)
-            if (p.ActorNumber != binderActor) instance.sharedWaiting.Add(p.ActorNumber);
+            if (p.ActorNumber != binderActor && Modless.HasMod(p)) instance.sharedWaiting.Add(p.ActorNumber);
         instance.sharedUntil = Time.time + Mathf.Max(5f, ModConfig.DevShareWait.Value);
         Plugin.Log.LogInfo($"Shared relics: {gem} offered to {instance.sharedWaiting.Count} scout(s).");
         Net.SharedRelic(gem, binderActor);
@@ -347,7 +349,7 @@ internal class BloodMoon : MonoBehaviour
 
         // Everything the tier unlocks rises together and lasts the whole moon.
         float left = EffectsEnd(Tier) - t;
-        if (!huntDone)
+        if (ScoutmasterTier >= 1 && !huntDone)
         {
             huntDone = true;
             if (ModConfig.BmScoutmaster.Value) ScoutmasterHunt.Steer(left);

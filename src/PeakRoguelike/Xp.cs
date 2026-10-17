@@ -157,6 +157,7 @@ internal class Xp : MonoBehaviour
     {
         if (item == null) return;
         expected.Add((item.itemID, Time.time + 30f));
+        ItemLevels.Claimed(item);
     }
 
     private static bool IsCrateItem(System.Guid guid)
@@ -214,10 +215,19 @@ internal class Xp : MonoBehaviour
 
         if (!Ends(biome, out Vector3 from, out Vector3 to, out float arrive)) return;
         Vector3 pos = me.Center;
-        if (clockFrom < 0f && Vector3.Distance(pos, from) > 20f * Squad.M)
+        // The fast-clear clock: from the crash site, once you leave it; after that, once the fire
+        // you start from is lit (or, if nobody lights it, once you're well past it).
+        if (clockFrom < 0f)
         {
-            clockFrom = Time.time;
-            Plugin.Log.LogInfo($"XP: left camp - the fast-clear clock runs ({ModConfig.XpBiomeMinutes.Value:0} min).");
+            float away = Vector3.Distance(pos, from);
+            string? why = biome == 0 ? (away > 20f * Squad.M ? "left the crash site" : null)
+                : StartFireLit(biome) ? "the fire is lit"
+                : away > 60f * Squad.M ? "climbed on past an unlit fire" : null;
+            if (why != null)
+            {
+                clockFrom = Time.time;
+                Plugin.Log.LogInfo($"XP: {why} - the fast-clear clock runs ({ModConfig.XpBiomeMinutes.Value:0} min).");
+            }
         }
         if (Flat) Landing(me);
         else
@@ -331,6 +341,20 @@ internal class Xp : MonoBehaviour
             Plugin.Log.LogInfo($"Crates on this map ({all.Count(l => l is not RespawnChest)} in all): " + (parts.Count > 0 ? string.Join(" · ", parts) : "none matched a biome"));
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Crate count failed: {e.Message}"); }
+    }
+
+    /// <summary>Is the campfire biome b starts from (the end of biome b-1) lit?</summary>
+    private static bool StartFireLit(int b)
+    {
+        var map = Singleton<MapHandler>.Instance;
+        if (map == null || b < 1 || b - 1 >= map.segments.Length) return false;
+        try
+        {
+            var root = map.segments[b - 1].segmentCampfire;
+            var fire = root != null ? root.GetComponentInChildren<Campfire>(true) : null;
+            return fire != null && fire.Lit;
+        }
+        catch { return false; }
     }
 
     private readonly Dictionary<int, (Vector3 pos, float radius)> targets = new();

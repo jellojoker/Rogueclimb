@@ -99,6 +99,7 @@ internal class Blessing : MonoBehaviour
     {
         if (!On || !IsAncient(luggage)) return false;
         string name = "Ancient Luggage";
+        Vector3 from = interactor != null ? interactor.Center : luggage.Center();
         try { if (!string.IsNullOrEmpty(luggage.GetName())) name = luggage.GetName(); } catch { }
         bool shown = Show(name, luggage.photonView != null ? luggage.photonView.ViewID : luggage.GetInstanceID(),
             onTaken: () =>
@@ -108,8 +109,7 @@ internal class Blessing : MonoBehaviour
                 GlobalEvents.TriggerLuggageOpened(luggage, interactor);
             },
             onBack: () => perk.ReleaseLock(),
-            stillValid: () => luggage != null && !luggage.IsOpen && Character.localCharacter != null
-                              && Vector3.Distance(Character.localCharacter.Center, luggage.Center()) <= 8f);
+            stillValid: () => luggage != null && !luggage.IsOpen && LuggagePatches.StillHere(from));
         if (!shown) perk.ReleaseLock();
         return true;
     }

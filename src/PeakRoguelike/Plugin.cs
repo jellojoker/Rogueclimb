@@ -9,7 +9,7 @@ public class Plugin : BaseUnityPlugin
 {
     public const string Id = "rey.PeakRoguelike";
     public const string Name = "Rogue Climb";
-    public const string Version = "0.12.11";
+    public const string Version = "0.12.12";
 
     internal static ManualLogSource Log = null!;
 
@@ -46,6 +46,8 @@ public class Plugin : BaseUnityPlugin
         MovementCaps.Install();
         Ambiance.Install();
         DevPanel.Install();
+        Modless.Install();
+        DeathDrops.Install();
         Log.LogInfo($"{Name} {Version} loaded - crates, item trees, fusions, relics and blood moons.");
     }
 }

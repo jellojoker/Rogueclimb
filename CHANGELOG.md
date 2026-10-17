@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.12.12
+- Fixed: merging a third copy (including the Rope Cannon evolution) ate your stack and handed out nothing.
+- Fixed: a picked item joining a lower-level stack now raises the stack to the level you were offered.
+- Green sun: crate cards no longer promise stacks or merges.
+- Blood moons: zombies rise at tier 1, the Scoutmaster joins from tier 2 (hunts at tiers 2-3, only watches at 4).
+- The Scoutmaster only grabs scouts on his level, and never appears above you.
+- Crate screens close if you're moved 5m away or caught by a tornado.
+- The fast-clear clock starts once the campfire is lit, and stops when you reach the next one.
+- Scouts without Rogue Climb are named in a toast (with the Thunderstore package), can't spill crates open for everyone, and are left out of crate picks, relic sharing and zombies.
+- Joining a run late: crates opened before you came keep their cards and picks (no rerolls).
+- Relics dropped on death land where the scout last stood on solid ground; the host drops them if the scout's game doesn't.
+- Shared relic pickups are on by default (everyone gets a relic choice when one is bound).
+
 ## 0.12.11
 - Safe ground holds: every campfire counts, lit or not. Blood moon zombies won't come for anyone resting there, and the Scoutmaster won't grab them.
 - The hunting Scoutmaster freezes whenever anyone looks at him. Look away and he comes - running from afar, walking the last stretch. Right on you, he waits a moment... then a second after you turn your back.
