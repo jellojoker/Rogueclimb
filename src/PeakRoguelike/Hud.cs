@@ -284,7 +284,26 @@ internal class Hud : MonoBehaviour
     /// <summary>A perk you just picked: PEAK lettering that fades in and out quietly (no spooky prompt).</summary>
     public static void PickBanner(string head, string title, Color color)
     {
-        instance?.banners.Enqueue((head, title, color, BannerKind.Pick));
+        instance?.banners.Enqueue((head, title, PickTint ?? color, BannerKind.Pick));
+    }
+
+    /// <summary>While set, pick banners use this colour instead (XP level-ups are gold).</summary>
+    internal static Color? PickTint;
+
+    private static bool boostLogged;
+
+    /// <summary>The pal-jump boost whoosh, when the level-up cards open (only you hear it).</summary>
+    public static void LevelUpSound()
+    {
+        var me = Character.localCharacter;
+        if (me == null) return;
+        try
+        {
+            var boost = me.refs.movement != null ? me.refs.movement.boostPlayer : null;
+            if (boost == null || boost.Length == 0) { if (!boostLogged) Plugin.Log.LogInfo("Level-up sound: no boost sound on the character."); boostLogged = true; return; }
+            foreach (var s in boost) if (s != null) s.Play(me.Center);
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Level-up sound failed: {e.Message}"); }
     }
 
     private static SFX_Instance[]? chime;

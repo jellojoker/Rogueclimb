@@ -191,12 +191,12 @@ internal static class RunState
         !PhotonNetwork.InRoom ? TierRelics()
             : PhotonNetwork.PlayerList.Sum(p => p.IsLocal ? TierRelics() : TierRelicsOf(p));
 
-    private static int TierRelics() => relics.Keys.Count(g => !cursed.Contains(g) && !shared.Contains(g));
+    private static int TierRelics() => relics.Keys.Count(g => !cursed.Contains(g) && !shared.Contains(g) && PeakRoguelike.Relics.Cursed(g));
 
     /// <summary>Another player's relics with no copy mark (":c" cursed, ":s" shared).</summary>
     private static int TierRelicsOf(Photon.Realtime.Player p) =>
         p.CustomProperties.TryGetValue(RelicsKey, out object raw) && raw is string s
-            ? s.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Count(part => part.Split(':').Length == 2)
+            ? s.Split(new[] { ';' }, StringSplitOptions.RemoveEmptyEntries).Count(part => part.Split(':') is { Length: 2 } bits && (!Enum.TryParse(bits[0], out RelicGem g) || PeakRoguelike.Relics.Cursed(g)))
             : 0;
 
     /// <summary>Level of a tree for any character (local state for us, player properties for others).</summary>

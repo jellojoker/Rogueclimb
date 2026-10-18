@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.12.17
+- Supply drops: every 2.5 minutes out on the mountain (not at a campfire, the crash site or during a blood moon), a crate floats down on balloons near the scout carrying the least. It lands on flat ground with open sky above it and smokes until you open it.
+- Open a supply crate with empty pockets and you take two cards.
+- A lit flare now slams down a big crate, and 1 in 5 times an Ancient Luggage that glows instead of smoking.
+- Flare, Bing Bong, Binoculars, Frisbee and Compass show a card the first time you pick each one up in a run (a placeholder for powers to come).
+- Relics are now either cursed or normal. Only cursed relics raise blood moons and count toward their tier; every statue relic is cursed.
+
+## 0.12.16
+- Flares: carry an unlit flare and crate screens get a REROLL button (or press R). The flare is spent and the whole crate is dealt again, for everyone still to pick.
+- Light a flare anywhere but the peak and a supply crate falls from the sky beside you, with that biome's loot. At the peak a flare still calls the helicopter.
+- The log now records when storms (rain, snow, wind) start and stop.
+
+## 0.12.15
+- Small gold "+XP" pop-ups above the XP bar whenever you earn XP from anything but climbing: crates, crate items you use up (or share with a friend), the fast-clear bonus and the campfire. Gains close together share one pop-up; a faint "XP maxed" shows once when a biome's crate or item XP runs out.
+- The fast-clear toast in the middle of the screen is gone (the pop-ups replace it).
+
+## 0.12.14
+- Special cards sparkle: level-up picks glow gold with a gold edge and gold sparkles, evolutions sparkle white, fusions purple, relics in their gem colour, cursed copies dark and slow. Plain item cards stay plain.
+- Picks from a level-up get a gold banner, and the level-up cards open with a whoosh.
+
 ## 0.12.13
 - Bug reports: press F7 to save one on every modded player's PC (screenshot, the last 5 minutes of log, the run's state and your config) in BepInEx/BugReports. Whoever pressed it can type what happened.
 - The first mod error in a run saves a report by itself.

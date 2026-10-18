@@ -102,9 +102,15 @@ internal class Xp : MonoBehaviour
         if (instance == null || !ModConfig.Xp.Value) return;
         float cap = Mathf.Max(0f, ModConfig.XpCrateLevels.Value) * PerLevel;
         float add = Mathf.Min(ModConfig.XpPerCrate.Value, cap - instance.crateXp);
-        if (add <= 0f) { Plugin.Log.LogInfo($"XP: {from} - crate XP capped for this biome."); return; }
+        if (add <= 0f)
+        {
+            Plugin.Log.LogInfo($"XP: {from} - crate XP capped for this biome.");
+            if (!instance.crateCapShown) { instance.crateCapShown = true; instance.Maxed(); }
+            return;
+        }
         instance.crateXp += add;
         instance.xp += add;
+        instance.Pop(add, "crate");
         Plugin.Log.LogInfo($"XP: {from} +{add:0} (crates {instance.crateXp:0}/{cap:0}).");
     }
 
@@ -126,7 +132,9 @@ internal class Xp : MonoBehaviour
             Net.XpFed(owner.ActorNumber, worth);
             return;
         }
-        instance.AddItemXp(worth, item.gameObject.name.Replace("(Clone)", "").Trim());
+        string label;
+        try { label = item.GetItemName().ToLowerInvariant(); } catch { label = "item"; }
+        instance.AddItemXp(worth, item.gameObject.name.Replace("(Clone)", "").Trim(), label);
     }
 
     /// <summary>Three copies merged a level up (counted for the campfire log).</summary>
@@ -136,15 +144,21 @@ internal class Xp : MonoBehaviour
     }
 
     /// <summary>A friend used one of our crate items on themselves... or we fed them one.</summary>
-    internal static void ReceiveFed(int worth) => instance?.AddItemXp(worth, "fed / bandaged a scout");
+    internal static void ReceiveFed(int worth) => instance?.AddItemXp(worth, "fed / bandaged a scout", "helped a scout");
 
-    private void AddItemXp(float worth, string what)
+    private void AddItemXp(float worth, string what, string label)
     {
         float cap = Mathf.Max(0f, ModConfig.XpItemLevels.Value) * PerLevel;
         float add = Mathf.Min(worth, cap - itemXp);
-        if (add <= 0f) { Plugin.Log.LogInfo($"XP: {what} - item XP capped for this biome."); return; }
+        if (add <= 0f)
+        {
+            Plugin.Log.LogInfo($"XP: {what} - item XP capped for this biome.");
+            if (!itemCapShown) { itemCapShown = true; Maxed(); }
+            return;
+        }
         itemXp += add;
         xp += add;
+        Pop(add, label);
         Plugin.Log.LogInfo($"XP: used up {what} +{add:0} (items {itemXp:0}/{cap:0}).");
     }
 
@@ -269,7 +283,8 @@ internal class Xp : MonoBehaviour
         int fire = Mathf.Max(0, ModConfig.XpCampfire.Value);
         xp += bonus + fire;
         Plugin.Log.LogInfo($"XP: cleared biome {biome} in {(clockFrom < 0f ? 0f : Time.time - clockFrom):0}s - fast clear +{bonus}, campfire +{fire} (total {xp:0}).");
-        if (bonus + fire > 0) Hud.Toast($"Fast clear  +{bonus + fire} XP", Trees.Gold);
+        if (bonus > 0) Pop(bonus, "fast clear", merge: false);
+        if (fire > 0) Pop(fire, "campfire", merge: false);
         // For tuning: what this biome paid, in levels.
         Plugin.Log.LogInfo($"Biome done: {(Segment)biome} - {(climbed + crateXp + itemXp + bonus + fire) / PerLevel:0.##} levels "
             + $"({(Flat ? $"landings {landings.Count} = " : "climb ")}{climbed / PerLevel:0.##} / crates {crateXp / PerLevel:0.##} / items {itemXp / PerLevel:0.##} / fast clear {bonus / PerLevel:0.##} / campfire {fire / PerLevel:0.##}), "
@@ -310,6 +325,7 @@ internal class Xp : MonoBehaviour
     {
         biome = b;
         best = crateXp = itemXp = 0f;
+        crateCapShown = itemCapShown = false;
         merges = 0;
         landings.Clear();
         landed = 0f;
@@ -480,12 +496,13 @@ internal class Xp : MonoBehaviour
             Title = "LEVEL UP",
             Subtitle = $"Level {claimed + 1}",
             Confirm = "CLAIM",
-            Cards = cards,
+            Cards = LevelCards(cards),
             StillValid = Alive,
             OnConfirm = i => picks[i](),
             OnBack = Later,
             OnCancelled = Later,
         });
+        if (shown) Hud.LevelUpSound();
         if (shown) Plugin.Log.LogInfo($"XP: level-up pick ({string.Join(", ", levels.Select(o => $"{o.Tree!.Name} {o.Level}").Concat(rolled.Select(r => r.gameObject.name)))}"
             + (Luck.LuckyCard != null ? $" + lucky {Luck.LuckyCard.Name}" : "") + ").");
         else Later();
@@ -512,7 +529,7 @@ internal class Xp : MonoBehaviour
             Title = "CHOOSE YOUR PATH",
             Subtitle = $"{tree.Name} · level {next}",
             Confirm = "CHOOSE",
-            Cards = options.Select(o => CrateCards.ForPath(tree, next, o, offer.CrateItem)).ToList(),
+            Cards = LevelCards(options.Select(o => CrateCards.ForPath(tree, next, o, offer.CrateItem))),
             StillValid = Alive,
             OnConfirm = i => Done(() => { Hud.PickChime(); Offers.ApplyCarried(offer, options[i].Branch); }),
             OnBack = OpenPick,
@@ -551,7 +568,7 @@ internal class Xp : MonoBehaviour
             Title = "CHOOSE YOUR PATH",
             Subtitle = $"{tree.Name} · level {next}",
             Confirm = "CHOOSE",
-            Cards = options.Select(o => CrateCards.ForPath(tree, next, o, item)).ToList(),
+            Cards = LevelCards(options.Select(o => CrateCards.ForPath(tree, next, o, item))),
             StillValid = Alive,
             OnConfirm = i => Done(() =>
             {
@@ -570,8 +587,18 @@ internal class Xp : MonoBehaviour
         levels = new List<Offer>();
         rolled = new List<Item>();
         deferUntil = Time.time + 1.5f; // the next level's cards don't slam in on top of this one
-        give();
+        Hud.PickTint = ChoiceScreen.LevelGold;
+        try { give(); }
+        finally { Hud.PickTint = null; }
         Plugin.Log.LogInfo($"XP: level {claimed} claimed.");
+    }
+
+    /// <summary>Level-up item cards wear gold (fusion cards keep their own look).</summary>
+    private static List<CardSpec> LevelCards(IEnumerable<CardSpec> cards)
+    {
+        var list = cards.ToList();
+        foreach (var c in list) if (c.Style == CardStyle.Perk) c.LevelUp = true;
+        return list;
     }
 
     private static void Grant(Item item)
@@ -670,6 +697,68 @@ internal class Xp : MonoBehaviour
             bonusLabel.text = $"FAST CLEAR BONUS  +{bonus} XP{clock}";
         }
         PlaceCorner();
+        UpdatePops();
+    }
+
+    // --- "+100 XP" pop-ups above the bar's right end (everything but climbing) --------------------
+
+    private class PopReq { public float Amount, ReadyAt; public string Label = ""; public bool Merge, Grey; }
+    private class LivePop { public TextMeshProUGUI Text = null!; public float Born; }
+    private readonly List<PopReq> pops = new();
+    private readonly List<LivePop> live = new();
+    private float nextPopAt;
+    private bool crateCapShown, itemCapShown;
+    private const float PopLife = 1.5f, PopRise = 40f, PopGather = 0.5f, PopGap = 0.45f;
+    private static readonly Color PopGrey = new Color32(0xB8, 0xB4, 0xAC, 0xFF);
+
+    /// <summary>Gains within half a second share one pop-up; merge: false always gets its own (campfire pair).</summary>
+    private void Pop(float amount, string label, bool merge = true)
+    {
+        if (amount <= 0f) return;
+        var last = pops.Count > 0 ? pops[pops.Count - 1] : null;
+        if (merge && last != null && last.Merge && !last.Grey && Time.time < last.ReadyAt)
+        {
+            last.Amount += amount;
+            if (last.Label != label) last.Label = "";
+            return;
+        }
+        pops.Add(new PopReq { Amount = amount, Label = label, Merge = merge, ReadyAt = Time.time + (merge ? PopGather : 0f) });
+    }
+
+    /// <summary>A crate or item hit this biome's XP cap (once per biome each).</summary>
+    private void Maxed() => pops.Add(new PopReq { Grey = true, Label = "XP maxed", ReadyAt = Time.time });
+
+    private void UpdatePops()
+    {
+        if (full == null) return;
+        if (pops.Count > 0 && Time.time >= pops[0].ReadyAt && Time.time >= nextPopAt)
+        {
+            var p = pops[0];
+            pops.RemoveAt(0);
+            nextPopAt = Time.time + PopGap;
+            string text = p.Grey ? p.Label
+                : $"+{p.Amount:0} XP" + (p.Label.Length > 0 ? $"<size=70%><alpha=#99>  {p.Label}</size>" : "");
+            var t = Label(full, "XP Pop", new Vector2(1f, 1f), TextAlignmentOptions.BottomRight, left);
+            t.fontSize = p.Grey ? 18f : 22f;
+            t.color = p.Grey ? PopGrey : GoldText;
+            t.text = text;
+            t.alpha = 0f;
+            live.Add(new LivePop { Text = t, Born = Time.time });
+        }
+        for (int i = live.Count - 1; i >= 0; i--)
+        {
+            var lp = live[i];
+            float age = Time.time - lp.Born;
+            if (lp.Text == null || age >= PopLife)
+            {
+                if (lp.Text != null) Destroy(lp.Text.gameObject);
+                live.RemoveAt(i);
+                continue;
+            }
+            float k = age / PopLife;
+            ((RectTransform)lp.Text.transform).anchoredPosition = new Vector2(0f, 38f + PopRise * Ease.OutQuad(k));
+            lp.Text.alpha = Mathf.Min(Mathf.Clamp01(age / 0.15f), Mathf.Clamp01((PopLife - age) / 0.6f));
+        }
     }
 
     private TextMeshProUGUI? corner, version;

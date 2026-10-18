@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -358,6 +358,7 @@ internal class DevPanel : MonoBehaviour
             .Select(g => B($"Amulet: {g}", () => { var a = Relics.Amulet(g); if (a != null) GiveItem(a); }, Color.Lerp(ButtonColor, Relics.GemColor(g), 0.35f)))
             .ToArray());
         Row(B("Give backpack", () => GivePrefab("Backpack")), B("Give fanny pack", () => GivePrefab("Fannypack")));
+        Row(B("Give flare", () => GivePrefab("Flare")), B("Flare drop", () => { if (InGame()) SupplyDrop.DevFlare(); }), B("Timed drop", () => { if (InGame()) SupplyDrop.DevTimed(); }));
         Row(B("Open fusion screen", () => { if (InGame()) Fusion.DevOpen(); }),
             B("Statue blessing", () => { if (InGame()) Blessing.DevBless(); }));
     }

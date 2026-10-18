@@ -12,6 +12,9 @@ namespace PeakRoguelike;
 public enum RelicGem { Tenacity, Initiative, Generosity, Ambition }
 public enum RelicTrigger { Food, Healing, Movement }
 
+/// <summary>Cursed relics (the statue amulets) raise blood moons and count toward their tier; Normal ones never touch the moon.</summary>
+public enum RelicClass { Cursed, Normal }
+
 internal static class RelicTriggerNames
 {
     /// <summary>What the cards call the class (Movement shows as Tools: ropes, pitons and the rest count).</summary>
@@ -52,6 +55,11 @@ internal class Relics : MonoBehaviour
     };
 
     static RelicDef R(RelicGem g, RelicTrigger t, string n, string d) => new() { Gem = g, Trigger = t, Name = n, Desc = d };
+
+    /// <summary>Every statue relic is cursed. Normal relics (the crash-site curios, later) will say so here.</summary>
+    public static RelicClass ClassOf(RelicGem g) => RelicClass.Cursed;
+
+    public static bool Cursed(RelicGem g) => ClassOf(g) == RelicClass.Cursed;
 
     public static RelicDef Get(RelicGem g, RelicTrigger t) => All.First(r => r.Gem == g && r.Trigger == t);
 
@@ -275,6 +283,7 @@ internal class Relics : MonoBehaviour
                     Gem = relic.Gem,
                     Title = relic.Name,
                     Heading = "Cursed copy",
+                    Cursed = true,
                     Body = relic.Desc + "\nShatters if you die.",
                     Tag = relic.Trigger.Label(),
                     Icon = amulet != null ? Items.Icon(amulet) : null,
@@ -356,7 +365,7 @@ internal class Relics : MonoBehaviour
         Plugin.Log.LogInfo($"Bound relic {relic.Name}.");
         // The price of power: a blood moon rises (or restarts at the new tier). Without blood
         // moons it's the old minute of the Scoutmaster hunting the whole team.
-        Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", relic.Gem);
+        if (Cursed(relic.Gem)) Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", relic.Gem);
     }
 
     // --- triggers -----------------------------------------------------------------------
@@ -459,6 +468,7 @@ internal class Relics : MonoBehaviour
                 Gem = o.gem,
                 Title = Get(o.gem, o.trigger).Name,
                 Heading = o.stack ? "Stack it" : "Cursed copy",
+                Cursed = !o.stack,
                 Body = o.stack ? $"Your {GemName(o.gem)} grows:\nit recharges faster." : $"A cursed copy of {name}'s\nrelic. Shatters if you die.",
                 Tag = o.trigger.Label(),
                 Icon = Items.Icon(Amulet(o.gem)),

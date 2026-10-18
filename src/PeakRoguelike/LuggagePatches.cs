@@ -114,8 +114,24 @@ internal static class LuggagePatches
                 else ClaimFusion(luggage, fused[i - items.Count]);
             },
             OnBack = () => perk?.ReleaseLock(),
+            // A flare in your pockets rerolls the whole crate (for everyone still to pick).
+            Extra = perk != null && Flares.Carrying() ? "REROLL" : "",
+            OnExtra = () => Reroll(luggage, perk!, from),
         });
         if (!shown) perk?.ReleaseLock();
+    }
+
+    /// <summary>The flare burns away and the crate's cards are dealt again (new ones where the pool allows).</summary>
+    private static void Reroll(Luggage luggage, PerkLuggage perk, Vector3 from)
+    {
+        if (luggage == null || luggage.IsOpen || !StillHere(from) || !Flares.Spend()) { perk.ReleaseLock(); return; }
+        var old = perk.GetOrRoll().Select(i => i.itemID).ToList();
+        var fresh = RollChoices(luggage, old);
+        if (fresh.Count < old.Count) fresh = RollChoices(luggage);
+        if (fresh.Count == 0) { perk.ReleaseLock(); return; }
+        perk.Reroll(fresh);
+        Hud.Toast("The flare burns away. New cards.", ChoiceScreen.Cream);
+        ShowCrate(luggage, perk.GetOrRoll());
     }
 
     /// <summary>A crate screen stays open while you stay put: blown 5m away, or caught by a tornado, it closes.</summary>
@@ -199,7 +215,7 @@ internal static class LuggagePatches
     }
 
     /// <summary>Same roll the host would do when the crate opens.</summary>
-    internal static List<Item> RollChoices(Luggage luggage)
+    internal static List<Item> RollChoices(Luggage luggage, ICollection<ushort>? avoid = null)
     {
         var result = new List<Item>();
         try
@@ -221,6 +237,7 @@ internal static class LuggagePatches
                     if (item == null || result.Count >= count) continue;
                     if (ModConfig.Leveling.Value && Items.IsEarnedOnly(item)) continue;
                     if (result.Any(r => r.itemID == item.itemID)) continue;
+                    if (avoid != null && avoid.Contains(item.itemID)) continue;
                     result.Add(item);
                 }
             }
@@ -272,7 +289,9 @@ internal static class LuggagePatches
         bonusFirst = -1;
         // Generosity relic: a first pick of its kind earns a second pick from the same crate.
         // The crate stays closed (and locked to us) until the second card is chosen.
-        bool bonus = first < 0 && slot >= 0 && perk != null && perk.GetOrRoll().Count > 1 && Relics.Generosity(item);
+        bool empty = first < 0 && slot >= 0 && SkyDrop.EmptyHanded(luggage);
+        bool bonus = first < 0 && slot >= 0 && perk != null && perk.GetOrRoll().Count > 1 && (Relics.Generosity(item) || empty);
+        if (bonus && empty) Hud.Toast("Empty-handed: one more card", ChoiceScreen.Cream);
         if (perk != null && !bonus)
         {
             if (first >= 0)
@@ -291,7 +310,7 @@ internal static class LuggagePatches
         // (if our pockets are full it drops at our feet, same as the game's own give-item path).
         Xp.ExpectCrateItem(item);
         GameUtils.instance.InstantiateAndGrab(item, me);
-        Plugin.Log.LogInfo($"Claimed {item.gameObject.name} from {luggage.displayName}{(first >= 0 ? " (Generosity's second pick)" : "")}.");
+        Plugin.Log.LogInfo($"Claimed {item.gameObject.name} from {luggage.displayName}{(first >= 0 ? " (second pick)" : "")}.");
         if (bonus) ShowSecondPick(luggage, perk!, slot);
     }
 
@@ -559,6 +578,22 @@ public class PerkLuggage : MonoBehaviourPun
         foreach (ushort id in rolled)
             if (Items.TryGet(id, out var item)) list.Add(item);
         return list;
+    }
+
+    /// <summary>A flare's reroll: new cards for this crate, for everyone (who has picked stays picked).</summary>
+    public void Reroll(List<Item> items)
+    {
+        rolled = items.Select(i => i.itemID).ToArray();
+        if (PhotonNetwork.InRoom) photonView.RPC(nameof(RPC_Rerolled), RpcTarget.Others, rolled.Select(x => (int)x).ToArray());
+        Publish();
+        Plugin.Log.LogInfo($"{luggage.displayName}: rerolled with a flare - " + string.Join(", ", items.Select(i => i.gameObject.name)) + ".");
+    }
+
+    [PunRPC]
+    public void RPC_Rerolled(int[] ids)
+    {
+        rolled = ids.Select(x => (ushort)x).ToArray();
+        Plugin.Log.LogInfo($"{luggage?.displayName}: rerolled by another scout's flare ({rolled.Length} cards).");
     }
 
     [PunRPC]

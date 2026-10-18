@@ -20,6 +20,7 @@ public enum AuraKind : byte
 /// </summary>
 internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
 {
+    private const byte SupplyDropEvent = 170;
     private const byte AuraEvent = 171;
     private const byte PitonBrittleEvent = 172;
     private const byte PitonBreakEvent = 173;
@@ -88,6 +89,8 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
         Send(SpawnItemEvent, new object[] { prefabName, pos }, ReceiverGroup.MasterClient);
 
     /// <summary>Host: a revive statue was touched with nobody to revive - everyone gets a blessing.</summary>
+    public static void SupplyDrop(Vector3 at, Vector3 look, string caller) => Send(SupplyDropEvent, new object[] { at, look, caller }, ReceiverGroup.MasterClient);
+
     public static void Bless(int statueViewId) => Send(BlessingEvent, new object[] { statueViewId });
 
     /// <summary>A fresh relic was bound: the host raises a blood moon (or, with blood moons off, everyone gets the Scoutmaster hunt).</summary>
@@ -218,6 +221,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     break;
                 case SpawnItemEvent when e.CustomData is object[] a && PhotonNetwork.IsMasterClient:
                     PhotonNetwork.InstantiateItemRoom((string)a[0], (Vector3)a[1], Quaternion.identity);
+                    break;
+                case SupplyDropEvent when e.CustomData is object[] a && PhotonNetwork.IsMasterClient:
+                    PeakRoguelike.SupplyDrop.FlareDrop((Vector3)a[0], (Vector3)a[1], (string)a[2]);
                     break;
                 case BlessingEvent when e.CustomData is object[] a:
                     Blessing.FromStatue((int)a[0]);

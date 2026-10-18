@@ -45,6 +45,8 @@ internal static class ModConfig
 
     // --- blessings / relic risks -------------------------------------------------------------
     public static ConfigEntry<bool> Blessings = null!;
+    public static ConfigEntry<bool> FlareReroll = null!, FlareSupplyDrop = null!, TimedDrops = null!, EmptyHandedPicks = null!, FindCards = null!;
+    public static ConfigEntry<float> FlareAncientChance = null!, DropSeconds = null!;
     public static ConfigEntry<float> HuntSeconds = null!;
     public static ConfigEntry<bool> RelicDrops = null!;
     internal static ConfigEntry<StatueOrder> StatueOrder = null!;
@@ -292,6 +294,13 @@ internal static class ModConfig
         RarityCurve = cfg.Bind("Loot", "RarityCurve", true, "Early biomes roll mostly common items; rarer items get more likely as the run climbs.");
 
         Blessings = cfg.Bind("Systems", "Blessings", true, "Revive statues bless every scout (+2 levels or a fusion) when nobody needs reviving. Ancient Luggage blesses whoever opens it.");
+        FlareReroll = cfg.Bind("Flare", "Reroll", true, "An unlit flare in your pockets adds a REROLL button to crate screens: the flare is spent and the whole crate is dealt again.");
+        FlareSupplyDrop = cfg.Bind("Flare", "SupplyDrop", true, "Lighting a flare anywhere but the peak slams a big supply crate down beside you (at the peak it still calls the helicopter).");
+        FlareAncientChance = cfg.Bind("Flare", "AncientChance", 0.2f, "Chance a flare's crate is an Ancient Luggage (a blessing) instead of a big crate.");
+        TimedDrops = cfg.Bind("Supply", "TimedDrops", true, "Host: while anyone is out on the mountain (not at a campfire, the crash site or a blood moon), a supply crate floats down on balloons near the scout carrying the least.");
+        DropSeconds = cfg.Bind("Supply", "IntervalSeconds", 150f, "Seconds out on the mountain between timed supply drops.");
+        EmptyHandedPicks = cfg.Bind("Supply", "EmptyHandedPicks", true, "Opening a supply crate with empty pockets lets you take two cards.");
+        FindCards = cfg.Bind("Systems", "FindCards", true, "Flare, Bing Bong, Binoculars, Frisbee and Compass show a card the first time you pick each up in a run.");
         HuntSeconds = cfg.Bind("Relics", "ScoutmasterHuntSeconds", 60f, "Only with blood moons off: binding a relic sets the Scoutmaster hunting everyone for this long (0 = off).");
         RelicDrops = cfg.Bind("Relics", "DropOnDeath", true, "Dying drops your relics as amulets; whoever picks one up gets that exact relic.");
         StatueOrder = cfg.Bind("Relics", "StatueOrder", PeakRoguelike.StatueOrder.Off, "Which amulet sits on each biome's statue (the suns follow). Off = the game's own order; Daily = shuffled by the day's map, the same for everyone that day; EveryRun = a new order every run. The host's setting counts - also on the airport ticket and in F8.");

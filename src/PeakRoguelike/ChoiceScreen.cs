@@ -40,6 +40,12 @@ public class CardSpec
     public string Footer = "";       // Perk only
     public Texture? Icon;            // Perk: medallion. Fusion: the result.
     public Texture?[] Ingredients = new Texture?[0]; // Fusion
+    /// <summary>An XP level-up pick: gold glow (always faintly on), gold edge and gold sparkles.</summary>
+    public bool LevelUp;
+    /// <summary>Relic: a cursed copy - dark, slow sparkles.</summary>
+    public bool Cursed;
+    /// <summary>The card's item evolves (its text says "Evolves!"): white sparkles.</summary>
+    public bool Evolves => Body.Contains("Evolves!");
 }
 
 /// <summary>A full-screen "pick one card" screen: perks, paths, fusions and relics all use it.</summary>
@@ -58,6 +64,9 @@ public class ScreenSpec
     public Func<bool>? StillValid;
     public Action<int>? OnConfirm;
     public Action? OnBack;
+    /// <summary>A third button (R) beside Back and Confirm, e.g. a flare's REROLL. Closes the screen, then OnExtra.</summary>
+    public string Extra = "";
+    public Action? OnExtra;
     /// <summary>The world closed the screen (item dropped, knocked out...) - not the player's choice.</summary>
     public Action? OnCancelled;
 }
@@ -76,6 +85,8 @@ public class ChoiceScreen : MonoBehaviour
     internal static readonly Color InkBrown = new Color32(0x24, 0x10, 0x0C, 0xFF);
     internal static readonly Color Muted = new Color32(0xD9, 0xC9, 0xA3, 0xFF);
     internal static readonly Color FusionGlow = new Color32(0xC9, 0x9C, 0xFF, 0xFF);
+    internal static readonly Color LevelGold = new Color32(0xFF, 0xD8, 0x6A, 0xFF); // the XP bar's gold
+    internal static readonly Color EvolveWhite = new Color32(0xFF, 0xFC, 0xF0, 0xFF);
 
     internal static Color ThemeGlow(PerkTheme t) => t switch
     {
@@ -95,6 +106,7 @@ public class ChoiceScreen : MonoBehaviour
     private float closeTime;
     private bool claimOnClose;
     private bool cancelled;
+    private bool extraOnClose;
 
     public static bool Show(ScreenSpec spec)
     {
@@ -218,16 +230,23 @@ public class ChoiceScreen : MonoBehaviour
         bar.anchorMin = bar.anchorMax = new Vector2(0.5f, 0f);
         bar.anchoredPosition = new Vector2(0, 112);
 
+        bool extra = !string.IsNullOrEmpty(spec.Extra);
         var back = MenuButtonView.Create(bar, "Back", UiArt.Embedded("button_back"), 1.35f, null, Back);
-        back.Rect.anchoredPosition = new Vector2(-190, 0);
+        back.Rect.anchoredPosition = new Vector2(extra ? -340 : -190, 0);
 
         confirmButton = MenuButtonView.Create(bar, "Confirm", UiArt.Embedded("button_confirm"), 1.35f, spec.Confirm, Confirm);
-        confirmButton.Rect.anchoredPosition = new Vector2(150, 0);
+        confirmButton.Rect.anchoredPosition = new Vector2(extra ? 0 : 150, 0);
         confirmButton.Interactable = false;
+
+        if (extra)
+        {
+            var x = MenuButtonView.Create(bar, "Extra", UiArt.Embedded("button_confirm"), 1.35f, spec.Extra, Extra);
+            x.Rect.anchoredPosition = new Vector2(300, 0);
+        }
 
         string keys = cardCount >= 10 ? "1-0" : cardCount > 1 ? $"1-{cardCount}" : "1";
         var hint = Ui.Text(root, "Hint",
-            $"<color=#FBEBC4>{keys}</color>  Select        <color=#FBEBC4>ENTER</color>  {Title(spec.Confirm)}        <color=#FBEBC4>ESC</color>  {spec.BackHint}",
+            $"<color=#FBEBC4>{keys}</color>  Select        <color=#FBEBC4>ENTER</color>  {Title(spec.Confirm)}{(extra ? $"        <color=#FBEBC4>R</color>  {Title(spec.Extra)}" : "")}        <color=#FBEBC4>ESC</color>  {spec.BackHint}",
             UiArt.BodyFont, 17, Muted, TextAlignmentOptions.Center);
         hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = new Vector2(0.5f, 0f);
         hint.rectTransform.anchoredPosition = new Vector2(0, 40);
@@ -285,6 +304,13 @@ public class ChoiceScreen : MonoBehaviour
         BeginClose();
     }
 
+    internal void Extra()
+    {
+        if (closing || string.IsNullOrEmpty(spec.Extra)) return;
+        extraOnClose = true;
+        BeginClose();
+    }
+
     internal void Back()
     {
         if (closing) return;
@@ -336,6 +362,7 @@ public class ChoiceScreen : MonoBehaviour
         }
         if (kb.enterKey.wasPressedThisFrame || kb.numpadEnterKey.wasPressedThisFrame) Confirm();
         if (kb.backspaceKey.wasPressedThisFrame) Back();
+        if (kb.rKey.wasPressedThisFrame) Extra();
     }
 
     private void Finish()
@@ -347,6 +374,7 @@ public class ChoiceScreen : MonoBehaviour
         try
         {
             if (pick >= 0) spec.OnConfirm?.Invoke(pick);
+            else if (extraOnClose && spec.OnExtra != null) spec.OnExtra();
             else if (cancelled && spec.OnCancelled != null) spec.OnCancelled();
             else spec.OnBack?.Invoke();
         }
@@ -426,9 +454,11 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         {
             CardStyle.Relic => Relics.GemColor(spec.Gem),
             CardStyle.Fusion => ChoiceScreen.FusionGlow,
+            _ when spec.LevelUp => ChoiceScreen.LevelGold,
             _ => ChoiceScreen.ThemeGlow(spec.Theme),
         };
         view.BuildFrame();
+        view.BuildSparkles();
         switch (spec.Style)
         {
             case CardStyle.Relic: view.BuildRelic(); break;
@@ -450,6 +480,60 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         glow = Ui.Image(Rect, "Glow", UiArt.Glow(160, 220, 56, 30), new Color(glowColor.r, glowColor.g, glowColor.b, 0f));
         glow.rectTransform.sizeDelta = new Vector2(470, 640);
         glow.raycastTarget = false;
+    }
+
+    // Plain item cards stay quiet; everything special sparkles behind the frame.
+    private readonly List<Sparkles> sparkles = new();
+
+    private void BuildSparkles()
+    {
+        switch (Spec.Style)
+        {
+            case CardStyle.Relic when Spec.Cursed:
+                sparkles.Add(Sparkles.Add(Rect, Color.Lerp(Relics.GemColor(Spec.Gem), Color.black, 0.6f), rate: 3f, speed: 16f, size: 26f, alpha: 0.9f));
+                break;
+            case CardStyle.Relic:
+                sparkles.Add(Sparkles.Add(Rect, Relics.GemColor(Spec.Gem), rate: 6f, speed: 34f, size: 20f, alpha: 0.8f));
+                break;
+            case CardStyle.Fusion:
+                sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.FusionGlow, rate: 6f, speed: 34f, size: 20f, alpha: 0.8f));
+                break;
+            default:
+                if (Spec.LevelUp) sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.LevelGold, rate: 6f, speed: 34f, size: 20f, alpha: 0.8f));
+                break;
+        }
+        // Evolutions sparkle white, brighter and faster - on top of any gold.
+        if (Spec.Evolves) sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.EvolveWhite, rate: 10f, speed: 60f, size: 18f, alpha: 1f));
+    }
+
+    private static readonly Dictionary<Sprite, Sprite> silhouettes = new();
+
+    /// <summary>The sprite's shape in plain white (tints to a clean colour); the sprite itself if its pixels can't be read.</summary>
+    private static Sprite Silhouette(Sprite src)
+    {
+        if (silhouettes.TryGetValue(src, out var s) && s) return s;
+        try
+        {
+            var r = src.rect;
+            var px = src.texture.GetPixels32();
+            int tw = src.texture.width;
+            int w = (int)r.width, h = (int)r.height, x0 = (int)r.x, y0 = (int)r.y;
+            var outPx = new Color32[w * h];
+            for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    outPx[y * w + x] = new Color32(255, 255, 255, px[(y0 + y) * tw + x0 + x].a);
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+            tex.SetPixels32(outPx);
+            tex.Apply();
+            s = Sprite.Create(tex, new Rect(0, 0, w, h), new Vector2(0.5f, 0.5f), 100f);
+        }
+        catch (Exception e)
+        {
+            Plugin.Log.LogWarning($"Card edge: couldn't read {src.name} ({e.Message}) - using the art itself.");
+            s = src;
+        }
+        silhouettes[src] = s;
+        return s;
     }
 
     private Image AddArt(Sprite sprite, Vector2 size, Vector2 pos)
@@ -510,8 +594,18 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     {
         var (origin, offset) = Layout(Spec.Theme);
         Sprite sprite = UiArt.CardSprite(Spec.Theme);
-        AddArt(sprite, new Vector2(sprite.rect.width, sprite.rect.height),
-            P(origin.x - offset + sprite.rect.width / 2f, origin.y + sprite.rect.height / 2f));
+        Vector2 artSize = new(sprite.rect.width, sprite.rect.height);
+        Vector2 artPos = P(origin.x - offset + sprite.rect.width / 2f, origin.y + sprite.rect.height / 2f);
+        if (Spec.LevelUp)
+        {
+            // A thin gold rim: the card's own shape, a touch bigger, behind the art.
+            var edge = Ui.Image(Rect, "GoldEdge", Silhouette(sprite), ChoiceScreen.LevelGold);
+            edge.rectTransform.sizeDelta = artSize + new Vector2(10, 10);
+            edge.rectTransform.anchoredPosition = artPos;
+            edge.raycastTarget = false;
+            dimmable.Add((edge, edge.color));
+        }
+        AddArt(sprite, artSize, artPos);
 
         // Icon in the central medallion (circle centre 272,316 r69).
         AddIcon(Spec.Icon, P(272, 316), 112, 132);
@@ -700,7 +794,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         float targetScale = isSelected ? 1.07f : hovered ? 1.045f : otherSelected ? 0.95f : 1f;
         float targetLift = isSelected ? 22f : hovered ? 14f : 0f;
         float pulse = 0.5f + 0.5f * Mathf.Sin(now * 3.2f);
-        float targetGlow = isSelected ? 0.75f + 0.25f * pulse : hovered ? 0.5f : 0f;
+        float targetGlow = isSelected ? 0.75f + 0.25f * pulse : hovered ? 0.5f : Spec.LevelUp ? 0.18f + 0.06f * pulse : 0f;
         float targetDim = otherSelected && !hovered ? 0.42f : 0f;
 
         scale = Mathf.Lerp(scale, targetScale, k);
@@ -730,6 +824,92 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
             icon.rectTransform.anchoredPosition = iconHome + new Vector2(0, iconBob);
         }
         if (iconLight != null) iconLight.color = new Color(glowColor.r, glowColor.g, glowColor.b, (0.3f + 0.35f * glowAlpha) * b);
+        float boost = exiting && exitAsClaim ? 2.5f : isSelected ? 1.5f : hovered ? 1f : 0f;
+        foreach (var sp in sparkles) { sp.Boost = boost; sp.Dim = b; }
+    }
+}
+
+/// <summary>Soft motes drifting up behind a special card (level-ups, evolutions, fusions, relics). Stronger on hover.</summary>
+internal class Sparkles : MonoBehaviour
+{
+    public float Boost, Dim = 1f;
+    private Color color;
+    private float rate, speed, size, alpha, spawn;
+    private const int Max = 28;
+    private const float W = 470f, H = 620f;
+
+    private class Mote { public Image Dot = null!; public Image? Flare; public Vector2 Pos, Vel; public float Age, Life, Size, Phase; public bool Live; }
+    private readonly List<Mote> motes = new();
+
+    public static Sparkles Add(RectTransform card, Color color, float rate, float speed, float size, float alpha)
+    {
+        var rt = Ui.Rect(card, "Sparkles");
+        rt.sizeDelta = new Vector2(W, H);
+        var s = rt.gameObject.AddComponent<Sparkles>();
+        s.color = color; s.rate = rate; s.speed = speed; s.size = size; s.alpha = alpha;
+        s.spawn = UnityEngine.Random.value * 2f; // a few motes are already up when the card arrives
+        return s;
+    }
+
+    private Mote Free()
+    {
+        foreach (var m in motes) if (!m.Live) return m;
+        var mote = new Mote { Dot = Ui.Image((RectTransform)transform, "Mote", UiArt.Radial(32, 0f, 2.4f), Color.clear) };
+        mote.Dot.raycastTarget = false;
+        if (motes.Count % 3 == 0)
+        {
+            // Every third mote twinkles: a thin cross of light over the dot.
+            mote.Flare = Ui.Image(mote.Dot.rectTransform, "Flare", UiArt.Radial(32, 0f, 1.6f), Color.clear);
+            mote.Flare.raycastTarget = false;
+        }
+        motes.Add(mote);
+        return mote;
+    }
+
+    private void Update()
+    {
+        float dt = Mathf.Min(Time.unscaledDeltaTime, 0.05f);
+        spawn += dt * rate * (1f + Boost);
+        while (spawn >= 1f)
+        {
+            spawn -= 1f;
+            if (motes.Count >= Max && !motes.Exists(m => !m.Live)) break;
+            var m = Free();
+            m.Live = true;
+            m.Age = 0f;
+            m.Life = UnityEngine.Random.Range(1.6f, 2.8f);
+            m.Size = size * UnityEngine.Random.Range(0.5f, 1.2f);
+            m.Phase = UnityEngine.Random.value * 6.3f;
+            m.Pos = new Vector2(UnityEngine.Random.Range(-W / 2f, W / 2f), UnityEngine.Random.Range(-H / 2f, H / 3f));
+            m.Vel = new Vector2(UnityEngine.Random.Range(-8f, 8f), speed * UnityEngine.Random.Range(0.6f, 1.3f));
+        }
+
+        float strength = alpha * (0.55f + 0.3f * Boost) * Dim;
+        foreach (var m in motes)
+        {
+            if (!m.Live) continue;
+            m.Age += dt;
+            if (m.Age >= m.Life)
+            {
+                m.Live = false;
+                m.Dot.color = Color.clear;
+                if (m.Flare != null) m.Flare.color = Color.clear;
+                continue;
+            }
+            m.Pos += (m.Vel * (1f + 0.6f * Boost) + new Vector2(Mathf.Sin(m.Age * 2.2f + m.Phase) * 10f, 0f)) * dt;
+            float fade = Mathf.Sin(Mathf.PI * m.Age / m.Life);
+            float twinkle = 0.7f + 0.3f * Mathf.Sin(m.Phase + m.Age * 9f);
+            var c = new Color(color.r, color.g, color.b, Mathf.Clamp01(fade * twinkle * strength));
+            m.Dot.color = c;
+            m.Dot.rectTransform.anchoredPosition = m.Pos;
+            m.Dot.rectTransform.sizeDelta = Vector2.one * m.Size;
+            if (m.Flare != null)
+            {
+                m.Flare.color = c;
+                m.Flare.rectTransform.sizeDelta = new Vector2(m.Size * 2.6f, m.Size * 0.22f);
+                m.Flare.rectTransform.localRotation = Quaternion.Euler(0, 0, 45f + m.Age * 40f);
+            }
+        }
     }
 }
 

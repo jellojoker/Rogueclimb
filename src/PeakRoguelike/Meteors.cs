@@ -580,7 +580,7 @@ internal class Meteors : MonoBehaviour
 
     private static Dictionary<string, AudioClip>? clips;
 
-    private static AudioClip[] Clips(params string[] names)
+    internal static AudioClip[] Clips(params string[] names)
     {
         if (clips == null)
         {

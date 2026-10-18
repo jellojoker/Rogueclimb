@@ -219,10 +219,13 @@ public class RopeSnapFx : MonoBehaviour
     /// A small puff of rope fibres where it snapped. Borrowed from the bridge's break effect, but
     /// only its dust: every plank and debris piece (mesh particles, meshes) is switched off.
     /// </summary>
-    private static void FibrePuff(GameObject template, Vector3 at)
+    private static void FibrePuff(GameObject template, Vector3 at) => Puff(template, at, 0.4f, Fibre, 1f, 20);
+
+    /// <summary>The bridge break's dust alone (planks and debris hidden), at any size and colour.</summary>
+    internal static void Puff(GameObject template, Vector3 at, float scale, Color color, float life, int max)
     {
         var go = Instantiate(template, at, Quaternion.identity);
-        go.transform.localScale = Vector3.one * 0.4f;
+        go.transform.localScale = Vector3.one * scale;
         int kept = 0;
         foreach (var r in go.GetComponentsInChildren<Renderer>(true))
             if (r is not ParticleSystemRenderer) r.enabled = false; // planks / rope pieces
@@ -237,16 +240,16 @@ public class RopeSnapFx : MonoBehaviour
                 continue;
             }
             var main = ps.main;
-            main.maxParticles = 20;
-            main.startColor = Fibre;
-            main.startLifetime = 1f;
+            main.maxParticles = max;
+            main.startColor = color;
+            main.startLifetime = life;
             var shape = ps.shape;
             shape.shapeType = ParticleSystemShapeType.Sphere;
-            shape.radius = 0.25f;
+            shape.radius = 0.25f * scale / 0.4f;
             ps.Play();
             kept++;
         }
-        if (!loggedPuff) { loggedPuff = true; Plugin.Log.LogInfo($"Rope snap: fibre puff from {kept} dust effect(s) of the bridge break (planks hidden)."); }
+        if (!loggedPuff) { loggedPuff = true; Plugin.Log.LogInfo($"Dust puff from {kept} dust effect(s) of the bridge break (planks hidden)."); }
         Destroy(go, 4f);
     }
 
