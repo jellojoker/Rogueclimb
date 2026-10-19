@@ -99,6 +99,8 @@ internal static class LuggagePatches
         var fused = Offers.UnlockedFusions(items);
         Vector3 from = Character.localCharacter != null ? Character.localCharacter.Center : luggage.Center();
         var cards = items.Select(CrateCards.ForItem).ToList();
+        // Green sun on the Shore: one of the crate's own cards withers (never the last one).
+        if (Suns.WitheredCard(luggage, items) is { } gone) cards[gone].Withered = true;
         cards.AddRange(fused.Select(r => Fusion.ItemCard(r, "Fusion unlocked")));
 
         bool shown = ChoiceScreen.Show(new ScreenSpec

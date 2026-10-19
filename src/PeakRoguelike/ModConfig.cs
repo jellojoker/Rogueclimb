@@ -49,6 +49,8 @@ internal static class ModConfig
     public static ConfigEntry<float> FlareAncientChance = null!, DropSeconds = null!;
     public static ConfigEntry<bool> CurioRelics = null!, FrisbeeHitsScouts = null!;
     public static ConfigEntry<float> CurioPingSeconds = null!, CurioCrateBoost = null!, FrisbeeForce = null!, BingBongMinSeconds = null!, BingBongMaxSeconds = null!;
+    public static ConfigEntry<float> BingBongHideMin = null!, BingBongHideMax = null!, BingBongDarkSeconds = null!, BingBongBlinkRange = null!, BingBongGiftMaxChance = null!;
+    public static ConfigEntry<Key> FlashlightKey = null!;
     public static ConfigEntry<float> HuntSeconds = null!;
     public static ConfigEntry<bool> RelicDrops = null!;
     internal static ConfigEntry<StatueOrder> StatueOrder = null!;
@@ -66,6 +68,7 @@ internal static class ModConfig
     public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmZombiesSoloCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
+    public static ConfigEntry<float> BmTornadoSharedWidth = null!, BmTornadoSharedPull = null!, BmTornadoVeerMin = null!, BmTornadoVeerMax = null!;
 
     // --- suns ----------------------------------------------------------------------------
     public static ConfigEntry<bool> Suns = null!, SunFlareTint = null!, SunBlueFreeze = null!, SunBlueWear = null!, SunBlueBreaks = null!;
@@ -76,6 +79,7 @@ internal static class ModConfig
         SunGreenShowerSeconds = null!, SunGreenFoodLife = null!, SunFadeSeconds = null!, MaxedTreeWeight = null!, SunscreenWeight = null!,
         SunBlueHealCap = null!, SunYellowRushCap = null!, SunGreenFoodCap = null!, SunRedMoveCap = null!;
     public static ConfigEntry<bool> SafeZones = null!, SunRedHeavyShoreOnly = null!;
+    public static ConfigEntry<float> SunRedSprintSpeed = null!, SunRedJumpHeight = null!, SunRedJetpackBurn = null!, SunRedItemPower = null!, SunRedLunge = null!, SunRedShoreJump = null!, SunBlueGlassSeconds = null!, ParasolShieldSeconds = null!;
     public static ConfigEntry<float> SummitRadius = null!, SpawnRadius = null!;
     public static ConfigEntry<int> SunGreenRainCount = null!;
 
@@ -123,9 +127,9 @@ internal static class ModConfig
         BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 1, "How many zombies rise beside every scout in the open, from tier 1 (spread evenly around them).");
         BmZombiesPerCarrier = cfg.Bind("BloodMoon", "ZombiesPerCarrier", 1, "This many more beside each scout carrying a relic, the Cursed Skull or the Ritual Dagger (every tier).");
         BmZombiesSoloCarrier = cfg.Bind("BloodMoon", "ZombiesSoloCarrier", 3, "Solo runs, tier 1: how many zombies rise beside you when you carry a relic, the skull or the dagger (later tiers use the normal counts).");
-        BmGrabsTier1 = cfg.Bind("BloodMoon", "GrabsPerScoutTier1", 1, "Tier 2 (his first): grabs per scout per moon before the Scoutmaster only watches them.");
-        BmGrabsTier2 = cfg.Bind("BloodMoon", "GrabsPerScoutTier2", 2, "Tier 3: the same (at tier 4 he only watches).");
-        BmTornado = cfg.Bind("BloodMoon", "Tornado", true, "3 relics: a tornado that heads for relic holders (sand on Mesa, snow on Alpine).");
+        BmGrabsTier1 = cfg.Bind("BloodMoon", "GrabsPerScoutTier1", 1, "His first tier (hunter): grabs per scout per moon before the Scoutmaster only watches them.");
+        BmGrabsTier2 = cfg.Bind("BloodMoon", "GrabsPerScoutTier2", 2, "His second tier: the same (from his third on he only watches).");
+        BmTornado = cfg.Bind("BloodMoon", "Tornado", true, "A tornado that heads for relic holders (sand on Mesa, snow on Alpine). Its tier comes from the shuffled hazard order.");
         BmGlassMeteors = cfg.Bind("BloodMoon", "GlassMeteors", true, "4 relics, Gloom runs (Gloom + Citadel): a shower of purple glass - a direct hit adds glass.");
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
         BmMeteorRate = cfg.Bind("BloodMoon", "MeteorRate", 1f, "Meteors per second around each scout.");
@@ -192,15 +196,26 @@ internal static class ModConfig
         BmTornadoApproach = cfg.Bind("BloodMoon", "TornadoApproachSpeed", 14f, "The tornado's speed (m/s) while it travels up from the section's starting campfire.");
         BmTornadoChase = cfg.Bind("BloodMoon", "TornadoChaseSpeed", 0.6f, "The tornado's chase speed once close, as a share of its old speed (1 = v0.6 speed).");
         BmTornadoNear = cfg.Bind("BloodMoon", "TornadoChaseDistance", 60f, "Distance (m) from the nearest scout at which the tornado slows to its chase speed.");
+        BmTornadoSharedWidth = cfg.Bind("BloodMoon", "TornadoSharedWidth", 0.75f, "Moon tier 2+ (the tornado shares the moon): its width as a share of the game's tornado (1 = vanilla). Its pull and catch reach shrink with it. Alone at tier 1 it's always vanilla.");
+        BmTornadoSharedPull = cfg.Bind("BloodMoon", "TornadoSharedPull", 0.75f, "Moon tier 2+: its pull and spin strength as a share of vanilla (the upward lift stays vanilla).");
+        BmTornadoVeerMin = cfg.Bind("BloodMoon", "TornadoVeerMin", 60f, "When the scout it hunts fires a relic (or nobody can be hunted) it veers off to a spot at least this far (m) away...");
+        BmTornadoVeerMax = cfg.Bind("BloodMoon", "TornadoVeerMax", 100f, "...and at most this far (m).");
 
         Suns = cfg.Bind("Suns", "Enabled", true, "Coloured suns: each biome's days burn the colour of its statue amulet until the squad holds that relic; blood moon nights only after it.");
         SunSky = cfg.Bind("Suns", "SkyTint", 1f, "How strongly the sky and sunlight take the sun's colour (0 = vanilla sky, effects still apply).");
         SunYellowDrain = cfg.Bind("Suns", "YellowStaminaDrain", 1.4f, "Yellow sun: stamina use multiplier, on top of the ascent's own (Ascent 6+ is x1.4, so x1.96 there).");
         SunGreenFoodCap = cfg.Bind("Suns", "GreenFoodCap", 0.1f, "Unused since 0.12.7.");
-        SunBlueHealCap = cfg.Bind("Suns", "BlueHealingCap", 0.1f, "Blue sun: healing items heal this fraction (lantern and relics never capped).");
+        SunBlueHealCap = cfg.Bind("Suns", "BlueHealingCap", 0.5f, "Blue sun: healing items heal this fraction (lantern and relics never capped).");
+        // One time only (0.12.25): the old 10% default becomes 50%; a value someone set stays.
+        var healMoved = cfg.Bind("Suns", "BlueHealingCapUpdated", false, "Set by the mod once it has moved the old blue healing default. Leave it.");
+        if (!healMoved.Value)
+        {
+            if (System.Math.Abs(SunBlueHealCap.Value - 0.1f) < 0.001f) SunBlueHealCap.Value = 0.5f;
+            healMoved.Value = true;
+        }
         SunBlueDamage = cfg.Bind("Suns", "BlueDamage", 1.5f, "Blue sun: every hit and every tick of harm (injury and falls, poison, cold, heat, spores, drowsiness, curse) lands this many times harder.");
         SunYellowRushCap = cfg.Bind("Suns", "YellowRushCap", 0.1f, "Yellow sun: infinite stamina from items lasts this fraction as long.");
-        SunRedMoveCap = cfg.Bind("Suns", "RedMovementCap", 0.1f, "Red sun: glider, jetpack, rocket pack, balloons, scout cannon and anti-grav work at this fraction (ropes / pitons untouched).");
+        SunRedMoveCap = cfg.Bind("Suns", "RedMovementCap", 0.1f, "Unused since 0.12.25 (see RedItemPower and RedJetpackBurnRate).");
         SunSkyBlend = cfg.Bind("Suns", "SkyBlend", 0.8f, "How far the sky leans into the sun's colour (0..1).");
         SunFlareTint = cfg.Bind("Suns", "FlareTint", true, "Tint the game's sun glare (lens flare) to the sky's colour - coloured suns, and blood red on the menu and at the airport.");
         SunLight = cfg.Bind("Suns", "SunlightColour", 1f, "How strongly the sunlight itself takes the sun's colour (0 = the game's near-white light, 1 = the full colour, up to 1.5 = deeper than the sun's colour). Real light, not a filter: shadows stay shadows. Tune live in F8 > World.");
@@ -214,13 +229,21 @@ internal static class ModConfig
         SunGreenShowerSeconds = cfg.Bind("Suns", "GreenStormSeconds", 5f, "Green sun: how long each food storm lasts.");
         SunGreenFoodLife = cfg.Bind("Suns", "GreenFoodLifetime", 20f, "Green sun: rained food left on the ground vanishes after this many seconds (pocket it to keep it).");
         SunGreenNoStack = cfg.Bind("Suns", "GreenNoStacking", true, "Green sun: nothing new joins a stack (existing stacks stay and can be used); singles merge back at sunset or when the relic is taken.");
-        SunGreenShoreWeight = cfg.Bind("Suns", "GreenShoreWeight", 1, "Green sun on the Shore: extra weight per item (on top of the ascent's own +1 from Ascent 3).");
+        SunGreenShoreWeight = cfg.Bind("Suns", "GreenShoreWeight", 1, "Unused since 0.12.25 (green on the Shore withers a crate card instead).");
         SunFadeSeconds = cfg.Bind("Suns", "FadeSeconds", 5f, "Seconds for a sun's colour to fade in or out.");
-        SunRedJump = cfg.Bind("Suns", "RedJumpLaunch", 0.7f, "Red sun: jump launch-height multiplier (on top of the heavier gravity).");
-        SunRedGravity = cfg.Bind("Suns", "RedGravity", 1.6f, "Red sun: gravity multiplier on scouts - lower, shorter jumps, faster falls.");
-        SunRedSprintCut = cfg.Bind("Suns", "RedSprintCut", 0.6f, "Red sun: share of the sprint speed bonus taken away (0 = vanilla sprint, 1 = sprinting is no faster than walking). Walking untouched.");
-        SunRedLungeCut = cfg.Bind("Suns", "RedLungeCut", 0.5f, "Red sun: share of the climbing lunge's distance taken away (0 = vanilla, 1 = no lunge). Stamina cost unchanged.");
-        SunRedHeavyShoreOnly = cfg.Bind("Suns", "RedHeavyShoreOnly", true, "Red sun: heavier gravity and low jumps only on the Shore (false = every biome). Sprint, lunge and item caps apply everywhere.");
+        SunRedJump = cfg.Bind("Suns", "RedJumpLaunch", 0.7f, "Unused since 0.12.25 (see RedJumpHeight).");
+        SunRedGravity = cfg.Bind("Suns", "RedGravity", 1.6f, "Red sun on the Shore: gravity multiplier - you drop faster and land harder (jumps are launched to still reach RedShoreJumpHeight).");
+        SunRedSprintCut = cfg.Bind("Suns", "RedSprintCut", 0.6f, "Unused since 0.12.25 (see RedSprintSpeed).");
+        SunRedLungeCut = cfg.Bind("Suns", "RedLungeCut", 0.5f, "Unused since 0.12.26 (see RedLungeLength).");
+        SunRedHeavyShoreOnly = cfg.Bind("Suns", "RedHeavyShoreOnly", true, "Unused since 0.12.25 (red works the same everywhere).");
+        SunRedSprintSpeed = cfg.Bind("Suns", "RedSprintSpeed", 0.75f, "Red sun: sprinting runs at this share of its vanilla speed (never slower than walking).");
+        SunRedJumpHeight = cfg.Bind("Suns", "RedJumpHeight", 0.75f, "Unused (see RedShoreJumpHeight: off the Shore red leaves jumps alone).");
+        SunRedShoreJump = cfg.Bind("Suns", "RedShoreJumpHeight", 0.5f, "Red sun on the Shore: jumps peak at this share of their vanilla height (the heavier gravity included).");
+        SunRedLunge = cfg.Bind("Suns", "RedLungeLength", 0.75f, "Red sun: the climbing lunge carries you this share of its vanilla distance (stamina cost unchanged).");
+        SunRedItemPower = cfg.Bind("Suns", "RedItemPower", 0.5f, "Red sun: the glider and balloons work at this share (their level is untouched).");
+        SunRedJetpackBurn = cfg.Bind("Suns", "RedJetpackBurnRate", 2f, "Red sun: the jetpack burns its fuel this many times faster (2 = a full tank flies half as long).");
+        SunBlueGlassSeconds = cfg.Bind("Suns", "BlueShoreGlassSeconds", 240f, "Blue sun on the Shore: seconds of direct sunlight that fill the glass bar from empty to stone. Shade stops it; nightfall or the blue relic melts the sun's share.");
+        ParasolShieldSeconds = cfg.Bind("Suns", "ParasolShadeSeconds", 60f, "An open parasol spares you from every coloured sun for this many seconds in all, then burns.");
         SunYellowStumble = cfg.Bind("Suns", "YellowStumbleSeconds", 0f, "Yellow sun on the Shore: running dry on the ground trips you for this long (0 = off; replaced by YellowDrowsy).");
         SunYellowDrowsy = cfg.Bind("Suns", "YellowDrowsy", 0.05f, "Yellow sun on the Shore: each try to sprint, climb or jump with no stamina adds this much Drowsy (at most every half second; 0 = off).");
         SunBlueFreeze = cfg.Bind("Suns", "BlueShoreFreeze", true, "Unused since 0.12.7.");
@@ -311,7 +334,20 @@ internal static class ModConfig
         FrisbeeHitsScouts = cfg.Bind("Curios", "FrisbeeHitsScouts", true, "Frisbee relic: throws knock back other scouts too (off = enemies only).");
         FrisbeeForce = cfg.Bind("Curios", "FrisbeeForce", 1500f, "Frisbee relic: knockback force of a fast throw.");
         BingBongMinSeconds = cfg.Bind("Curios", "BingBongMinSeconds", 120f, "Bing Bong relic: shortest wait between pranks.");
-        BingBongMaxSeconds = cfg.Bind("Curios", "BingBongMaxSeconds", 180f, "Bing Bong relic: longest wait between pranks.");
+        BingBongMaxSeconds = cfg.Bind("Curios", "BingBongMaxSeconds", 240f, "Bing Bong relic: longest wait between pranks.");
+        // One time only (0.12.24): the old default of 180s (2-3 min) becomes 240s (2-4 min); a value someone set stays.
+        var bingTimer = cfg.Bind("Curios", "BingBongTimerUpdated", false, "Set by the mod once it has moved the old Bing Bong timer default. Leave it.");
+        if (!bingTimer.Value)
+        {
+            if (System.Math.Abs(BingBongMaxSeconds.Value - 180f) < 0.01f) BingBongMaxSeconds.Value = 240f;
+            bingTimer.Value = true;
+        }
+        BingBongHideMin = cfg.Bind("Curios", "BingBongHideMin", 30f, "Bing Bong hide and seek: shortest time (s) one of your items is gone.");
+        BingBongHideMax = cfg.Bind("Curios", "BingBongHideMax", 60f, "Bing Bong hide and seek: longest time (s) one of your items is gone.");
+        BingBongDarkSeconds = cfg.Bind("Curios", "BingBongDarkSeconds", 30f, "Bing Bong lights out: how long (s) your screen goes dark.");
+        BingBongBlinkRange = cfg.Bind("Curios", "BingBongBlinkRange", 30f, "Bing Bong teleport: how far (m) he can blink you, up, down or sideways, to flat ground.");
+        BingBongGiftMaxChance = cfg.Bind("Curios", "BingBongGiftMaxChance", 0.1f, "Bing Bong gift: the chance (0-1) it comes at max level instead of level 1.");
+        FlashlightKey = cfg.Bind("Curios", "FlashlightKey", Key.F, "Bing Bong lights out: the key that turns your flashlight on and off.");
         HuntSeconds = cfg.Bind("Relics", "ScoutmasterHuntSeconds", 60f, "Only with blood moons off: binding a relic sets the Scoutmaster hunting everyone for this long (0 = off).");
         RelicDrops = cfg.Bind("Relics", "DropOnDeath", true, "Dying drops your relics as amulets; whoever picks one up gets that exact relic.");
         StatueOrder = cfg.Bind("Relics", "StatueOrder", PeakRoguelike.StatueOrder.Off, "Which amulet sits on each biome's statue (the suns follow). Off = the game's own order; Daily = shuffled by the day's map, the same for everyone that day; EveryRun = a new order every run. The host's setting counts - also on the airport ticket and in F8.");

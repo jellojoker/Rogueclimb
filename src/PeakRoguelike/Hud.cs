@@ -47,7 +47,7 @@ internal class Hud : MonoBehaviour
     private readonly List<Popup> popups = new();
     private const float ToastHeight = 60f, ToastGap = 66f;
     private const int MaxToasts = 4;
-    private readonly Queue<(string head, string title, Color color, BannerKind kind)> banners = new();
+    private readonly Queue<(string head, string title, Color color, BannerKind kind, string foot)> banners = new();
     private float bannerBusyUntil;
 
     internal static void Install()
@@ -268,7 +268,7 @@ internal class Hud : MonoBehaviour
     /// A copy of the game's "THE FOG RISES" prompt with our words: same font, look and animation.
     /// The title is the big line, the head a smaller line above it.
     /// </summary>
-    private bool ShowVanillaBanner(string head, string title, Color? tint = null)
+    private bool ShowVanillaBanner(string head, string title, Color? tint = null, string foot = "")
     {
         var src = GUIManager.instance != null ? GUIManager.instance.fogRises : null;
         if (src == null) return false;
@@ -285,6 +285,7 @@ internal class Hud : MonoBehaviour
             string body = head.Length > 0
                 ? $"<size=40%>{head.ToUpperInvariant()}</size>\n{title.ToUpperInvariant()}"
                 : title.ToUpperInvariant();
+            if (foot.Length > 0) body += $"\n<size=40%>{foot.ToUpperInvariant()}</size>";
             foreach (var t in texts)
             {
                 t.enableWordWrapping = false;
@@ -313,21 +314,22 @@ internal class Hud : MonoBehaviour
     }
 
     /// <summary>Big centred announcement ("ROPE Â· LEVEL 2" / "Reinforced Line").</summary>
-    public static void Banner(string head, string title, Color color)
+    /// <param name="foot">An optional smaller line under the title (a sun's hint).</param>
+    public static void Banner(string head, string title, Color color, string foot = "")
     {
-        instance?.banners.Enqueue((head, title, color, BannerKind.Prompt));
+        instance?.banners.Enqueue((head, title, color, BannerKind.Prompt, foot));
     }
 
     /// <summary>A blood moon banner: the game's fog prompt, in blood red.</summary>
     public static void BloodBanner(string head, string title, Color color)
     {
-        instance?.banners.Enqueue((head, title, color, BannerKind.Blood));
+        instance?.banners.Enqueue((head, title, color, BannerKind.Blood, ""));
     }
 
     /// <summary>A perk you just picked: PEAK lettering that fades in and out quietly (no spooky prompt).</summary>
     public static void PickBanner(string head, string title, Color color)
     {
-        instance?.banners.Enqueue((head, title, PickTint ?? color, BannerKind.Pick));
+        instance?.banners.Enqueue((head, title, PickTint ?? color, BannerKind.Pick, ""));
     }
 
     /// <summary>While set, pick banners use this colour instead (XP level-ups are gold).</summary>
@@ -370,11 +372,11 @@ internal class Hud : MonoBehaviour
         catch (System.Exception e) { Plugin.Log.LogWarning($"Pick chime failed: {e.Message}"); }
     }
 
-    private void ShowBanner(string head, string title, Color color, BannerKind kind)
+    private void ShowBanner(string head, string title, Color color, BannerKind kind, string foot = "")
     {
         bool blood = kind == BannerKind.Blood;
         // The game's own prompt, one after another (the blood moon's in red). Picks get the calm one below.
-        if (kind != BannerKind.Pick && ShowVanillaBanner(head, title, blood ? BloodMoon.Blood : null))
+        if (kind != BannerKind.Pick && ShowVanillaBanner(head, title, blood ? BloodMoon.Blood : null, foot))
         {
             bannerBusyUntil = Time.unscaledTime + PromptSeconds + 0.2f;
             return;
@@ -408,6 +410,13 @@ internal class Hud : MonoBehaviour
         tt.characterSpacing = blood ? 8 : 3;
         VanillaLook(tt);
         if (blood) tt.color = BloodMoon.Blood;
+        if (foot.Length > 0)
+        {
+            var ft = Ui.Text(rt, "Foot", foot, UiArt.BodyFont, 28, Color.Lerp(color, Color.white, 0.3f), TextAlignmentOptions.Center);
+            ft.rectTransform.sizeDelta = new Vector2(1200, 40);
+            ft.rectTransform.anchoredPosition = new Vector2(0, -68);
+            VanillaLook(ft);
+        }
         else if (kind == BannerKind.Pick) tt.color = Color.Lerp(color, Color.white, 0.25f);
 
         float half = Mathf.Max(140f, h.GetPreferredValues().x / 2f + 24f);
@@ -438,8 +447,8 @@ internal class Hud : MonoBehaviour
         float now = Time.unscaledTime;
         if (banners.Count > 0 && now >= bannerBusyUntil)
         {
-            var (head, title, color, kind) = banners.Dequeue();
-            ShowBanner(head, title, color, kind);
+            var (head, title, color, kind, foot) = banners.Dequeue();
+            ShowBanner(head, title, color, kind, foot);
         }
 
         // Toasts stack downward under any banner.

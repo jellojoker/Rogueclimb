@@ -29,8 +29,8 @@ internal static class Sanctuary
         var me = Character.localCharacter;
         bool safe = me != null && !me.data.dead && Safe(me.Center);
         // The suns also leave you alone while you're still lying down (waking up at the crash, being revived).
-        // Sunscreen keeps every sun off you while it lasts.
-        SunSpared = safe || (me != null && ((ModConfig.SafeZones.Value && !me.data.fullyConscious) || me.data.wearingSunscreen));
+        // Sunscreen keeps every sun off you while it lasts, and so does an open parasol with shade left.
+        SunSpared = safe || (me != null && ((ModConfig.SafeZones.Value && !me.data.fullyConscious) || me.data.wearingSunscreen || Suns.ParasolShade(me)));
         if (safe != loggedSafe)
         {
             loggedSafe = safe;
@@ -156,7 +156,10 @@ internal static class SunCaps
     internal static float RushCap(Character? c) =>
         Live(c) && Suns.Yellow ? Cap(ModConfig.SunYellowRushCap) : 1f;
 
-    internal static float MoveCap => Suns.Red ? Mathf.Clamp01(ModConfig.SunRedMoveCap.Value) : 1f;
+    /// <summary>Red: the glider and balloons work at this share (the jetpack burns faster instead).</summary>
+    internal static float MoveCap => Suns.Red ? Mathf.Clamp01(ModConfig.SunRedItemPower.Value) : 1f;
+
+
 }
 
 [HarmonyPatch]
@@ -204,9 +207,8 @@ internal static class SunCapPatches
         _ => false,
     };
 
-    // --- red: movement items ------------------------------------------------------------------------
+    // --- red: the glider catches half the air ---------------------------------------------------------
 
-    /// <summary>The glider barely catches the air: 10% of its drag and push.</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(CharacterMovement), nameof(CharacterMovement.ApplyGlider))]
     private static void WeakGlider(CharacterMovement __instance, ref float extraDrag, ref float extraXZDrag, ref float soarForwardForce)
     {
@@ -217,68 +219,16 @@ internal static class SunCapPatches
         soarForwardForce *= k;
     }
 
-    [HarmonyPrefix, HarmonyPatch(typeof(ScoutCannon), nameof(ScoutCannon.RPCA_LaunchTarget))]
-    private static void WeakCannon(ScoutCannon __instance, int targetID, out float __state)
-    {
-        __state = __instance.launchForce;
-        var view = Photon.Pun.PhotonNetwork.GetPhotonView(targetID);
-        if (view != null && view.GetComponent<Character>() is { IsLocal: true }) __instance.launchForce *= SunCaps.MoveCap;
-    }
-
-    [HarmonyPostfix, HarmonyPatch(typeof(ScoutCannon), nameof(ScoutCannon.RPCA_LaunchTarget))]
-    private static void WeakCannonDone(ScoutCannon __instance, float __state) => __instance.launchForce = __state;
-
-    [HarmonyPrefix, HarmonyPatch(typeof(Action_LaunchPlayer), nameof(Action_LaunchPlayer.RunAction))]
-    private static void WeakLaunch(Action_LaunchPlayer __instance, out float __state)
-    {
-        __state = __instance.force;
-        __instance.force *= SunCaps.MoveCap;
-    }
-
-    [HarmonyPostfix, HarmonyPatch(typeof(Action_LaunchPlayer), nameof(Action_LaunchPlayer.RunAction))]
-    private static void WeakLaunchDone(Action_LaunchPlayer __instance, float __state) => __instance.force = __state;
-
-    private static readonly HashSet<string> loggedBlasts = new();
-
-    /// <summary>Anti-grav blasts (the Antizooka's shot): 10% of the shove and the float.</summary>
-    [HarmonyPrefix, HarmonyPatch(typeof(AOE), nameof(AOE.Explode))]
-    private static void WeakBlast(AOE __instance, out (float, float, Affliction?)? __state)
-    {
-        __state = null;
-        float k = SunCaps.MoveCap;
-        if (k >= 1f) return;
-        bool antigrav = (__instance.hasAffliction && __instance.affliction is Affliction_LowGravity)
-            || __instance.name.IndexOf("zooka", System.StringComparison.OrdinalIgnoreCase) >= 0;
-        if (!antigrav) return;
-        if (loggedBlasts.Add(__instance.name)) Plugin.Log.LogInfo($"Red sun: weakened anti-grav blast '{__instance.name}'.");
-        __state = (__instance.knockback, __instance.additionalVerticalKnockback, __instance.affliction);
-        __instance.knockback *= k;
-        __instance.additionalVerticalKnockback *= k;
-        if (__instance.affliction is Affliction_LowGravity low)
-        {
-            var copy = Relics.Copy(low);
-            copy.totalTime *= k;
-            __instance.affliction = copy;
-        }
-    }
-
-    [HarmonyPostfix, HarmonyPatch(typeof(AOE), nameof(AOE.Explode))]
-    private static void WeakBlastDone(AOE __instance, (float, float, Affliction?)? __state)
-    {
-        if (__state is not { } s) return;
-        (__instance.knockback, __instance.additionalVerticalKnockback, __instance.affliction) = s;
-    }
-
     private static readonly AccessTools.FieldRef<CharacterMovement, Character> MoverOf = AccessTools.FieldRefAccess<CharacterMovement, Character>("character");
     private static bool Mine(CharacterMovement m) => MoverOf(m) is { IsLocal: true };
 }
 
-/// <summary>Red: the jetpack and rocket pack sputter (their thrust is read every physics frame).</summary>
+/// <summary>
+/// Ticks safe ground every frame. (Until 0.12.25 it also cut the jetpack's and rocket pack's thrust
+/// under a red sun; now red only makes the jetpack burn faster - see CraftPatches.JetpackFuel.)
+/// </summary>
 internal class MovementCaps : MonoBehaviour
 {
-    private CharacterMovement? mover;
-    private float jet, rocket;
-
     internal static void Install()
     {
         var go = new GameObject("PEAK Roguelike - Movement Caps");
@@ -287,19 +237,5 @@ internal class MovementCaps : MonoBehaviour
         go.AddComponent<MovementCaps>();
     }
 
-    private void Update()
-    {
-        Sanctuary.Tick();
-        var me = Character.localCharacter;
-        var m = me != null ? me.refs.movement : null;
-        if (m != mover)
-        {
-            mover = m;
-            if (m != null) { jet = m.jetpackForce; rocket = m.rocketForce; }
-        }
-        if (m == null) return;
-        float k = SunCaps.MoveCap;
-        m.jetpackForce = jet * k;
-        m.rocketForce = rocket * k;
-    }
+    private void Update() => Sanctuary.Tick();
 }

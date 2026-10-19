@@ -44,6 +44,8 @@ public class CardSpec
     public bool LevelUp;
     /// <summary>Relic: a cursed copy - dark, slow sparkles.</summary>
     public bool Cursed;
+    /// <summary>Withered by the green sun: greyed out, tinted green, can't be picked.</summary>
+    public bool Withered;
     /// <summary>The card's item evolves (its text says "Evolves"): white sparkles.</summary>
     public bool Evolves => Body.Contains("Evolves");
 }
@@ -292,6 +294,7 @@ public class ChoiceScreen : MonoBehaviour
     internal void Select(CardView card)
     {
         if (closing) return;
+        if (card.Spec.Withered) return; // the green sun took this one
         selected = selected == card && cards.Count > 1 ? null : card;
         foreach (var c in cards) c.SetSelected(c == selected, selected != null);
         confirmButton.Interactable = selected != null && !spec.Locked;
@@ -391,7 +394,7 @@ public class ChoiceScreen : MonoBehaviour
         [HarmonyPostfix, HarmonyPatch(typeof(GUIManager), nameof(GUIManager.UpdateWindowStatus))]
         private static void BlockInput(GUIManager __instance)
         {
-            if (!IsOpen && !DevPanel.Interactive && !BugReports.Typing) return;
+            if (!IsOpen && !DevPanel.Interactive && !BugReports.Typing && !ModlessPopup.IsOpen) return;
             __instance.windowShowingCursor = true;
             __instance.windowBlockingInput = true;
         }
@@ -400,6 +403,12 @@ public class ChoiceScreen : MonoBehaviour
         private static bool EscapeCloses()
         {
             var ch = Character.localCharacter;
+            if (ModlessPopup.IsOpen)
+            {
+                // Esc closes the host's "not compatible" card first.
+                if (ch != null && ch.input.pauseWasPressed) { ch.input.pauseWasPressed = false; ModlessPopup.Close(); }
+                return false;
+            }
             if (!IsOpen)
             {
                 // Esc closes the bug note box (it handles the key itself), not the pause menu.
@@ -504,6 +513,8 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         }
         // Evolutions sparkle white, brighter and faster - on top of any gold.
         if (Spec.Evolves) sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.EvolveWhite, rate: 10f, speed: 60f, size: 18f, alpha: 1f));
+        // Withered: a slow drift of dull green, like the cursed relic's dark motes.
+        if (Spec.Withered) sparkles.Add(Sparkles.Add(Rect, WitherGreen, rate: 3f, speed: 14f, size: 24f, alpha: 0.7f));
     }
 
     private static readonly Dictionary<Sprite, Sprite> silhouettes = new();
@@ -791,6 +802,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         float appear = Mathf.Clamp01((now - appearAt) / 0.45f);
         float rise = (1f - Ease.OutBack(appear)) * -110f;
 
+        if (Spec.Withered) hovered = false; // it never lifts or glows
         float targetScale = isSelected ? 1.07f : hovered ? 1.045f : otherSelected ? 0.95f : 1f;
         float targetLift = isSelected ? 22f : hovered ? 14f : 0f;
         float pulse = 0.5f + 0.5f * Mathf.Sin(now * 3.2f);
@@ -817,15 +829,24 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         group.alpha = alpha;
         glow.color = new Color(glowColor.r, glowColor.g, glowColor.b, glowAlpha);
         float b = 1f - dim;
-        foreach (var (g, c) in dimmable) if (g != null) g.color = new Color(c.r * b, c.g * b, c.b * b, c.a);
+        foreach (var (g, c) in dimmable) if (g != null) g.color = Spec.Withered ? Wither(c) : new Color(c.r * b, c.g * b, c.b * b, c.a);
         if (icon != null)
         {
-            icon.color = icon.texture != null ? new Color(b, b, b, 1f) : Color.clear;
+            icon.color = icon.texture != null ? (Spec.Withered ? Wither(Color.white) : new Color(b, b, b, 1f)) : Color.clear;
             icon.rectTransform.anchoredPosition = iconHome + new Vector2(0, iconBob);
         }
         if (iconLight != null) iconLight.color = new Color(glowColor.r, glowColor.g, glowColor.b, (0.3f + 0.35f * glowAlpha) * b);
         float boost = exiting && exitAsClaim ? 2.5f : isSelected ? 1.5f : hovered ? 1f : 0f;
         foreach (var sp in sparkles) { sp.Boost = boost; sp.Dim = b; }
+    }
+
+    private static readonly Color WitherGreen = new(0.36f, 0.55f, 0.3f);
+
+    /// <summary>Greyed toward a dull, dark green: the colour drained out of it.</summary>
+    private static Color Wither(Color c)
+    {
+        float l = (c.r * 0.3f + c.g * 0.59f + c.b * 0.11f) * 0.55f;
+        return new Color(l * 0.75f, l * 1.05f, l * 0.7f, c.a);
     }
 }
 

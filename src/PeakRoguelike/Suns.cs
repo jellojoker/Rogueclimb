@@ -13,15 +13,20 @@ namespace PeakRoguelike;
 /// once they hold it, the days clear and the nights become blood moons. From the Kiln on, the sun
 /// cycles day by day through the colours of the relics the squad carries (none carried, no sun).
 ///
-///   yellow (Ambition)   stamina drains faster; on the Shore, running dry trips you
-///   green  (Generosity) every bite fills the same small share, hunger climbs faster, nothing new stacks;
-///                       on the Shore everything you carry weighs more
-///   red    (Initiative) slow sprint, short climbing lunge; on the Shore also low jumps, hard landings
-///   blue   (Tenacity)   every ailment hits double, items wear twice as fast, ropes and pitons give
+/// Each sun works against its own relic, and the Shore is where you learn it (hardest first):
+///   blue   (Tenacity: heal + invincible)  every hit lands x1.5, healing items heal half;
+///                                         on the Shore its light slowly turns you to glass
+///   red    (Initiative: super jump)       sprint and climbing lunge at 75%, the glider and
+///                                         balloons at half, the jetpack burns 2x; on the Shore heavy, low jumps
+///   yellow (Ambition: infinite stamina)   stamina drains faster, stamina rushes are short;
+///                                         on the Shore, pushing on with none left makes you drowsy
+///   green  (Generosity: an extra pick)    items wear twice as fast, ropes fray, pitons crack,
+///                                         nothing new stacks; on the Shore a crate card withers
 ///
-/// The host decides the sun (room property prl.sun = gem, or -1); every client applies the effects
-/// to its own scout. The sky is coloured through the game's own "special day" sky blend.
-/// Announced with one line - what it does is for the scouts to find out.
+/// Spared: carrying that sun's relic, sunscreen, an open parasol (a minute of shield, then it
+/// burns), safe ground, lying down. The host decides the sun (room property prl.sun = gem, or -1);
+/// every client applies the effects to its own scout. The sky is coloured through the game's own
+/// "special day" sky blend. Announced with one line - what it does is for the scouts to find out.
 /// </summary>
 internal class Suns : MonoBehaviour
 {
@@ -39,21 +44,8 @@ internal class Suns : MonoBehaviour
     internal static bool Red => Hits(RelicGem.Initiative);
     internal static bool Blue => Hits(RelicGem.Tenacity);
     private static bool On => ModConfig.Suns.Value;
-    /// <summary>The Shore's suns hit harder: red keeps its full weight, yellow trips you.</summary>
+    /// <summary>The Shore teaches each sun: blue glass, yellow drowsiness, a withered green card.</summary>
     internal static bool OnShore => InRun && Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore;
-
-    /// <summary>Green on the Shore: items weigh more (switched with the sun, read every weight update).</summary>
-    internal static bool GreenShoreWeight { get; private set; }
-
-    private void WeightTick()
-    {
-        bool heavy = Green && OnShore && ModConfig.SunGreenShoreWeight.Value != 0;
-        if (heavy == GreenShoreWeight) return;
-        GreenShoreWeight = heavy;
-        Plugin.Log.LogInfo(heavy ? $"Green sun on the Shore: items weigh +{ModConfig.SunGreenShoreWeight.Value}." : "Green sun weight lifted.");
-        var me = Character.localCharacter;
-        if (me != null) me.refs.afflictions.UpdateWeight();
-    }
 
     // A relic beats its own sun: carrying it, that sun can't touch you.
     private static bool Hits(RelicGem gem) => On && Current == gem && !Sanctuary.SunSpared && !(ModConfig.Relics.Value && RunState.Relics.ContainsKey(gem));
@@ -90,9 +82,8 @@ internal class Suns : MonoBehaviour
             Blend = Mathf.MoveTowards(Blend, Current != null && IsDay ? 1f : 0f, Time.deltaTime / Fade);
         }
         if (Blend <= 0f && Current == null) Shown = null;
-        // (blue's cold sunlight was removed in 0.12.7; blue now makes every hit and tick hurt more)
-        try { WeightTick(); }
-        catch (System.Exception e) { Plugin.Log.LogWarning($"Suns weight: {e.Message}"); }
+        try { GlassLight(); ParasolTick(); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Suns glass / parasol: {e.Message}"); }
         if (Time.time < nextPoll) return;
         nextPoll = Time.time + 0.5f;
         try
@@ -138,8 +129,17 @@ internal class Suns : MonoBehaviour
         if (me == null || me.data.dead || Sanctuary.SunSpared || !IsDay) return;
         announce = null;
         Plugin.Log.LogInfo($"Sun: announced {ColorName(gem)} (first time it reaches you).");
-        Hud.Banner("", $"THE SUN BURNS {ColorName(gem).ToUpperInvariant()}", Relics.GemColor(gem));
+        Hud.Banner("", $"THE SUN BURNS {ColorName(gem).ToUpperInvariant()}", Relics.GemColor(gem), Hint(gem));
     }
+
+    /// <summary>The one-line hint under the sun's banner: how it feels, never what it does.</summary>
+    internal static string Hint(RelicGem g) => g switch
+    {
+        RelicGem.Ambition => "You feel drained.",
+        RelicGem.Generosity => "You feel wasteful.",
+        RelicGem.Initiative => "You feel heavier.",
+        _ => "You feel fragile.",
+    };
 
     internal static string ColorName(RelicGem g) => g switch
     {
@@ -162,157 +162,120 @@ internal class Suns : MonoBehaviour
         int now = PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(RoomKey, out object raw) && raw is int i ? i : -1;
         if (now != want)
             PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [RoomKey] = want });
-        // (green food storms were removed in 0.12.7)
     }
 
-    // --- green: it rains the biome's wild food (host) ------------------------------------------------
+    // --- blue on the Shore: its light turns you to glass -----------------------------------------------
+    // In direct blue sunlight (the Mesa's shade rules) the glass bar fills one percent at a time. Shade,
+    // sunscreen, an open parasol or safe ground stop it, but only nightfall or the blue relic undoes it -
+    // and then only the sun's own share: glass from relics stays.
 
-    private float nextRain;
-    private readonly List<(Item item, float at)> rained = new();
+    private float glassTick;
+    /// <summary>How much of our glass (percent) the blue sun put there.</summary>
+    internal static int SunGlass { get; private set; }
 
-    private const SpawnPool Wild = SpawnPool.BerryBushBeach | SpawnPool.BerryBushJungle | SpawnPool.SpikyVine | SpawnPool.CoconutTree
-        | SpawnPool.WillowTreeJungle | SpawnPool.JungleVine | SpawnPool.WinterberryTree | SpawnPool.Nest | SpawnPool.Cactus | SpawnPool.Redwood;
-
-    /// <summary>The trees and bushes that grow in a biome (mushroom clusters left out - they're a gamble).</summary>
-    private static SpawnPool WildIn(Biome.BiomeType b) => b switch
-    {
-        Biome.BiomeType.Shore => SpawnPool.BerryBushBeach | SpawnPool.CoconutTree,
-        Biome.BiomeType.Tropics => SpawnPool.BerryBushJungle | SpawnPool.JungleVine | SpawnPool.SpikyVine | SpawnPool.WillowTreeJungle | SpawnPool.CoconutTree,
-        Biome.BiomeType.Roots => SpawnPool.Redwood | SpawnPool.Nest,
-        Biome.BiomeType.Alpine => SpawnPool.WinterberryTree | SpawnPool.Nest,
-        Biome.BiomeType.Mesa => SpawnPool.Cactus | SpawnPool.Nest,
-        _ => Wild,
-    };
-
-    private static List<Item> WildFood(SpawnPool pools) => Items.Database
-        .Where(i => i != null && i.GetComponent<LootData>() is { } l && (l.spawnLocations & pools) != 0
-            && i.GetComponents<Action_RestoreHunger>().Length > 0)
-        .ToList();
-
-    private float showerUntil;
-    private List<Item> showerFood = new();
-    private int showerDropped;
-
-    /// <summary>The wild food of every biome climbed so far (this one included).</summary>
-    private static List<Item> FoodSoFar()
-    {
-        var map = Singleton<MapHandler>.Instance;
-        SpawnPool pools = 0;
-        for (int i = 0; i <= Mathf.Min(map.currentSegment, map.segments.Length - 1); i++)
-            pools |= WildIn(map.segments[i].biome);
-        var food = WildFood(pools);
-        return food.Count > 0 ? food : WildFood(Wild);
-    }
-
-    /// <summary>
-    /// Green: every so often a storm of food - a few seconds of it falling around every scout.
-    /// Food left on the ground is gone before the next storm (pick it up to keep it).
-    /// </summary>
-    private void FoodRain()
-    {
-        float life = Mathf.Max(5f, ModConfig.SunGreenFoodLife.Value);
-        for (int i = rained.Count - 1; i >= 0; i--)
-        {
-            var (item, at) = rained[i];
-            if (item == null) { rained.RemoveAt(i); continue; } // eaten or pocketed
-            if (Time.time - at < life || item.holderCharacter != null) continue;
-            if (item.photonView != null && item.photonView.IsMine) PhotonNetwork.Destroy(item.gameObject);
-            rained.RemoveAt(i);
-        }
-
-        float every = ModConfig.SunGreenRainEvery.Value;
-        if (!On || Current != RelicGem.Generosity || !IsDay || every <= 0f) { nextRain = Time.time + 8f; showerUntil = 0f; return; }
-
-        if (Time.time >= nextRain)
-        {
-            nextRain = Time.time + every * Random.Range(0.9f, 1.1f);
-            showerUntil = Time.time + Mathf.Max(0.5f, ModConfig.SunGreenShowerSeconds.Value);
-            showerFood = FoodSoFar();
-            showerDropped = 0;
-            Plugin.Log.LogInfo($"Suns: food storm - {showerFood.Count} wild foods: {string.Join(", ", showerFood.Select(f => f.gameObject.name))}.");
-        }
-        if (Time.time >= showerUntil || showerFood.Count == 0) return;
-
-        // HostTick runs twice a second: spread each scout's share over the storm.
-        float ticks = Mathf.Max(1f, ModConfig.SunGreenShowerSeconds.Value / 0.5f);
-        int per = Mathf.CeilToInt(ModConfig.SunGreenRainCount.Value / ticks);
-        foreach (var c in Character.AllCharacters)
-        {
-            if (c == null || c.isBot || c.data.dead || Sanctuary.Safe(c)) continue;
-            for (int n = 0; n < per; n++)
-                if (DropFood(showerFood[Random.Range(0, showerFood.Count)], c.Center)) showerDropped++;
-        }
-        if (Time.time + 0.5f >= showerUntil) Plugin.Log.LogInfo($"Suns: food storm over - {showerDropped} piece(s).");
-    }
-
-    private bool DropFood(Item prefab, Vector3 near)
-    {
-        var flat = Random.insideUnitCircle.normalized * Random.Range(2f, 7f);
-        var from = near + new Vector3(flat.x, 0.5f, flat.y);
-        // Under an overhang, drop from just below it; never through rock.
-        var up = HelperFunctions.LineCheck(from, from + Vector3.up * 18f, HelperFunctions.LayerType.AllPhysical);
-        var pos = up.transform != null ? up.point - Vector3.up * 1f : from + Vector3.up * 18f;
-        if (pos.y < from.y) return false;
-        var down = HelperFunctions.LineCheck(pos, pos - Vector3.up * 60f, HelperFunctions.LayerType.AllPhysical);
-        if (down.transform == null) return false;
-        var view = PhotonNetwork.InstantiateItemRoom(prefab.gameObject.name, pos, Random.rotation).GetComponent<PhotonView>();
-        view.RPC("SetKinematicRPC", RpcTarget.All, false, view.transform.position, view.transform.rotation);
-        if (view.GetComponent<Item>() is { } item) rained.Add((item, Time.time));
-        return true;
-    }
-
-    // --- blue on the Shore: the sunlight is freezing ---------------------------------------------------
-    // The cold of a high ascent's night at its mildest (dusk), but from the sun: same shade / parasol
-    // rules as the Mesa's burning sun, and the sun's cold fades the way the Mesa's heat does. A lit
-    // lantern, candle or campfire keeps it off you. The blue sun doesn't double its own cold.
-
-    private float coldTick;
-    private static float sunCold;
-    private static float lastSunCold = -999f;
-    internal static bool AddingSunCold;
-
-    private void ColdLight()
+    private void GlassLight()
     {
         var me = Character.localCharacter;
-        if (me == null || me.data.dead) { sunCold = 0f; return; }
-        var aff = me.refs.afflictions;
-        bool shore = OnShore;
-        bool lit = Blue && shore && IsDay && Blend > 0.5f && ModConfig.SunBlueFreeze.Value &&InSunlight(me) && !Warmed(me);
-        if (lit)
+        if (me == null || me.data.dead) { SunGlass = 0; return; }
+        // Healed by a campfire, revived, a lunchbox: the sun's share can't be more than what's there.
+        SunGlass = Mathf.Min(SunGlass, me.data.petrifyAmount);
+        float full = Mathf.Max(10f, ModConfig.SunBlueGlassSeconds.Value);
+        if (Blue && OnShore && IsDay && Blend > 0.5f && InSunlight(me))
         {
-            coldTick += Time.deltaTime;
-            if (coldTick < 0.5f) return;
-            coldTick = 0f;
-            float before = aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Cold);
-            AddingSunCold = true;
-            // Night cold as it first sets in (half dark), half a second's worth. The game banks it and
-            // adds a tick (1/40 of the bar) whenever enough has built up.
-            try { aff.AddStatus(CharacterAfflictions.STATUSTYPE.Cold, 0.5f * Ascents.nightColdRate * 0.5f); }
-            finally { AddingSunCold = false; }
-            sunCold += Mathf.Max(0f, aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Cold) - before);
-            lastSunCold = Time.time;
+            glassTick += Time.deltaTime;
+            float every = full / 100f;
+            if (glassTick < every) return;
+            glassTick -= every;
+            me.refs.afflictions.AddPetrify(1);
+            SunGlass++;
             return;
         }
-        coldTick = 0f;
-        // Out of the light, the sun's cold (and only that) fades like the Mesa's heat.
-        if (sunCold <= 0f || Time.time - lastSunCold < aff.hotReductionCooldown) return;
-        float melt = Mathf.Min(sunCold, Mathf.Max(0.005f, aff.hotReductionPerSecond) * Time.deltaTime);
-        sunCold -= melt;
-        if (aff.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Cold) > 0f) aff.SubtractStatus(CharacterAfflictions.STATUSTYPE.Cold, melt, false, true);
-        else sunCold = 0f;
+        glassTick = 0f;
+        // Night, a new sun, or the squad took the blue relic: the sun's glass melts away over a few seconds.
+        if (SunGlass > 0 && Current != RelicGem.Tenacity)
+        {
+            glassTick = 0f;
+            int melt = Mathf.Min(SunGlass, Mathf.Max(1, Mathf.CeilToInt(Time.deltaTime * 20f)));
+            me.refs.afflictions.AddPetrify(-melt);
+            SunGlass -= melt;
+            if (SunGlass == 0) Plugin.Log.LogInfo("Blue sun: its glass has melted away.");
+        }
     }
 
-    /// <summary>Inside a lit lantern's / candle's / campfire's glow.</summary>
-    private static bool Warmed(Character me) =>
-        me.data.wearingSunscreen || Peak.GloomSafeZone.CharacterProtectedFromStatus(me, out _, out _);
+    // --- the parasol: a minute of shade from every coloured sun, then it burns -------------------------
 
-    /// <summary>Like the Mesa's hot sun: nothing between you and the sun, no open parasol, not gliding.</summary>
+    /// <summary>The open parasol in our hands, if it still has shield left.</summary>
+    internal static bool ParasolShade(Character? me)
+    {
+        if (me == null || me.data.currentItem is not { } item || !item.TryGetComponent<Parasol>(out var p) || !p.isOpen) return false;
+        return !Burnt(item) && ParasolLeft(item) > 0f;
+    }
+
+    private static bool Burnt(Item item) => item.GetData<IntItemData>(DataEntryKey.CookedAmount).Value > 2;
+
+    private static float ParasolMax => Mathf.Max(1f, ModConfig.ParasolShieldSeconds.Value);
+
+    internal static float ParasolLeft(Item item) =>
+        item.GetData(DataEntryKey.Fuel, () => new FloatItemData { Value = ParasolMax }).Value;
+
+    private static Item? shownParasol;
+
+    /// <summary>Open under a coloured sun, the shield runs down; empty, the parasol burns (the campfire's burnt look).</summary>
+    private void ParasolTick()
+    {
+        var me = Character.localCharacter;
+        var item = me != null ? me.data.currentItem : null;
+        if (item == null || !item.TryGetComponent<Parasol>(out var p) || Burnt(item)) { shownParasol = null; return; }
+        var fuel = item.GetData(DataEntryKey.Fuel, () => new FloatItemData { Value = ParasolMax });
+        if (shownParasol != item) { shownParasol = item; item.SetUseRemainingPercentage(fuel.Value / ParasolMax); }
+        if (!p.isOpen || Current == null || !IsDay || !On) return;
+        fuel.Value = Mathf.Max(0f, fuel.Value - Time.deltaTime);
+        item.SetUseRemainingPercentage(fuel.Value / ParasolMax);
+        if (fuel.Value > 0f) return;
+        // The game's own cooking, three times over: past "cooked" into burnt black.
+        if (item.TryGetComponent<ItemCooking>(out var cook))
+            for (int i = 0; i < 3; i++) cook.photonView.RPC("SyncCookingStateRPC", RpcTarget.All, ItemCooking.NetworkedCooking.FinishCooking);
+        Plugin.Log.LogInfo($"Parasol: its shade is spent - it burns{(cook == null ? " (no cooking component: shade gone, look unchanged)" : "")}.");
+    }
+
+    /// <summary>Dev panel: the parasol in hand gets its full minute back (not unburnt).</summary>
+    internal static void DevRefillParasol()
+    {
+        var item = Character.localCharacter?.data.currentItem;
+        if (item == null || !item.TryGetComponent<Parasol>(out _)) { Hud.Toast("Hold a parasol", ChoiceScreen.Muted); return; }
+        item.GetData(DataEntryKey.Fuel, () => new FloatItemData { Value = ParasolMax }).Value = ParasolMax;
+        item.SetUseRemainingPercentage(1f);
+        Hud.Toast("Parasol shade refilled", ChoiceScreen.Cream);
+    }
+
+    // --- green on the Shore: one crate card withers ------------------------------------------------------
+
+    private static readonly Dictionary<int, (string cards, int index)> withered = new();
+
+    /// <summary>
+    /// The crate card the green sun takes from us (null = none): one of the crate's own cards, the
+    /// same one each time we look until its cards change. Never the only card.
+    /// </summary>
+    internal static int? WitheredCard(Luggage luggage, List<Item> items)
+    {
+        if (!Green || !OnShore || items.Count < 2 || luggage == null) return null;
+        string sig = string.Join(",", items.Select(i => i.itemID));
+        int id = luggage.GetInstanceID();
+        if (!withered.TryGetValue(id, out var w) || w.cards != sig)
+        {
+            withered[id] = w = (sig, Random.Range(0, items.Count));
+            Plugin.Log.LogInfo($"Green sun: {luggage.displayName}'s {items[w.index].gameObject.name} card withers.");
+        }
+        return w.index;
+    }
+
+    /// <summary>Like the Mesa's hot sun: nothing between you and the sun, not gliding.</summary>
     private static bool InSunlight(Character me)
     {
         var sun = DayNightManager.instance.sun;
         if (sun == null) return false;
         var item = me.data.currentItem;
-        if (item != null && ((item.TryGetComponent<Parasol>(out var parasol) && parasol.isOpen) || item.gliderHold)) return false;
+        if (item != null && item.gliderHold) return false; // (an open parasol spares you through SunSpared - a burnt one doesn't)
         var hit = HelperFunctions.LineCheck(me.Center - sun.transform.forward * 1000f, me.Center, HelperFunctions.LayerType.AllPhysical);
         return hit.transform == null || hit.transform.root == me.transform.root;
     }
@@ -570,18 +533,6 @@ internal static class SunPatches
         __instance.refs.afflictions.AddStatus(CharacterAfflictions.STATUSTYPE.Drowsy, amount);
     }
 
-    // --- green on the Shore: everything you carry weighs more ---------------------------------------
-
-    /// <summary>
-    /// Every item weighs GreenShoreWeight more (on top of the ascent's own +1). Weight is only ever
-    /// added up for your own scout, so the local sun decides. (-1 modifier = a custom run without weight.)
-    /// </summary>
-    [HarmonyPostfix, HarmonyPatch(typeof(Item), nameof(Item.CarryWeight), MethodType.Getter)]
-    private static void Heavier(ref int __result)
-    {
-        if (Suns.GreenShoreWeight && Ascents.itemWeightModifier != -1) __result += ModConfig.SunGreenShoreWeight.Value;
-    }
-
     // --- blue: everything hurts more ----------------------------------------------------------------
 
     /// <summary>
@@ -638,14 +589,16 @@ internal static class SunPatches
         Suns.Eaten += Mathf.Max(0f, __state - __instance.GetCurrentStatus(CharacterAfflictions.STATUSTYPE.Hunger));
     }
 
-    // --- red: heavy -------------------------------------------------------------------------------------
+    // --- red: a slower sprint, a shorter lunge; on the Shore heavy and low-jumping ----------------------
 
     [HarmonyPrefix, HarmonyPatch(typeof(CharacterMovement), nameof(CharacterMovement.JumpRpc))]
     private static void LowJump(CharacterMovement __instance, out float __state)
     {
         __state = __instance.jumpImpulse;
-        // Jump height goes with the square of the launch speed.
-        if (Suns.Red && Weighty()) __instance.jumpImpulse *= Mathf.Sqrt(Mathf.Clamp(ModConfig.SunRedJump.Value, 0.05f, 1f));
+        // Shore only. Peak height goes with launch speed squared over gravity: launch so the heavier
+        // gravity still lands the jump at RedShoreJumpHeight of vanilla.
+        if (RedFor(__instance) && Suns.OnShore)
+            __instance.jumpImpulse *= Mathf.Sqrt(Mathf.Clamp(ModConfig.SunRedShoreJump.Value, 0.05f, 1f) * ShoreGravity);
     }
 
     [HarmonyPostfix, HarmonyPatch(typeof(CharacterMovement), nameof(CharacterMovement.JumpRpc))]
@@ -655,29 +608,34 @@ internal static class SunPatches
 
     private static bool RedFor(CharacterMovement m) => Suns.Red && Local(MoverOf(m));
 
-    /// <summary>Red's full weight (gravity + low jumps): only on the Shore, unless the config says everywhere.</summary>
-    private static bool Weighty() => !ModConfig.SunRedHeavyShoreOnly.Value || Suns.OnShore;
+    private static float ShoreGravity => Mathf.Max(1f, ModConfig.SunRedGravity.Value);
 
-    /// <summary>Red: sprinting barely helps, so no long sprint-jumps. Walking and climbing stay vanilla.</summary>
+    /// <summary>Red on the Shore: everything pulls down harder - you drop faster and land harder.</summary>
+    [HarmonyPostfix, HarmonyPatch(typeof(CharacterMovement), "GetGravityForce")]
+    private static void Heavy(CharacterMovement __instance, ref Vector3 __result)
+    {
+        if (__result.y == 0f || !RedFor(__instance) || !Suns.OnShore) return;
+        __result.y = __result.y < 0f ? __result.y * ShoreGravity : __result.y / ShoreGravity;
+    }
+
+    private static bool sprintLogged;
+
+    /// <summary>Red: sprinting runs at a share of its vanilla speed (never slower than walking). Walking and climbing stay vanilla.</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(CharacterMovement), "GetMovementForce")]
     private static void HeavySprint(CharacterMovement __instance, out float __state)
     {
         __state = __instance.sprintMultiplier;
-        if (__instance.sprintMultiplier > 1f && RedFor(__instance))
-            __instance.sprintMultiplier = 1f + (__state - 1f) * (1f - Mathf.Clamp01(ModConfig.SunRedSprintCut.Value));
+        if (__instance.sprintMultiplier <= 1f || !RedFor(__instance)) return;
+        __instance.sprintMultiplier = Mathf.Max(1f, __state * Mathf.Clamp01(ModConfig.SunRedSprintSpeed.Value));
+        if (!sprintLogged)
+        {
+            sprintLogged = true;
+            Plugin.Log.LogInfo($"Red sun: sprint x{__state:0.##} -> x{__instance.sprintMultiplier:0.##} of walking.");
+        }
     }
 
     [HarmonyPostfix, HarmonyPatch(typeof(CharacterMovement), "GetMovementForce")]
     private static void HeavySprintDone(CharacterMovement __instance, float __state) => __instance.sprintMultiplier = __state;
-
-    /// <summary>Red: everything pulls down harder - the jump's lift is weaker, the drop is stronger.</summary>
-    [HarmonyPostfix, HarmonyPatch(typeof(CharacterMovement), "GetGravityForce")]
-    private static void Heavy(CharacterMovement __instance, ref Vector3 __result)
-    {
-        if (__result.y == 0f || !RedFor(__instance) || !Weighty()) return;
-        float g = Mathf.Max(1f, ModConfig.SunRedGravity.Value);
-        __result.y = __result.y < 0f ? __result.y * g : __result.y / g;
-    }
 
     private static readonly AccessTools.FieldRef<CharacterClimbing, Character> ClimberOf = AccessTools.FieldRefAccess<CharacterClimbing, Character>("character");
 
@@ -689,7 +647,7 @@ internal static class SunPatches
     private static void ShortLunge(CharacterClimbing __instance, Vector2 __state)
     {
         if (!Suns.Red || !Local(ClimberOf(__instance))) return;
-        float keep = 1f - Mathf.Clamp01(ModConfig.SunRedLungeCut.Value);
+        float keep = Mathf.Clamp01(ModConfig.SunRedLunge.Value);
         __instance.playerSlide = __state + (__instance.playerSlide - __state) * keep;
     }
 
@@ -713,5 +671,51 @@ internal static class SunPatches
         item.photonView.RPC("ReduceUsesRPC", RpcTarget.All);
         var data = item.GetData<OptionableIntItemData>(DataEntryKey.ItemUses);
         if (data.HasData && data.Value == 0 && __instance.consumeOnFullyUsed) item.StartCoroutine(item.ConsumeDelayed());
+    }
+}
+
+/// <summary>
+/// Items today's sun weakens show their name in red (hover and pockets), so new scouts can see
+/// what not to lean on: blue - healing items, red - glider, balloons and jetpack, yellow - stamina
+/// rushes, green - ropes, pitons and anything with limited uses. Only while the sun can touch you.
+/// </summary>
+[HarmonyPatch]
+internal static class SunMarks
+{
+    private static readonly Dictionary<ushort, RelicGem?> kinds = new();
+
+    /// <summary>Which sun weakens this kind of item (null = none).</summary>
+    private static RelicGem? KindOf(Item item)
+    {
+        if (kinds.TryGetValue(item.itemID, out var k)) return k;
+        var tree = Trees.Classify(item);
+        if (Relics.IsHealing(item) && !Relics.IsLantern(item)) k = RelicGem.Tenacity;
+        else if (tree is TreeId.Glider or TreeId.Balloons || item.GetComponent<JetpackItem>() != null) k = RelicGem.Initiative;
+        else if (item.GetComponents<Action_ApplyAffliction>().Any(a => a.affliction is Peak.Afflictions.Affliction_InfiniteStamina
+                 || (a.extraAfflictions != null && a.extraAfflictions.Any(x => x is Peak.Afflictions.Affliction_InfiniteStamina)))) k = RelicGem.Ambition;
+        else if (tree is TreeId.Rope or TreeId.Piton || item.totalUses > 1) k = RelicGem.Generosity;
+        else k = null;
+        if (Items.Find(Trees.BaseRole(TreeId.Rope)) != null) kinds[item.itemID] = k; // only once the item database is up
+        return k;
+    }
+
+    internal static bool Weakened(Item item) => KindOf(item) switch
+    {
+        RelicGem.Tenacity => Suns.Blue,
+        RelicGem.Initiative => Suns.Red,
+        RelicGem.Ambition => Suns.Yellow,
+        RelicGem.Generosity => Suns.Green,
+        _ => false,
+    };
+
+    [HarmonyPostfix, HarmonyPatch(typeof(Item), nameof(Item.GetItemName)), HarmonyPriority(Priority.Last)]
+    private static void Red(Item __instance, ref string __result)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(__result) || __result.StartsWith("<color=#FF4A3A>") || !Weakened(__instance)) return;
+            __result = $"<color=#FF4A3A>{__result}</color>";
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Sun mark: {e.Message}"); }
     }
 }

@@ -188,6 +188,16 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
     /// </summary>
     internal static void Claimed(Item item) => claimed.Add((item.itemID, Time.time + 5f));
 
+    /// <summary>Items on their way to us with a set level (Bing Bong's gifts and hidden items), until they arrive.</summary>
+    private static readonly List<(ushort id, int level, int branch, float until)> expected = new();
+
+    /// <summary>The next unstamped one of these in our pockets (within 8s) takes this level and path instead of ours.</summary>
+    internal static void Expect(Item item, int level, int branch) => expected.Add((item.itemID, level, branch, Time.time + 8f));
+
+    /// <summary>A pocket item's (level, path) as it stands - what it should keep if it leaves and comes back.</summary>
+    internal static (int level, int branch) Current(ItemSlot slot) =>
+        slot?.prefab != null && KindOf(slot.prefab) is { } k ? (LevelOf(slot), Stamp(slot.data) > 0 ? BranchOf(k, slot.data) : OnSecondPath(k) ? 2 : 1) : (0, 0);
+
     /// <summary>New items in our pockets (crate picks, world finds) take our discovery level.</summary>
     private void Update()
     {
@@ -195,10 +205,19 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         nextScan = Time.time + 0.25f;
         if (!ModConfig.ItemTrees.Value) return;
         claimed.RemoveAll(c => Time.time > c.until);
+        expected.RemoveAll(c => Time.time > c.until);
         foreach (var s in Pockets())
         {
             if (KindOf(s.prefab) is not { } k) continue;
             int cur = Stamp(s.data);
+            int e = cur <= 0 ? expected.FindIndex(c => c.id == s.prefab.itemID) : -1;
+            if (e >= 0)
+            {
+                var (_, level, branch, _) = expected[e];
+                expected.RemoveAt(e);
+                StampPath(s.data.guid, Mathf.Clamp(level, k.Min, k.Max), branch, $"{s.prefab.gameObject.name} arrived with a set level");
+                continue;
+            }
             if (cur <= 0)
             {
                 StampPath(s.data.guid, Discovered(k), OnSecondPath(k) ? 2 : 1, $"{s.prefab.gameObject.name} picked up (unstamped)");

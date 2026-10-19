@@ -180,7 +180,7 @@ internal class Medicine : MonoBehaviour
     private static void BeforeRoll(Affliction_Chaos __instance)
     {
         var c = __instance.character;
-        if (!On || !Local(c) || c.data.petrifyAmount <= 0) return;
+        if (!On || !Local(c) || BingBongPranks.Rolling || c.data.petrifyAmount <= 0) return;
         c.refs.afflictions.SubtractStatus(STATUS.Petrify, c.data.petrifyAmount * 0.01f);
     }
 
@@ -191,7 +191,7 @@ internal class Medicine : MonoBehaviour
         try
         {
             var c = __instance.character;
-            if (!On || !Local(c)) return;
+            if (!On || !Local(c) || BingBongPranks.Rolling) return; // Bing Bong's roll is yours alone
             var aff = c.refs.afflictions;
             int n = Enum.GetValues(typeof(STATUS)).Length;
             var roll = new float[n];

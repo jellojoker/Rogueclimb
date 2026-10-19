@@ -361,6 +361,7 @@ internal class DevPanel : MonoBehaviour
         Row(new[] { Curio.Bugle, Curio.Binoculars, Curio.Compass, Curio.Frisbee, Curio.BingBong }
             .Select(c => B($"Relic: {CurioRelics.Name(c)}", () => { if (InGame()) CurioRelics.DevBind(c); })).ToArray());
         Row(B("Bing Bong prank", () => { if (InGame()) BingBongPranks.DevPrank(); }));
+        Row(BingBongPranks.DevNames.Select(n => B(n, () => { if (InGame()) BingBongPranks.DevPlay(n); })).ToArray());
         Row(B("Give flare", () => GivePrefab("Flare")), B("Flare drop", () => { if (InGame()) SupplyDrop.DevFlare(); }), B("Timed drop", () => { if (InGame()) SupplyDrop.DevTimed(); }));
         Row(B("Open fusion screen", () => { if (InGame()) Fusion.DevOpen(); }),
             B("Statue blessing", () => { if (InGame()) Blessing.DevBless(); }));
@@ -457,6 +458,10 @@ internal class DevPanel : MonoBehaviour
         Label("<color=#FF5A4A>Blood moon (starts now, makes it night)</color>", 26f);
         Row(Enumerable.Range(1, 4).Select(t => B($"Tier {t}", () => { if (InGame(true)) BloodMoon.DevStart(t); }, RedColor))
             .Append(B("End", () => BloodMoon.DevStart(0))).ToArray());
+        Label($"<color=#FF5A4A>One hazard alone (tier 1 now; later moons keep it first) - {(BloodMoon.DevFirst is { } first ? $"{first} first" : "shuffled")}</color>", 26f);
+        Row(new[] { BloodMoon.Hazard.Zombies, BloodMoon.Hazard.Scoutmaster, BloodMoon.Hazard.Tornado, BloodMoon.Hazard.Meteors }
+            .Select(h => B(h.ToString(), () => { if (InGame(true)) { BloodMoon.DevAlone(h); Rebuild(); } }, BloodMoon.DevFirst == h ? OnColor : RedColor))
+            .Append(B("Shuffle", () => { BloodMoon.DevAlone(null); Rebuild(); })).ToArray());
         Label("<color=#FF5A4A>Testing (saved to the config)</color>", 26f);
         Row(Toggle("Shared relics", ModConfig.DevShareRelics),
             Toggle("Moon every night", ModConfig.DevMoonEveryNight),
@@ -471,6 +476,7 @@ internal class DevPanel : MonoBehaviour
             .Select(g => B(Suns.ColorName(g), () => { Suns.DevForce = (int)g; Rebuild(); }, Color.Lerp(ButtonColor, Relics.GemColor(g), 0.35f)))
             .Append(B("None", () => { Suns.DevForce = -1; Rebuild(); }))
             .Append(B("Auto", () => { Suns.DevForce = null; Rebuild(); })).ToArray());
+        Row(B("Refill parasol shade", () => { if (InGame()) Suns.DevRefillParasol(); }));
         PercentRow("Sunlight colour", ModConfig.SunLight, 1.5f);
         PercentRow("Sky colour", ModConfig.SunSkyBlend);
         PercentRow("Red sprint cut", ModConfig.SunRedSprintCut);
@@ -530,9 +536,12 @@ internal class DevPanel : MonoBehaviour
         var dnm = DayNightManager.instance;
         if (dnm != null) sb.Append($"<color=#D9C9A3>Day {dnm.dayCount} · {dnm.TimeOfDayString()} · {(dnm.isDay > 0.5f ? "day" : "night")}</color>\n");
         if (MapHandler.Exists) sb.Append($"<color=#D9C9A3>Section: {MapHandler.CurrentSegmentNumber}</color>\n");
+        if (Suns.SunGlass > 0) sb.Append($"<color=#74B4FF>Blue sun glass: {Suns.SunGlass}% of your glass</color>\n");
         sb.Append(BloodMoon.Active
-            ? $"<color=#FF5A4A>Blood moon tier {BloodMoon.Tier}: {Mathf.FloorToInt(BloodMoon.Elapsed)}s of {BloodMoon.EffectsEnd(BloodMoon.Tier):0}s</color>"
+            ? $"<color=#FF5A4A>Blood moon tier {BloodMoon.Tier}: {Mathf.FloorToInt(BloodMoon.Elapsed)}s of {BloodMoon.EffectsEnd(BloodMoon.Tier):0}s\nOrder: {BloodMoon.OrderLabel}</color>"
             : "<color=#D9C9A3>No blood moon</color>");
+        if (!BloodMoon.Active && MapHandler.Exists && (!PhotonNetwork.InRoom || PhotonNetwork.IsMasterClient))
+            sb.Append($"\n<color=#D9C9A3>Next moon order: {string.Join(" > ", RelicShuffle.MoonOrder())}</color>");
         return sb.ToString();
     }
 

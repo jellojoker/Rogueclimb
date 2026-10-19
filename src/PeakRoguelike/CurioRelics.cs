@@ -41,6 +41,8 @@ internal class CurioRelics : MonoBehaviour
     internal static void Reset()
     {
         Mine = Curio.None;
+        BingBongPranks.Reset();
+        LightsOut.End();
         Publish();
     }
 
@@ -158,6 +160,11 @@ internal class CurioRelics : MonoBehaviour
 
     private void Update()
     {
+        if (Character.localCharacter is { } self)
+        {
+            try { BingBongPranks.TickHidden(self); }
+            catch (System.Exception e) { Plugin.Log.LogError($"Bing Bong hidden item failed: {e}"); }
+        }
         if (!ModConfig.CurioRelics.Value || Mine == Curio.None || Character.localCharacter is not { } me || me.data.dead) { Marker.Hide(); return; }
         try
         {
@@ -459,15 +466,19 @@ public class FrisbeeKnock : MonoBehaviour
 }
 
 /// <summary>
-/// The Bing Bong relic's pranks on its carrier, every couple of minutes: swap an item with another
-/// scout, a random level-up, a nap, swap places, or swap every status bar with another scout.
-/// Never while climbing, at a campfire or during a blood moon.
+/// The Bing Bong relic's pranks on its carrier, every 2-4 minutes: a nap, a random level-up, an
+/// item hidden for a while, Pandora's roll, a blink to flat ground nearby, lights out, or a gift
+/// in your hands - and with other scouts around, swapping an item, places or every status bar
+/// with one of them. Never while climbing, at a campfire or during a blood moon.
 /// </summary>
 internal static class BingBongPranks
 {
     private const float M = 1f / 1.6f;
 
-    private enum Prank { SwapItem, LevelUp, Nap, SwapPlace, SwapStatus }
+    private enum Prank { SwapItem, LevelUp, Nap, SwapPlace, SwapStatus, Hide, Pandora, Teleport, LightsOut, Gift }
+
+    /// <summary>Bing Bong's Pandora roll is under way: the lunchbox's glass wipe and sharing stay out of it.</summary>
+    internal static bool Rolling { get; private set; }
 
     private static bool Steady(Character c) =>
         !c.data.dead && !c.data.passedOut && c.data.fullyConscious && !c.data.isClimbingAnything && !c.data.isCarried && !BloodTornado.Carrying(c);
@@ -476,8 +487,11 @@ internal static class BingBongPranks
     {
         if (!Steady(me) || Sanctuary.LocalSafe || BloodMoon.Active || ChoiceScreen.IsOpen) { next = Time.time + 5f; return; }
         var others = Squad.Alive().Where(o => o != me && Modless.HasMod(o) && Steady(o)).ToList();
-        var options = new List<Prank> { Prank.Nap };
+        var options = new List<Prank> { Prank.Nap, Prank.Pandora, Prank.LightsOut };
         if (Offers.Carried().Count > 0) options.Add(Prank.LevelUp);
+        if (hidden == null && Hideable().Any()) options.Add(Prank.Hide);
+        if (BlinkSpot(me) != null) options.Add(Prank.Teleport);
+        if (GiftPool().Count > 0) options.Add(Prank.Gift);
         if (others.Count > 0)
         {
             options.Add(Prank.SwapStatus);
@@ -493,6 +507,19 @@ internal static class BingBongPranks
         if (Character.localCharacter is not { } me) return;
         float next = 0f;
         Tick(me, ref next);
+    }
+
+    /// <summary>F8: the solo pranks one at a time ("Nap", "LevelUp", "Hide", "Pandora", "Teleport", "LightsOut", "Gift").</summary>
+    internal static readonly string[] DevNames = { "Nap", "LevelUp", "Hide", "Pandora", "Teleport", "LightsOut", "Gift" };
+
+    internal static void DevPlay(string name)
+    {
+        if (Character.localCharacter is not { } me || !System.Enum.TryParse(name, out Prank p)) return;
+        if (p == Prank.LevelUp && Offers.Carried().Count == 0) { Hud.Toast("Nothing to level up", ChoiceScreen.Muted); return; }
+        if (p == Prank.Hide && (hidden != null || !Hideable().Any())) { Hud.Toast("Nothing to hide (or one is hidden)", ChoiceScreen.Muted); return; }
+        if (p == Prank.Teleport && BlinkSpot(me) == null) { Hud.Toast("No flat ground nearby", ChoiceScreen.Muted); return; }
+        if (p == Prank.Gift && GiftPool().Count == 0) { Hud.Toast("No crate pool here", ChoiceScreen.Muted); return; }
+        Play(me, p, new List<Character>());
     }
 
     private static void Play(Character me, Prank p, List<Character> others)
@@ -543,6 +570,213 @@ internal static class BingBongPranks
                 Net.Bing(t.photonView.Owner.ActorNumber, 3, (float[])me.refs.afflictions.currentStatuses.Clone());
                 break;
             }
+            case Prank.Hide:
+                Hide(me);
+                break;
+            case Prank.Pandora:
+                PandoraRoll(me);
+                Hud.Banner("BING BONG", "Lunch time", ChoiceScreen.Cream);
+                break;
+            case Prank.Teleport:
+                if (BlinkSpot(me) is { } spot)
+                {
+                    me.photonView.RPC("WarpPlayerRPC", RpcTarget.All, spot, true);
+                    Hud.Banner("BING BONG", "Over here!", ChoiceScreen.Cream);
+                    Plugin.Log.LogInfo($"Bing Bong: blinked {Vector3.Distance(me.Center, spot) / M:0}m to {spot}.");
+                }
+                break;
+            case Prank.LightsOut:
+                LightsOut.Begin(Mathf.Max(5f, ModConfig.BingBongDarkSeconds.Value));
+                Hud.Banner("BING BONG", "Lights out", ChoiceScreen.Cream);
+                break;
+            case Prank.Gift:
+                Gift(me);
+                break;
+        }
+    }
+
+    // --- hide and seek: one copy of a pocket item is gone for 30-60s --------------------------------
+
+    private sealed class Hidden
+    {
+        public string Prefab = "";
+        public int Level, Branch;
+        public float Until;
+    }
+
+    private static Hidden? hidden;
+    private static Vector3 lastAlive;
+
+    /// <summary>Pocket items he may hide: anything but Bing Bong himself.</summary>
+    private static IEnumerable<ItemSlot> Hideable() =>
+        Pocketed(Player.localPlayer).Where(s => CurioRelics.KindOf(s.prefab) != Curio.BingBong);
+
+    private static void Hide(Character me)
+    {
+        var p = Player.localPlayer;
+        var slots = Hideable().ToList();
+        if (p == null || slots.Count == 0) return;
+        var s = slots[Random.Range(0, slots.Count)];
+        var (level, branch) = ItemLevels.Current(s);
+        string name = s.prefab.gameObject.name, shown = Items.DisplayName(s.prefab);
+        if (!Stacks.TakeOne(p, s.itemSlotID))
+        {
+            var sel = me.refs.items.currentSelectedSlot;
+            bool held = sel.IsSome && sel.Value == s.itemSlotID;
+            p.EmptySlot(Optionable<byte>.Some(s.itemSlotID));
+            if (held) me.refs.items.EquipSlot(Optionable<byte>.None);
+        }
+        float lo = Mathf.Max(1f, ModConfig.BingBongHideMin.Value), hi = Mathf.Max(lo, ModConfig.BingBongHideMax.Value);
+        hidden = new Hidden { Prefab = name, Level = level, Branch = branch, Until = Time.time + Random.Range(lo, hi) };
+        Hud.Banner("BING BONG", "Hide and seek", ChoiceScreen.Cream);
+        Plugin.Log.LogInfo($"Bing Bong: hid {shown} (level {level}) for {hidden.Until - Time.time:0}s.");
+    }
+
+    /// <summary>
+    /// Every frame (whoever holds Bing Bong or not): the hidden item comes back when its time is up -
+    /// to your pockets, or where you fell if you died. Passed out, it waits until you're up.
+    /// </summary>
+    internal static void TickHidden(Character me)
+    {
+        if (hidden == null) return;
+        if (!me.data.dead) lastAlive = me.Center;
+        if (me.data.dead)
+        {
+            Net.SpawnItem(hidden.Prefab, lastAlive + Vector3.up * 0.5f);
+            Plugin.Log.LogInfo($"Bing Bong: you died - {hidden.Prefab} dropped where you fell.");
+            hidden = null;
+            return;
+        }
+        if (Time.time < hidden.Until || !me.data.fullyConscious || me.data.passedOut) return;
+        var item = Items.Database.FirstOrDefault(i => i != null && i.gameObject.name == hidden.Prefab);
+        if (item != null)
+        {
+            if (hidden.Level > 0) ItemLevels.Expect(item, hidden.Level, hidden.Branch);
+            GameUtils.instance.InstantiateAndGrab(item, me);
+            Hud.Banner("BING BONG", "Found it!", ChoiceScreen.Cream);
+            Plugin.Log.LogInfo($"Bing Bong: {hidden.Prefab} came back.");
+        }
+        hidden = null;
+    }
+
+    /// <summary>New run: a hidden item from the last one is gone for good.</summary>
+    internal static void Reset() => hidden = null;
+
+    // --- Pandora's roll: the lunchbox's own odds, glass left alone ----------------------------------
+
+    private static void PandoraRoll(Character me)
+    {
+        // Pandora's Lunchbox's own numbers (its prefab's Affliction_Chaos): ailments ~N(0.4, 0.3), stamina ~N(0.3, 0.25).
+        var box = Items.Database.FirstOrDefault(i => i != null && Items.IsLunchbox(i));
+        var chaos = box?.GetComponentsInChildren<Action_ApplyAffliction>(true)
+            .Select(a => a.affliction).OfType<Peak.Afflictions.Affliction_Chaos>().FirstOrDefault();
+        var roll = new Peak.Afflictions.Affliction_Chaos(
+            chaos?.statusAmountAverage ?? 0.4f, chaos?.statusAmountStandardDeviation ?? 0.3f,
+            chaos?.averageBonusStamina ?? 0.3f, chaos?.standardDeviationBonusStamina ?? 0.25f);
+        Rolling = true;
+        try { me.refs.afflictions.AddAffliction(roll); }
+        finally { Rolling = false; }
+    }
+
+    // --- teleport: flat, safe ground within 30m, above or below ---------------------------------------
+
+    private static Vector3? BlinkSpot(Character me)
+    {
+        float r = Mathf.Max(5f, ModConfig.BingBongBlinkRange.Value) * M;
+        Vector3 at = me.Center;
+        for (int i = 0; i < 24; i++)
+        {
+            Vector2 d = Random.insideUnitCircle * r;
+            if (d.magnitude < 5f * M) continue;
+            float top = at.y + r + 5f * M;
+            var from = new Vector3(at.x + d.x, top, at.z + d.y);
+            if (!Physics.Raycast(from, Vector3.down, out var hit, r * 2f + 10f * M, HelperFunctions.AllPhysicalExceptCharacter, QueryTriggerInteraction.Ignore)) continue;
+            if (hit.normal.y < 0.866f || Mathf.Abs(hit.point.y - at.y) > r) continue;
+            int layer = hit.collider.gameObject.layer;
+            if (layer != LayerMask.NameToLayer("Terrain") && layer != LayerMask.NameToLayer("Map")) continue;
+            string n = hit.collider.name.ToLowerInvariant();
+            if (n.Contains("lava") || n.Contains("water") || n.Contains("ocean")) continue;
+            Vector3 p = hit.point + Vector3.up * 1.2f;
+            if (InFog(p)) continue;
+            return p;
+        }
+        return null;
+    }
+
+    private static FogSphere? fog;
+
+    private static bool InFog(Vector3 p)
+    {
+        if (fog == null) fog = Object.FindFirstObjectByType<FogSphere>();
+        return fog != null && Mathf.Approximately(fog.ENABLE, 1f) && Vector3.Distance(fog.fogPoint, p) > fog.currentSize;
+    }
+
+    // --- a gift in your hands: this biome's crate pool, level 1 (1 in 10: max level) -----------------
+
+    private static List<Item> GiftPool()
+    {
+        var me = Character.localCharacter;
+        var crate = me == null ? null : Object.FindObjectsByType<Luggage>(FindObjectsSortMode.None)
+            .Where(l => l != null && l is not RespawnChest)
+            .OrderBy(l => Vector3.Distance(l.transform.position, me.Center)).FirstOrDefault();
+        var pool = new List<Item>();
+        if (crate == null) return pool;
+        try
+        {
+            for (int i = 0; i < 12 && pool.Count < 6; i++)
+            {
+                var item = crate.GetObjectsToSpawn(1, true)?.Where(o => o != null).Select(o => o.GetComponent<Item>()).FirstOrDefault(x => x != null);
+                if (item == null || pool.Contains(item) || Items.IsEarnedOnly(item) || Items.IsAmulet(item)
+                    || Items.IsSkull(item) || Items.IsDagger(item) || Items.IsBookOfBones(item) || CurioRelics.KindOf(item) != Curio.None) continue;
+                pool.Add(item);
+            }
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Bing Bong: no gift pool ({e.Message})."); }
+        return pool;
+    }
+
+    private static void Gift(Character me)
+    {
+        var pool = GiftPool();
+        if (pool.Count == 0) return;
+        var item = pool[Random.Range(0, pool.Count)];
+        bool max = Random.value < Mathf.Clamp01(ModConfig.BingBongGiftMaxChance.Value);
+        // Whatever you hold drops at your feet first.
+        var sel = me.refs.items.currentSelectedSlot;
+        if (sel.IsSome && Player.localPlayer?.GetItemSlot(sel.Value) is { } held && !held.IsEmpty())
+        {
+            me.refs.items.EquipSlot(Optionable<byte>.None);
+            me.refs.items.photonView.RPC("DropItemFromSlotRPC", RpcTarget.All, sel.Value, me.Center + me.data.lookDirection_Flat * 0.6f);
+        }
+        int level = 0, branch = 0;
+        if (ItemLevels.KindOf(item) is { } k)
+        {
+            level = max ? k.Max : k.Min;
+            branch = k.BothPaths ? Random.Range(1, 3) : k.Branch;
+            ItemLevels.Expect(item, level, branch);
+        }
+        GameUtils.instance.InstantiateAndGrab(item, me);
+        me.StartCoroutine(HoldWhenItArrives(me, item.itemID));
+        if (max) Hud.Banner("BING BONG", "A GIFT", Trees.Gold);
+        else Hud.Banner("BING BONG", "A gift", ChoiceScreen.Cream);
+        Plugin.Log.LogInfo($"Bing Bong: gave {Items.DisplayName(item)}{(level > 0 ? $" at level {level}" : "")}{(max ? " (max)" : "")}.");
+    }
+
+    /// <summary>The gift goes straight into your hand once it's in your pockets.</summary>
+    private static System.Collections.IEnumerator HoldWhenItArrives(Character me, ushort id)
+    {
+        var p = Player.localPlayer;
+        var before = p == null ? new HashSet<byte>() : new HashSet<byte>(p.itemSlots.Where(s => s != null && !s.IsEmpty() && s.prefab?.itemID == id).Select(s => s.itemSlotID));
+        for (float t = 0f; t < 5f; t += 0.1f)
+        {
+            yield return new WaitForSeconds(0.1f);
+            if (me == null || p == null) yield break;
+            var slot = p.itemSlots.FirstOrDefault(s => s != null && !s.IsEmpty() && s.prefab?.itemID == id && !before.Contains(s.itemSlotID))
+                       ?? p.itemSlots.FirstOrDefault(s => s != null && !s.IsEmpty() && s.prefab?.itemID == id);
+            if (slot == null) continue;
+            if (t < 0.5f && before.Contains(slot.itemSlotID)) continue; // give a stack a moment to show the new copy
+            me.refs.items.EquipSlot(Optionable<byte>.Some(slot.itemSlotID));
+            yield break;
         }
     }
 
@@ -629,5 +863,127 @@ internal static class BingBongPranks
             if (d > 0f) aff.AddStatus((STATUS)k, d, ignoreInvincibility: true);
             else if (d < 0f) aff.SubtractStatus((STATUS)k, -d);
         }
+    }
+}
+
+/// <summary>
+/// Bing Bong's lights out: your screen goes near-black for a while, under the game's HUD and
+/// ours. The flashlight key (F) opens a soft circle of sight in the middle and shines a real
+/// light from your eyes.
+/// </summary>
+internal class LightsOut : MonoBehaviour
+{
+    private static LightsOut? instance;
+    private Image dark = null!, beam = null!;
+    private TextMeshProUGUI hint = null!;
+    private Light? torch;
+    private float until, alpha;
+    private bool on;
+
+    internal static bool Active => instance != null;
+
+    internal static void Begin(float seconds)
+    {
+        if (instance == null)
+        {
+            var go = new GameObject("PEAK Roguelike - Lights Out");
+            DontDestroyOnLoad(go);
+            instance = go.AddComponent<LightsOut>();
+            instance.Build();
+        }
+        instance.until = Time.time + seconds;
+        Plugin.Log.LogInfo($"Bing Bong: lights out for {seconds:0}s.");
+    }
+
+    internal static void End()
+    {
+        if (instance != null) instance.until = 0f;
+    }
+
+    private void Build()
+    {
+        var canvas = gameObject.AddComponent<Canvas>();
+        canvas.renderMode = RenderMode.ScreenSpaceOverlay;
+        canvas.sortingOrder = -50; // under every HUD
+        var scaler = gameObject.AddComponent<CanvasScaler>();
+        scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
+        scaler.referenceResolution = new Vector2(1920, 1080);
+        scaler.matchWidthOrHeight = 1f;
+        var root = (RectTransform)transform;
+
+        dark = Ui.Image(root, "Dark", null, new Color(0f, 0f, 0f, 0f));
+        Ui.Stretch(dark.rectTransform);
+        // The flashlight: black with a soft hole, big enough to cover any screen shape.
+        beam = Ui.Image(root, "Beam", Hole(), new Color(0f, 0f, 0f, 0f));
+        beam.rectTransform.anchorMin = beam.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
+        beam.rectTransform.sizeDelta = new Vector2(4200f, 4200f);
+        hint = Ui.Text(root, "Hint", "", UiArt.BodyFont, 20, ChoiceScreen.Muted, TextAlignmentOptions.Center);
+        hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = new Vector2(0.5f, 0f);
+        hint.rectTransform.anchoredPosition = new Vector2(0f, 150f);
+        hint.rectTransform.sizeDelta = new Vector2(600f, 30f);
+        foreach (var g in GetComponentsInChildren<Graphic>()) g.raycastTarget = false;
+    }
+
+    private static Sprite? hole;
+
+    /// <summary>Clear in the middle (about 210px of a 1080p screen), fading to black by about 400px.</summary>
+    private static Sprite Hole()
+    {
+        if (hole != null) return hole;
+        const int n = 512;
+        var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color32[n * n];
+        for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                float d = new Vector2(x - n / 2f + 0.5f, y - n / 2f + 0.5f).magnitude / (n / 2f) * 2100f;
+                px[y * n + x] = new Color32(0, 0, 0, (byte)(255 * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(210f, 400f, d))));
+            }
+        tex.SetPixels32(px);
+        tex.Apply();
+        return hole = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f));
+    }
+
+    private void Update()
+    {
+        var me = Character.localCharacter;
+        bool live = Time.time < until && me != null && !me.data.dead;
+        var kb = UnityEngine.InputSystem.Keyboard.current;
+        if (live && kb != null && !ChoiceScreen.IsOpen && !DevPanel.Interactive && kb[ModConfig.FlashlightKey.Value].wasPressedThisFrame) on = !on;
+        alpha = Mathf.MoveTowards(alpha, live ? 0.97f : 0f, Time.deltaTime / (live ? 0.6f : 1.2f));
+        dark.color = new Color(0f, 0f, 0f, on ? 0f : alpha);
+        beam.color = new Color(0f, 0f, 0f, on ? alpha : 0f);
+        hint.text = live ? $"{ModConfig.FlashlightKey.Value}  Flashlight" : "";
+        hint.alpha = alpha * 0.55f;
+        Torch(live && on);
+        if (!live && alpha <= 0f) Destroy(gameObject);
+    }
+
+    /// <summary>A real light from your eyes while the flashlight is on (night stays dark around it).</summary>
+    private void Torch(bool want)
+    {
+        if (!want) { if (torch != null) torch.enabled = false; return; }
+        var cam = Meteors.Eye();
+        if (cam == null) return;
+        if (torch == null || torch.transform.parent != cam.transform)
+        {
+            if (torch != null) Destroy(torch.gameObject);
+            var go = new GameObject("Bing Bong Flashlight");
+            go.transform.SetParent(cam.transform, false);
+            torch = go.AddComponent<Light>();
+            torch.type = LightType.Spot;
+            torch.spotAngle = 55f;
+            torch.range = 30f;
+            torch.intensity = 3f;
+            torch.color = new Color(1f, 0.95f, 0.85f);
+            torch.shadows = LightShadows.None;
+        }
+        torch.enabled = true;
+    }
+
+    private void OnDestroy()
+    {
+        if (torch != null) Destroy(torch.gameObject);
+        if (instance == this) instance = null;
     }
 }

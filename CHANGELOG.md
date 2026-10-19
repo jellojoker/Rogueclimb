@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.12.27
+- Each sun's banner carries a hint: "You feel fragile / heavier / drained / wasteful."
+
+## 0.12.26
+- Red sun: sprint and climbing lunge at 75%, jumps untouched off the Shore. On the Shore it's heavy again, with jumps at half height.
+- Red sun: the glider and balloons work at half strength (no longer level 1), and the jetpack burns fuel twice as fast.
+- Items a sun weakens show their name in red while it can touch you.
+
+## 0.12.25
+- Suns reworked: each works against its own relic, and the Shore is where you learn it.
+- Blue: hits land harder and healing items heal half. On the Shore, its light slowly turns you to glass (shade stops it; night or the blue relic melts it away).
+- Red: sprinting and jumping at 75%, a shorter climbing lunge, the glider and balloons work as level 1, the jetpack burns fuel three times as fast. No more heavy gravity.
+- Green: on the Shore, one crate card withers (sunscreen or an open parasol keeps it). Items no longer weigh more.
+- An open parasol shades you from every coloured sun for a minute, then burns.
+
+## 0.12.24
+- Bing Bong has new pranks, solo and with friends: hide and seek, Pandora's roll, a blink to nearby ground, lights out (F for a flashlight) and a gift in your hands.
+- Bing Bong pranks every 2-4 minutes.
+- Daily and Off never share a blood moon order on the same day.
+
+## 0.12.23
+- Blood moons shuffle their hazards: relics held still set the tier, but which hazard each tier brings changes with the Relic order setting (Off and Daily follow the day, Every run changes every run).
+- The tornado is thinner and weaker when it shares the moon with other hazards.
+- When your relic fires, a tornado holding you lets go, and one coming for you turns away.
+- The tornado wanders when it has nobody to chase instead of standing still.
+- Hosts get a card when someone joins without Rogue Climb.
+
 ## 0.12.22 (beta)
 - Binoculars relic fixed: it now finds every helpful thing on the mountain (berries on bushes, coconuts in trees, food lying anywhere), not just items someone dropped. No distance limit.
 - The Lantern at the crash site shows a real Lantern card, and taking it starts your Lantern tree.

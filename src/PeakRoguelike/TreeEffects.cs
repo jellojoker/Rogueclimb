@@ -444,7 +444,7 @@ internal static class TreePatches
 
     // --- balloons ------------------------------------------------------------------------
 
-    // Flight (levels 2+) lives in BalloonFlight. Plain floating stays vanilla, but the red sun weakens it.
+    // Flight (levels 2+) lives in BalloonFlight. Plain floating is vanilla - but the red sun halves it.
 
     private static readonly Dictionary<CharacterBalloons, (float, float)> balloonBase = new();
 

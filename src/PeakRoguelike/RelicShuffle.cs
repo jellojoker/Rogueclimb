@@ -31,7 +31,8 @@ internal class RelicShuffle : MonoBehaviourPunCallbacks
     private MapHandler? appliedFor, publishedFor;
     private string? appliedValue;
     private StatueOrder publishedMode = (StatueOrder)(-1);
-    private int run;
+    /// <summary>This run's dice for EveryRun (a new map - including after a wipe - rolls again).</summary>
+    private static int run;
     /// <summary>Each statue amulet's baked colour, so a new order never stacks on the last one.</summary>
     private readonly Dictionary<FakeItem, RelicGem> baked = new();
 
@@ -135,10 +136,12 @@ internal class RelicShuffle : MonoBehaviourPunCallbacks
         return day * 7919 + h;
     }
 
-    private static IEnumerable<RelicGem> Shuffled(int seed)
+    private static IEnumerable<RelicGem> Shuffled(int seed) => Shuffled(Gems, seed);
+
+    private static List<T> Shuffled<T>(IEnumerable<T> items, int seed)
     {
         var rng = new System.Random(seed);
-        var list = Gems.ToList();
+        var list = items.ToList();
         for (int i = list.Count - 1; i > 0; i--)
         {
             int j = rng.Next(i + 1);
@@ -146,6 +149,52 @@ internal class RelicShuffle : MonoBehaviourPunCallbacks
         }
         return list;
     }
+
+    /// <summary>
+    /// Host: the blood moon's hazards in the order its tiers add them, from the same setting as
+    /// the statues. Off = shuffled by the game's daily map (the same until PEAK's daily changes),
+    /// Daily = a second shuffle of that day, never the same as Off's, EveryRun = new each run.
+    /// Hazards switched off in the config go to the back, so tier 1 always brings something.
+    /// </summary>
+    internal static List<BloodMoon.Hazard> MoonOrder() => MoonOrder(out _);
+
+    /// <param name="how">For the log: which setting and seed the order came from.</param>
+    internal static List<BloodMoon.Hazard> MoonOrder(out string how)
+    {
+        string scene = SceneManager.GetActiveScene().name;
+        int day = Seed(scene);
+        var off = Shuffled(BloodMoon.DefaultOrder, day * 31 + 1);
+        List<BloodMoon.Hazard> order;
+        switch (ModConfig.StatueOrder.Value)
+        {
+            case StatueOrder.Daily:
+            {
+                // Its own shuffle of the day - re-rolled until it differs from Off's.
+                int tries = 0;
+                do order = Shuffled(BloodMoon.DefaultOrder, day * 31 + 2 + tries * 7);
+                while (order.SequenceEqual(off) && ++tries < 50);
+                how = $"Daily, day seed {day}{(tries > 0 ? $", re-rolled {tries}x to differ from Off" : "")}";
+                break;
+            }
+            case StatueOrder.EveryRun:
+                order = Shuffled(BloodMoon.DefaultOrder, run * 31 + 3);
+                how = $"Every run, run seed {run}";
+                break;
+            default:
+                order = off;
+                how = $"Off, day seed {day}";
+                break;
+        }
+        return order.OrderBy(h => On(h) ? 0 : 1).ToList();
+    }
+
+    private static bool On(BloodMoon.Hazard h) => h switch
+    {
+        BloodMoon.Hazard.Zombies => ModConfig.BmZombies.Value,
+        BloodMoon.Hazard.Scoutmaster => ModConfig.BmScoutmaster.Value,
+        BloodMoon.Hazard.Tornado => ModConfig.BmTornado.Value,
+        _ => BloodMoon.GloomRun ? ModConfig.BmGlassMeteors.Value : ModConfig.BmMeteors.Value,
+    };
 
     /// <summary>Swap every statue amulet to its colour in this order: the item it gives, its name, its look. Returns statues seen.</summary>
     private int Apply(Dictionary<RelicGem, RelicGem> to)

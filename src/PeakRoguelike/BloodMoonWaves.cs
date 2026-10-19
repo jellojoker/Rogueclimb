@@ -33,6 +33,7 @@ internal static class Squad
         veiledUntil[actor] = Time.time + seconds;
         var c = Alive().FirstOrDefault(x => x.photonView != null && x.photonView.Owner != null && x.photonView.Owner.ActorNumber == actor);
         Plugin.Log.LogInfo($"Relic veil: {(c != null ? c.characterName : $"player {actor}")} hidden for {seconds:0.#}s.");
+        BloodTornado.RelicFired(actor, seconds);
     }
 
     public static bool Veiled(Character c) =>
@@ -148,7 +149,7 @@ internal static class BloodZombies
     /// <summary>
     /// Zombies rise right beside every scout out in the open (ZombiesPerScout each); scouts
     /// carrying a relic (copies included), the Cursed Skull or the Ritual Dagger get
-    /// ZombiesPerCarrier more. Solo, a carrier gets ZombiesSoloCarrier at tier 1 (later tiers
+    /// ZombiesPerCarrier more. Solo, a carrier gets ZombiesSoloCarrier on the zombies' first tier (later tiers
     /// bring the Scoutmaster, tornado and meteors instead).
     /// </summary>
     public static void Spawn(float seconds)
@@ -162,7 +163,7 @@ internal static class BloodZombies
         {
             int each = Mathf.Max(0, ModConfig.BmZombiesPerScout.Value);
             if (Squad.Priority(scout) == 0)
-                each = Squad.Solo && BloodMoon.Tier <= 1 ? Mathf.Max(0, ModConfig.BmZombiesSoloCarrier.Value)
+                each = Squad.Solo && BloodMoon.TierOf(BloodMoon.Hazard.Zombies) <= 1 ? Mathf.Max(0, ModConfig.BmZombiesSoloCarrier.Value)
                        : each + Mathf.Max(0, ModConfig.BmZombiesPerCarrier.Value);
             if (each <= 0) continue;
             // Spread evenly around the scout (two = opposite sides), so they're flanked, not walled in.
@@ -260,15 +261,18 @@ internal static class BloodZombies
 }
 
 // =====================================================================================================
-// 3 relics - a tornado that follows the squad
+// A tornado that follows the squad
 // =====================================================================================================
 
 /// <summary>
 /// The game's Mesa tornado. It normally wanders between Mesa's fixed points; ours rises at the
 /// current section's starting campfire, travels up the mountain toward the squad, then slows
 /// to a chase once it's close (the host picks where it heads, everyone moves it there). Lives
-/// 3 minutes and takes the biome's colour: sand on Mesa, fire in Caldera / Kiln, purple in
-/// Gloom / Citadel, snow white everywhere else.
+/// until the moon sets and takes the biome's colour: sand on Mesa, fire in Caldera / Kiln,
+/// purple in Gloom / Citadel, snow white everywhere else. Alone (moon tier 1) it's the game's
+/// size and strength; sharing the moon it's thinner and weaker. When the scout it hunts fires
+/// a relic it lets go of them and veers away until their veil wears off; with nobody to hunt
+/// it wanders.
 /// </summary>
 internal class BloodTornado : MonoBehaviour
 {
@@ -280,6 +284,13 @@ internal class BloodTornado : MonoBehaviour
     private Tornado tornado = null!;
     private Transform target = null!;
     private float nextPick;
+    /// <summary>Its full size (x and z = width, y = height); it grows toward this like the game's does toward 1.</summary>
+    private Vector3 size = Vector3.one;
+    /// <summary>Host: the scout it's heading for (actor number, 0 = nobody).</summary>
+    private int preyActor;
+    /// <summary>Host: veering away (a relic fired) or wandering (nobody to hunt) until then.</summary>
+    private float veerUntil;
+    private bool wandering;
 
     internal static Look LookHere()
     {
@@ -294,7 +305,7 @@ internal class BloodTornado : MonoBehaviour
         return Look.Snow;
     }
 
-    public static void Spawn(float seconds)
+    public static void Spawn(float seconds, bool alone)
     {
         var alive = Squad.Alive();
         if (alive.Count == 0) return;
@@ -302,11 +313,13 @@ internal class BloodTornado : MonoBehaviour
             ? Squad.GroundNear(fire, 6f, 16f, 30f) ?? fire
             : FarFrom(alive);
         Look look = LookHere();
+        float width = alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedWidth.Value, 0.2f, 3f);
+        float pull = alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedPull.Value, 0f, 3f);
         try
         {
-            PhotonNetwork.Instantiate("Tornado", pos, Quaternion.identity, 0, new object[] { Tag, (int)look, seconds });
+            PhotonNetwork.Instantiate("Tornado", pos, Quaternion.identity, 0, new object[] { Tag, (int)look, seconds, width, pull });
             float d = alive.Min(c => Vector3.Distance(c.Center, pos));
-            Plugin.Log.LogInfo($"Blood moon tornado ({look}, {seconds:0}s) at {pos}, {d:0}m from the nearest scout.");
+            Plugin.Log.LogInfo($"Blood moon tornado ({look}, {seconds:0}s, {(alone ? "alone" : "shared")}: width x{width:0.##}, pull x{pull:0.##}) at {pos}, {d:0}m from the nearest scout.");
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Tornado spawn failed: {e.Message}"); }
     }
@@ -361,13 +374,60 @@ internal class BloodTornado : MonoBehaviour
                 t.tornado.view.RPC("RPCA_TornadoDie", RpcTarget.All);
     }
 
-    private void Init(Tornado t, Look look, float seconds)
+    /// <summary>
+    /// Host: this scout's relic fired. A tornado carrying them throws them out (the game's own
+    /// release, with its few seconds of not being caught again); one heading for them veers
+    /// away for as long as they stay veiled.
+    /// </summary>
+    public static void RelicFired(int actor, float seconds)
+    {
+        foreach (var t in live.Values.ToList())
+        {
+            if (t == null || t.tornado == null || t.tornado.view == null || !t.tornado.view.IsMine) continue;
+            foreach (var c in t.tornado.caughtCharacters.ToList())
+                if (c != null && c.photonView != null && c.photonView.Owner != null && c.photonView.Owner.ActorNumber == actor)
+                {
+                    t.tornado.view.RPC("RPCA_ThrowPlayer", RpcTarget.All, c.photonView.ViewID);
+                    Plugin.Log.LogInfo($"Blood tornado: {c.characterName}'s relic threw them out.");
+                }
+            if (t.preyActor != actor) continue;
+            var scout = Squad.Alive().FirstOrDefault(c => c.photonView != null && c.photonView.Owner != null && c.photonView.Owner.ActorNumber == actor);
+            t.Veer(scout != null ? scout.Center : (Vector3?)null, seconds);
+            Plugin.Log.LogInfo($"Blood tornado: veers away from {(scout != null ? scout.characterName : $"player {actor}")} for {seconds:0.#}s.");
+        }
+    }
+
+    /// <summary>
+    /// Host: head for a spot VeerMin-VeerMax away - angled away from <paramref name="from"/> (up to
+    /// 60° either side), or any direction - and hold that course for the given time.
+    /// </summary>
+    private void Veer(Vector3? from, float seconds)
+    {
+        Vector3 here = transform.position;
+        Vector3 away = from is { } f ? here - f : Vector3.zero;
+        away.y = 0f;
+        float yaw = away.sqrMagnitude > 0.01f
+            ? Mathf.Atan2(away.x, away.z) * Mathf.Rad2Deg + Random.Range(-60f, 60f)
+            : Random.Range(0f, 360f);
+        float lo = Mathf.Max(5f, ModConfig.BmTornadoVeerMin.Value), hi = Mathf.Max(lo, ModConfig.BmTornadoVeerMax.Value);
+        float dist = Random.Range(lo, hi) * Squad.M;
+        Vector3 dir = Quaternion.Euler(0f, yaw, 0f) * Vector3.forward;
+        Vector3 spot = Squad.GroundToward(here, yaw, 30f, dist * 0.9f, dist * 1.1f, 40f * Squad.M) ?? here + dir * dist;
+        preyActor = 0;
+        veerUntil = Time.time + seconds;
+        nextPick = veerUntil;
+        Net.TornadoTarget(tornado.view.ViewID, spot);
+    }
+
+    private void Init(Tornado t, Look look, float seconds, float width, float pull)
     {
         tornado = t;
         target = new GameObject("Blood Tornado Target").transform;
         target.position = transform.position;
         tornado.target = target;
         tornado.lifeTime = seconds;
+        size = new Vector3(width, 1f, width);
+        tornado.force *= pull;
         live[t.view.ViewID] = this;
         switch (look)
         {
@@ -383,11 +443,15 @@ internal class BloodTornado : MonoBehaviour
         var alive = Squad.Marked();
         if (alive.Count == 0)
         {
-            // No relic holder (or anyone near one) on open ground: it lingers where it is.
-            nextPick = Time.time + 2f;
-            Net.TornadoTarget(tornado.view.ViewID, transform.position);
+            // Nobody it can hunt (all safe or veiled): it wanders off somewhere, like the game's does.
+            if (!wandering || Time.time >= veerUntil || Vector3.Distance(transform.position, target.position) < 10f * Squad.M)
+                Veer(null, Random.Range(8f, 15f));
+            wandering = true;
+            nextPick = Time.time + 1f;
             return;
         }
+        wandering = false;
+        veerUntil = 0f;
         // Far away it heads straight for the nearest scout; close up it picks prey every few seconds.
         bool far = Nearest(alive) > ModConfig.BmTornadoNear.Value;
         nextPick = Time.time + (far ? 2f : Random.Range(6f, 12f));
@@ -396,8 +460,12 @@ internal class BloodTornado : MonoBehaviour
         var prey = far ? alive.OrderBy(Squad.Priority).ThenBy(c => Vector3.Distance(c.Center, transform.position)).First()
             : weighted[Random.Range(0, weighted.Count)];
         Vector2 jitter = far ? Vector2.zero : Random.insideUnitCircle * 8f;
+        preyActor = prey.photonView != null && prey.photonView.Owner != null ? prey.photonView.Owner.ActorNumber : 0;
         Net.TornadoTarget(tornado.view.ViewID, prey.Center + new Vector3(jitter.x, 0f, jitter.y));
     }
+
+    /// <summary>Veering or wandering (host).</summary>
+    private bool Drifting => wandering || Time.time < veerUntil;
 
     private float Nearest(List<Character> alive) =>
         alive.Count == 0 ? float.MaxValue : alive.Min(c => Vector3.Distance(c.Center, transform.position));
@@ -415,6 +483,12 @@ internal class BloodTornado : MonoBehaviour
         {
             nextSpeedCheck = Time.time + 0.5f;
             var marked = Squad.Marked();
+            if (Drifting)
+            {
+                // Veering off or wandering: its chase pace, not the rush up from the campfire.
+                speed = VanillaSpeed * ModConfig.BmTornadoChase.Value;
+                return speed;
+            }
             bool far = Nearest(marked) > ModConfig.BmTornadoNear.Value;
             speed = far ? ModConfig.BmTornadoApproach.Value : VanillaSpeed * ModConfig.BmTornadoChase.Value;
             var holder = Squad.Holders().OrderBy(c => Vector3.Distance(c.Center, transform.position)).FirstOrDefault();
@@ -475,7 +549,24 @@ internal class BloodTornado : MonoBehaviour
             var data = __instance.view != null ? __instance.view.InstantiationData : null;
             if (data == null || data.Length < 3 || data[0] as string != Tag) return;
             Look look = data[1] is int i ? (Look)i : Look.Snow;
-            __instance.gameObject.AddComponent<BloodTornado>().Init(__instance, look, (float)data[2]);
+            float width = data.Length > 3 && data[3] is float w ? w : 1f;
+            float pull = data.Length > 4 && data[4] is float p ? p : 1f;
+            __instance.gameObject.AddComponent<BloodTornado>().Init(__instance, look, (float)data[2], width, pull);
+        }
+
+        private static Vector3 grownFrom;
+
+        /// <summary>The game grows every tornado toward scale 1; ours grows at the same pace toward its own size.</summary>
+        [HarmonyPrefix, HarmonyPatch(typeof(Tornado), "Update")]
+        private static void BeforeGrow(Tornado __instance) => grownFrom = __instance.transform.localScale;
+
+        [HarmonyPostfix, HarmonyPatch(typeof(Tornado), "Update")]
+        private static void Grow(Tornado __instance)
+        {
+            if (__instance == null || __instance.dying) return;
+            var bt = __instance.GetComponent<BloodTornado>();
+            if (bt == null || bt.size == Vector3.one) return;
+            __instance.transform.localScale = Vector3.Lerp(grownFrom, bt.size, Time.deltaTime * 0.25f);
         }
 
         /// <summary>Ours has no Mesa waypoints - the host steers it instead.</summary>
