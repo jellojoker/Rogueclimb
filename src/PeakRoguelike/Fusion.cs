@@ -206,6 +206,13 @@ internal class Fusion : MonoBehaviour
         instance = go.AddComponent<Fusion>();
     }
 
+    /// <summary>A non-tree item some recipe takes (Milk, Antidote, Candle, skull...) - its card says "Fusion-ready".</summary>
+    internal static bool IsPlainIngredient(Item item)
+    {
+        try { return Trees.Classify(item) == TreeId.None && Recipes.Any(r => r.Ingredients.Any(i => i.Match(item))); }
+        catch { return false; }
+    }
+
     /// <summary>Recipes you can make right now, with the pocket slots each would consume.</summary>
     internal static List<(Recipe recipe, byte[] slots)> Available()
     {

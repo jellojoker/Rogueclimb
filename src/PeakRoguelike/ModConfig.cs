@@ -16,7 +16,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> Relics = null!;
 
     // --- fusion --------------------------------------------------------------------------
-    public static ConfigEntry<Key> FusionKey = null!;
+    public static ConfigEntry<Key> FusionKey = null!, StackKey = null!;
     public static ConfigEntry<Key> DevPanelKey = null!;
     public static ConfigEntry<float> SugarRushSeconds = null!;
 
@@ -63,7 +63,7 @@ internal static class ModConfig
     public static ConfigEntry<float> BmScoutmasterSpawnMin = null!, BmScoutmasterSpawnMax = null!, BmScoutmasterSpawnHeight = null!,
         BmScoutmasterStuck = null!, BmScoutmasterRecover = null!;
     public static ConfigEntry<float> BmZombieNear = null!;
-    public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
+    public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmZombiesSoloCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
 
@@ -121,7 +121,8 @@ internal static class ModConfig
         BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: zombies rise beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
         BmZombieNear = cfg.Bind("BloodMoon", "ZombieDistance", 4f, "How far (m, +-25%) from its scout each blood moon zombie rises.");
         BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 1, "How many zombies rise beside every scout in the open, from tier 1 (spread evenly around them).");
-        BmZombiesPerCarrier = cfg.Bind("BloodMoon", "ZombiesPerCarrier", 1, "From tier 2: this many more beside each scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
+        BmZombiesPerCarrier = cfg.Bind("BloodMoon", "ZombiesPerCarrier", 1, "This many more beside each scout carrying a relic, the Cursed Skull or the Ritual Dagger (every tier).");
+        BmZombiesSoloCarrier = cfg.Bind("BloodMoon", "ZombiesSoloCarrier", 3, "Solo runs, tier 1: how many zombies rise beside you when you carry a relic, the skull or the dagger (later tiers use the normal counts).");
         BmGrabsTier1 = cfg.Bind("BloodMoon", "GrabsPerScoutTier1", 1, "Tier 2 (his first): grabs per scout per moon before the Scoutmaster only watches them.");
         BmGrabsTier2 = cfg.Bind("BloodMoon", "GrabsPerScoutTier2", 2, "Tier 3: the same (at tier 4 he only watches).");
         BmTornado = cfg.Bind("BloodMoon", "Tornado", true, "3 relics: a tornado that heads for relic holders (sand on Mesa, snow on Alpine).");
@@ -257,6 +258,7 @@ internal static class ModConfig
         Relics = cfg.Bind("Systems", "Relics", true, "Picking up a statue amulet offers a permanent relic instead.");
 
         FusionKey = cfg.Bind("Fusion", "OpenFusionKey", Key.J, "Re-open the fusion screen after choosing 'Not now'.");
+        StackKey = cfg.Bind("Storage", "StackLevelUpKey", Key.K, "Re-open the stack level-up pop-up (3 copies in one pocket) after choosing 'Later'.");
         DevPanelKey = cfg.Bind("Dev", "BuildPanelKey", Key.F8, "Show which build of the mod every player in the lobby is running.");
         BugReportKey = cfg.Bind("BugReports", "Key", Key.F7, "Save a bug report (screenshot, recent log, run state, config) on every modded player's PC. Saved in BepInEx/BugReports.");
         BugReportOnError = cfg.Bind("BugReports", "AutoOnError", true, "Save a report by itself the first time the mod hits an error in a run.");

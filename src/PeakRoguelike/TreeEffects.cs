@@ -231,9 +231,8 @@ internal static class Stats
         };
     }
 
-    public static float UseTime(Item item, int lv, int br) =>
-        Items.IsMedKit(item) ? Drag(Evolved(lv, br))
-        : Trees.Classify(item) == TreeId.Bandage ? Drag(lv) : 1f;
+    /// <summary>Healing items apply at vanilla speed on every level - only the amount healed scales.</summary>
+    public static float UseTime(Item item, int lv, int br) => 1f;
 
     /// <summary>The holy pack's first step heals this share; the dark medkit's converts it.</summary>
     public static float HolyFirstStep => Ease(0.5f);

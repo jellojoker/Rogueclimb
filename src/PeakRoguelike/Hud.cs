@@ -20,6 +20,9 @@ internal class Hud : MonoBehaviour
     private CanvasGroup fusionPrompt = null!;
     private TextMeshProUGUI fusionLabel = null!;
     private float fusionAlpha;
+    private CanvasGroup stackPrompt = null!;
+    private TextMeshProUGUI stackLabel = null!;
+    private float stackAlpha;
     private TextMeshProUGUI ropeMeter = null!;
     private float ropeAlpha;
 
@@ -84,6 +87,20 @@ internal class Hud : MonoBehaviour
         fusionLabel = Ui.Text(pill, "Label", "", UiArt.BodyFont, 19, ChoiceScreen.Cream, TextAlignmentOptions.Center);
         Ui.Stretch(fusionLabel.rectTransform);
         fusionLabel.characterSpacing = 3;
+
+        // "Stack ready" pill (gold), under the fusion one.
+        var stackPill = Ui.Rect(root, "StackReady");
+        stackPill.anchorMin = stackPill.anchorMax = stackPill.pivot = new Vector2(0f, 1f);
+        stackPill.anchoredPosition = new Vector2(30, -172);
+        stackPill.sizeDelta = new Vector2(250, 40);
+        stackPrompt = stackPill.gameObject.AddComponent<CanvasGroup>();
+        stackPrompt.alpha = 0f;
+        var stackBg = Ui.Image(stackPill, "Glow", UiArt.Glow(96, 40, 18, 18), new Color(0.75f, 0.55f, 0.15f, 0.75f));
+        stackBg.rectTransform.sizeDelta = new Vector2(290, 70);
+        stackBg.rectTransform.anchoredPosition = new Vector2(125, -20);
+        stackLabel = Ui.Text(stackPill, "Label", "", UiArt.BodyFont, 19, ChoiceScreen.Cream, TextAlignmentOptions.Center);
+        Ui.Stretch(stackLabel.rectTransform);
+        stackLabel.characterSpacing = 3;
 
         // Rope readout above the item bar while a spool is in hand.
         ropeMeter = Ui.Text(root, "RopeMeter", "", UiArt.BodyFont, 22, ChoiceScreen.Cream, TextAlignmentOptions.Center);
@@ -475,5 +492,12 @@ internal class Hud : MonoBehaviour
         if (show) fusionLabel.text = $"FUSION READY  <color=#E2CCFF>[{ModConfig.FusionKey.Value}]</color>";
         float trayHeight = medallions.Count > 0 ? 0f : 92f;
         fusionPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight);
+
+        // Stack level-up prompt: below the fusion pill when both show.
+        bool stack = StackMerge.Ready && !ChoiceScreen.IsOpen;
+        stackAlpha = Mathf.MoveTowards(stackAlpha, stack ? 1f : 0f, Time.unscaledDeltaTime * 4f);
+        stackPrompt.alpha = stackAlpha * (0.75f + 0.25f * Mathf.Sin(now * 3f));
+        if (stack) stackLabel.text = $"STACK READY  <color=#FFE3A0>[{ModConfig.StackKey.Value}]</color>";
+        stackPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight - 44f * fusionAlpha);
     }
 }

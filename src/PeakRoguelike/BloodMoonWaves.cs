@@ -146,9 +146,10 @@ internal static class BloodZombies
     }
 
     /// <summary>
-    /// Zombies rise right beside every scout out in the open (ZombiesPerScout each); from tier 2,
-    /// scouts carrying a relic (copies included), the Cursed Skull or the Ritual Dagger get
-    /// ZombiesPerCarrier more.
+    /// Zombies rise right beside every scout out in the open (ZombiesPerScout each); scouts
+    /// carrying a relic (copies included), the Cursed Skull or the Ritual Dagger get
+    /// ZombiesPerCarrier more. Solo, a carrier gets ZombiesSoloCarrier at tier 1 (later tiers
+    /// bring the Scoutmaster, tornado and meteors instead).
     /// </summary>
     public static void Spawn(float seconds)
     {
@@ -159,8 +160,10 @@ internal static class BloodZombies
         int made = 0;
         foreach (var scout in marked)
         {
-            int each = Mathf.Max(0, ModConfig.BmZombiesPerScout.Value)
-                       + (BloodMoon.Tier >= 2 && Squad.Priority(scout) == 0 ? Mathf.Max(0, ModConfig.BmZombiesPerCarrier.Value) : 0);
+            int each = Mathf.Max(0, ModConfig.BmZombiesPerScout.Value);
+            if (Squad.Priority(scout) == 0)
+                each = Squad.Solo && BloodMoon.Tier <= 1 ? Mathf.Max(0, ModConfig.BmZombiesSoloCarrier.Value)
+                       : each + Mathf.Max(0, ModConfig.BmZombiesPerCarrier.Value);
             if (each <= 0) continue;
             // Spread evenly around the scout (two = opposite sides), so they're flanked, not walled in.
             float start = Random.Range(0f, 360f);

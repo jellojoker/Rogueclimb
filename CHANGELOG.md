@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.12.22 (beta)
+- Binoculars relic fixed: it now finds every helpful thing on the mountain (berries on bushes, coconuts in trees, food lying anywhere), not just items someone dropped. No distance limit.
+- The Lantern at the crash site shows a real Lantern card, and taking it starts your Lantern tree.
+- The Flare's card is just called Flare.
+
+## 0.12.21
+- Evolution cards say NEW ITEM and "Evolves into a new item".
+- Bandages and medkits apply at normal speed on every level. Only how much they heal grows.
+- Blood moon zombies: in multiplayer, 2 rise beside every relic carrier and 1 beside everyone else, from the first tier. Solo, a carrier gets 3 at tier 1 and 2 after that.
+- Every item that goes into a fusion says Fusion-ready: Fortified Milk, Antidote, Candle, Big Lollipop and more.
+- Relic markers lost their thick outline.
+- Stacks: three copies in one pocket ask to level up together (a pop-up once you're on flat ground; "Later" leaves a STACK READY prompt, K to reopen). Crates no longer merge stacks for you.
+- Hover names show the level as "Lv 2", so it can't be mistaken for a stack count.
+
 ## 0.12.20
 - Binoculars and Compass relics no longer drop a world ping. A label floats over the nearest target instead ("Crate 42m", "Granola Bar 18m"), visible through terrain and fog, pinned to the screen edge when it's behind you. Range 10m to 250m.
 - Binoculars only find helpful things: food, healing, Magic Beans and fungi. Never explosives.

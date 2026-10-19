@@ -185,7 +185,8 @@ internal class CurioRelics : MonoBehaviour
 
     private static float MetresTo(Character me, Vector3 p) => Vector3.Distance(me.Center, p) / M;
 
-    private static bool InRange(Character me, Vector3 p) => MetresTo(me, p) is var d && d >= NearM && d <= FarM;
+    /// <summary>The Compass looks out to FarM; the Binoculars see everywhere.</summary>
+    private static bool InRange(Character me, Vector3 p) => MetresTo(me, p) is var d && d >= NearM && (Mine == Curio.Binoculars || d <= FarM);
 
     /// <summary>The Binoculars only find helpful things: food, healing, beans and fungi - never explosives.</summary>
     internal static bool Helpful(Item i)
@@ -204,6 +205,7 @@ internal class CurioRelics : MonoBehaviour
 
     private static void FindTarget(Character me)
     {
+        var before = markedItem;
         markedCrate = null;
         markedItem = null;
         if (Mine == Curio.Compass)
@@ -215,11 +217,17 @@ internal class CurioRelics : MonoBehaviour
             markedName = "Crate";
             return;
         }
-        markedItem = Item.ALL_ACTIVE_ITEMS
+        // Every item in the level: Item.ALL_ACTIVE_ITEMS only holds held / moving ones, so the
+        // berries on bushes, coconuts in trees and food the map placed were never in it.
+        var helpful = FindObjectsByType<Item>(FindObjectsSortMode.None)
             .Where(i => i != null && i.itemState == ItemState.Ground && i.gameObject.activeInHierarchy && i.holderCharacter == null && InRange(me, i.Center()) && Helpful(i))
-            .OrderBy(i => Vector3.Distance(i.Center(), me.Center))
-            .FirstOrDefault();
+            .ToList();
+        markedItem = helpful.OrderBy(i => Vector3.Distance(i.Center(), me.Center)).FirstOrDefault();
         markedName = markedItem != null ? markedItem.GetItemName() : "";
+        if (markedItem != before) // a new mark (or none) - not every 10s ping
+            Plugin.Log.LogInfo(markedItem != null
+            ? $"Binoculars: {helpful.Count} helpful item(s), marked {markedItem.gameObject.name.Replace("(Clone)", "").Trim()} at {MetresTo(me, markedItem.Center()):0}m."
+            : "Binoculars: nothing helpful out there.");
     }
 
     private static void ShowMarker(Character me)
@@ -369,8 +377,7 @@ internal class Marker : MonoBehaviour
         label.rectTransform.sizeDelta = new Vector2(300, 30);
         label.rectTransform.anchoredPosition = new Vector2(0, 12);
         label.characterSpacing = 2;
-        label.outlineWidth = 0.18f;
-        label.outlineColor = new Color32(0, 0, 0, 200);
+        label.outlineWidth = 0f; // an outline read as a thick see-through halo
         label.raycastTarget = false;
     }
 

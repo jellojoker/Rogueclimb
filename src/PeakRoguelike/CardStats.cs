@@ -110,7 +110,7 @@ internal static class CardStats
             var lines = Lines(tree.Id, def, level, branch);
             if (lines == null || lines.Count == 0) return def.Desc;
             // The level's own tags (written in Trees) ride along with the numbers.
-            if (def.Desc.StartsWith("Evolves!")) lines.Insert(0, "Evolves!");
+            if (IsEvolution(def)) lines.Insert(0, EvolveLine(def));
             if (def.Desc.Contains("Fusion-ready")) lines.Add("Fusion-ready.");
             if (def.Desc.Contains("forks next")) lines.Add("The path forks next.");
             return string.Join("\n", lines);
@@ -121,6 +121,12 @@ internal static class CardStats
             return def.Desc;
         }
     }
+
+    /// <summary>This level hands you a different item (Trees mark it "Evolves!").</summary>
+    public static bool IsEvolution(LevelDef def) => def.Desc.StartsWith("Evolves!");
+
+    /// <summary>"Evolves into a new item: Granola Bar" (the card's own title, so a medkit reads as its path).</summary>
+    public static string EvolveLine(LevelDef def) => $"Evolves into a new item:\n{def.Name}";
 
     private static List<string>? Lines(TreeId id, LevelDef def, int lv, int br)
     {

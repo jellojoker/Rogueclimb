@@ -131,7 +131,10 @@ public class ItemPerkInfo
         if (item.GetComponent<Frisbee>()) Add("Fun for the whole expedition");
 
         if (lines.Count == 0) lines.Add("Trusty expedition gear");
-        return string.Join("\n", lines.Take(3));
+        var shown = lines.Take(3).ToList();
+        // Milk, Antidote, Candle, skull, dagger... anything that goes into a fusion says so.
+        if (Fusion.IsPlainIngredient(item)) shown.Add("Fusion-ready.");
+        return string.Join("\n", shown);
     }
 
     private static string DescribeStatus(CharacterAfflictions.STATUSTYPE status, float change)
@@ -200,7 +203,7 @@ internal class Offer
     public TreeDef? Tree;
     public CraftDef? Craft;
     public int Level, Branch;
-    /// <summary>Crates: this card is the 3rd copy - the pocket's stack of 2+ merges into one item a level up.</summary>
+    /// <summary>A full stack (3 copies in one pocket) merging into one item a level up (StackMerge).</summary>
     public bool Merge;
     /// <summary>The pocket it works on (the stack that merges / the item a level-up levels) and what was in it.</summary>
     public byte Slot;
@@ -245,8 +248,8 @@ internal static class Offers
         def.Grants != null && Items.Find(def.Grants) is { } prefab ? prefab : crateItem;
 
     /// <summary>
-    /// What a crate card does: a new tree's first item; otherwise a spare at your level - unless a
-    /// pocket already holds 2+ of it, then the card is the 3rd copy and they merge a level up.
+    /// What a crate card does: a new tree's first item; otherwise a spare at your level. The spare
+    /// joins its stack; a full stack of 3 then asks to level up (StackMerge).
     /// </summary>
     public static Offer ForCrate(Item item)
     {
@@ -256,27 +259,48 @@ internal static class Offers
         int cur = RunState.Level(tree.Id), br = RunState.Branch(tree.Id);
         if (cur == 0) return o;
         var spare = Grant(tree.At(cur, br), item);
+        var (have, _) = Stack(spare.itemID, br);
+        if (Stacks.GreenBlocks(Player.localPlayer)) have = 0;
+        return new Offer { Kind = OfferKind.TreeSpare, CrateItem = item, Grant = spare, Tree = tree, Level = cur, Branch = br, Have = have };
+    }
+
+    /// <summary>The biggest stack of this item in your pockets (on the given path): copies and pocket.</summary>
+    private static (int have, byte slot) Stack(ushort itemID, int br)
+    {
         int have = 0;
         byte slot = 0;
         if (Player.localPlayer is { } p)
             foreach (var s in p.itemSlots.Append(p.tempFullSlot))
             {
-                if (s == null || s.IsEmpty() || s.prefab == null || s.prefab.itemID != spare.itemID) continue;
+                if (s == null || s.IsEmpty() || s.prefab == null || s.prefab.itemID != itemID || SugarRush.IsMarked(s.data)) continue;
                 if (ItemLevels.KindOf(s.prefab) is { BothPaths: true } && ItemLevels.IsSecondPath(s.data) != (br == 2)) continue;
                 int n = Stacks.Count(s.data);
                 if (n > have) { have = n; slot = s.itemSlotID; }
             }
-        // The green sun: nothing joins a stack, so no merges either.
-        if (Stacks.GreenBlocks(Player.localPlayer)) have = 0;
-        if (have >= 2 && Stacks.On)
+        return (have, slot);
+    }
+
+    /// <summary>A pocket holding a full stack (3) of a tree's current item, with the tree still able to level: the merge it offers.</summary>
+    public static Offer? ForStack()
+    {
+        if (!Stacks.On || Stacks.GreenBlocks(Player.localPlayer)) return null;
+        foreach (var tree in Trees.All.Values)
         {
+            int cur = RunState.Level(tree.Id), br = RunState.Branch(tree.Id);
+            if (cur < 1 || Items.Find(Trees.BaseRole(tree.Id)) is not { } baseItem) continue;
+            var o = Resolve(baseItem);
+            if (o.Tree == null || o.Kind is not (OfferKind.TreeLevel or OfferKind.Fork)) continue;
+            var spare = Grant(tree.At(cur, br), baseItem);
+            var (have, slot) = Stack(spare.itemID, br);
+            if (have < Stacks.Limit) continue;
+            o.CrateItem = spare;
             o.Merge = true;
             o.Slot = slot;
             o.Carried = spare.itemID;
             o.Have = have;
             return o;
         }
-        return new Offer { Kind = OfferKind.TreeSpare, CrateItem = item, Grant = spare, Tree = tree, Level = cur, Branch = br, Have = have };
+        return null;
     }
 
     /// <summary>Merging: the stack of copies goes (false if it's gone since the card was shown).</summary>
@@ -286,7 +310,7 @@ internal static class Offers
         var p = Player.localPlayer;
         var me = Character.localCharacter;
         var s = p?.GetItemSlot(o.Slot);
-        if (p == null || me == null || s == null || s.IsEmpty() || s.prefab == null || s.prefab.itemID != o.Carried || Stacks.Count(s.data) < 2)
+        if (p == null || me == null || s == null || s.IsEmpty() || s.prefab == null || s.prefab.itemID != o.Carried || Stacks.Count(s.data) < Stacks.Limit)
         {
             Plugin.Log.LogInfo("Merge: the stack is gone - a spare instead.");
             return false;
@@ -297,7 +321,7 @@ internal static class Offers
         p.EmptySlot(Zorro.Core.Optionable<byte>.Some(o.Slot));
         if (held) me.refs.items.EquipSlot(Zorro.Core.Optionable<byte>.None);
         Xp.Merged();
-        Plugin.Log.LogInfo($"Merge: {name} x{n} + 1 -> {o.Tree?.Name} level {o.Level}.");
+        Plugin.Log.LogInfo($"Merge: {name} x{n} -> {o.Tree?.Name} level {o.Level}.");
         return true;
     }
 
@@ -403,14 +427,6 @@ internal static class CrateCards
         var card = ItemPerkInfo.From(item).ToCard();
         var o = Offers.ForCrate(item);
         var tree = o.Tree;
-        if (o.Merge && o.Kind == OfferKind.TreeLevel)
-        {
-            card = Level(card, o);
-            card.Tag = $"Merge{Dot}Lv {o.Level - 1}{Arrow}{o.Level}";
-            card.Footer = $"{tree!.Name}{Dot}x3{Arrow}level {o.Level}";
-            return card;
-        }
-
         switch (o.Kind)
         {
             case OfferKind.TreeSpare when o.Level < tree!.MaxFor(o.Branch):
@@ -421,7 +437,8 @@ internal static class CrateCards
                 card.Tag = $"Lv {o.Level}";
                 card.TagColor = Trees.LevelColor(tree.Id, o.Level, o.Branch);
                 card.Body = CardStats.Tree(tree, def, o.Level, o.Branch);
-                card.Footer = Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) ? $"{tree.Name}{Dot}x{o.Have + 1} / 3" : $"{tree.Name}{Dot}level {o.Level}";
+                card.Footer = Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) && o.Have < Stacks.Limit
+                    ? $"{tree.Name}{Dot}x{o.Have + 1} / {Stacks.Limit}" : $"{tree.Name}{Dot}level {o.Level}";
                 card.Icon = Items.Icon(o.Grant);
                 return card;
             }
@@ -439,7 +456,7 @@ internal static class CrateCards
             }
             case OfferKind.Fork:
                 card.Theme = tree!.Theme;
-                card.Tag = o.Merge ? $"Merge{Dot}Lv {o.Level - 1}{Arrow}{o.Level}" : o.Level == 1 ? "New" : $"Lv {o.Level - 1}{Arrow}{o.Level}";
+                card.Tag = o.Level == 1 ? "New" : $"Lv {o.Level - 1}{Arrow}{o.Level}";
                 card.Title = $"{tree.Name}: Fork";
                 card.TagColor = Trees.Steel;
                 card.Body = string.Join("  or  ", Offers.Paths(tree, o.Level).Select(x => x.Name)) + "\nChoose your path on claim.";
@@ -452,13 +469,21 @@ internal static class CrateCards
         }
     }
 
+    /// <summary>The stack level-up pop-up's card: three copies become one item a level up.</summary>
+    public static CardSpec ForStack(Offer o)
+    {
+        var card = Level(ItemPerkInfo.From(o.CrateItem).ToCard(), o);
+        card.Footer = $"{o.Tree!.Name}{Dot}x{Stacks.Limit}{Arrow}level {o.Level}";
+        return card;
+    }
+
     /// <summary>A tree going up a level (new item, merge, XP level-up).</summary>
     private static CardSpec Level(CardSpec card, Offer o)
     {
         var tree = o.Tree!;
         var def = tree.At(o.Level, o.Branch);
         card.Theme = tree.Theme;
-        card.Tag = o.Level == 1 ? "New" : $"Lv {o.Level - 1}{Arrow}{o.Level}";
+        card.Tag = CardStats.IsEvolution(def) ? "NEW ITEM" : o.Level == 1 ? "New" : $"Lv {o.Level - 1}{Arrow}{o.Level}";
         card.Title = def.Name;
         card.TagColor = Trees.LevelColor(tree.Id, o.Level, o.Branch);
         card.Body = CardStats.Tree(tree, def, o.Level, o.Branch);
@@ -495,7 +520,7 @@ internal static class CrateCards
             Style = CardStyle.Perk,
             Theme = tree.Theme,
             Title = option.Name,
-            Tag = Trees.PathName(tree.Id, option.Branch),
+            Tag = (CardStats.IsEvolution(option) ? $"NEW ITEM{Dot}" : "") + Trees.PathName(tree.Id, option.Branch),
             TagColor = Trees.LevelColor(tree.Id, level, option.Branch),
             Body = CardStats.Tree(tree, option, level, option.Branch),
             Footer = $"{tree.Name}{Dot}level {level} / {tree.MaxFor(option.Branch)}",

@@ -7,8 +7,9 @@ namespace PeakRoguelike;
 
 /// <summary>
 /// Cards for the crash-site finds, the first time you pick each kind up in a run (only ones lying
-/// in the world - items handed straight to you skip it). Flare and Lantern get an item card; the
-/// curios (Bugle, Binoculars, Compass, Frisbee, Bing Bong) offer their starting relic instead.
+/// in the world - items handed straight to you skip it). The Flare gets its own card, the Lantern
+/// a crate's Lantern card; the curios (Bugle, Binoculars, Compass, Frisbee, Bing Bong) offer
+/// their starting relic instead.
 /// </summary>
 [HarmonyPatch]
 internal static class FindCards
@@ -75,6 +76,8 @@ internal static class FindCards
     {
         string name = item.GetItemName();
         if (string.IsNullOrEmpty(name)) name = kind;
+        // The Lantern is a crate's Lantern card: taking it starts the tree the way a crate pick does.
+        var offer = kind == "Lantern" ? Offers.ForCrate(item) : null;
         ChoiceScreen.Show(new ScreenSpec
         {
             Title = "SOMETHING FOUND",
@@ -83,15 +86,15 @@ internal static class FindCards
             BackHint = "Leave it",
             Cards = new List<CardSpec>
             {
-                new()
+                offer != null ? CrateCards.ForItem(item) : new()
                 {
                     Style = CardStyle.Perk,
                     Theme = PerkTheme.Explorer,
                     Title = name,
-                    Tag = "Curio",
+                    Tag = "Flare",
                     TagColor = ChoiceScreen.ThemeGlow(PerkTheme.Explorer),
-                    Body = kind == "Flare" ? "Good for one reroll\nor one emergency drop." : "It survived the crash.\nThe mountain seems to notice.",
-                    Footer = "???",
+                    Body = "Good for one reroll\nor one emergency drop.",
+                    Footer = "Flare",
                     Icon = Items.Icon(item),
                 },
             },
@@ -100,6 +103,7 @@ internal static class FindCards
             {
                 if (item == null || who == null) return;
                 seen.Add(kind);
+                if (offer is { Kind: OfferKind.TreeLevel, Tree: { } tree }) LuggagePatches.LevelUp(tree, offer.Level, offer.Branch);
                 picking = true;
                 try { item.Interact(who); }
                 finally { picking = false; }

@@ -44,8 +44,8 @@ public class CardSpec
     public bool LevelUp;
     /// <summary>Relic: a cursed copy - dark, slow sparkles.</summary>
     public bool Cursed;
-    /// <summary>The card's item evolves (its text says "Evolves!"): white sparkles.</summary>
-    public bool Evolves => Body.Contains("Evolves!");
+    /// <summary>The card's item evolves (its text says "Evolves"): white sparkles.</summary>
+    public bool Evolves => Body.Contains("Evolves");
 }
 
 /// <summary>A full-screen "pick one card" screen: perks, paths, fusions and relics all use it.</summary>

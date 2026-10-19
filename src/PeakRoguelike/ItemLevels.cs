@@ -265,7 +265,7 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
     }
 }
 
-/// <summary>Hover names carry the item's level: "Rope Spool 3", "Rope Cannon 5".</summary>
+/// <summary>Hover names carry the item's level: "Rope Spool · Lv 3" (a bare "3" read like a stack count).</summary>
 [HarmonyLib.HarmonyPatch]
 internal static class ItemLevelNames
 {
@@ -275,7 +275,7 @@ internal static class ItemLevelNames
         try
         {
             int lv = ItemLevels.Shown(__instance, data);
-            if (lv > 0 && !string.IsNullOrEmpty(__result)) __result = $"{__result} {lv}";
+            if (lv > 0 && !string.IsNullOrEmpty(__result) && !__result.Contains(" · Lv ")) __result = $"{__result} · Lv {lv}";
         }
         catch (Exception e) { Plugin.Log.LogWarning($"Item level name: {e.Message}"); }
     }

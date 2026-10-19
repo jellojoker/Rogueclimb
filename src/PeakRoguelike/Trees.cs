@@ -115,8 +115,8 @@ public static class Trees
         // one heals now, the dark (purple) one turns injury and glass into ailments that fade.
         // (Which path a kit is lives in its level stamp - see ItemLevels.)
         Add(TreeId.Bandage, "Bandage", PerkTheme.Mountaineer,
-            new[] { L("Frayed Gauze", "Heals a little.\nSlow to apply.", "Bandage") },
-            new[] { L("Field Gauze", "Heals some.\nA bit slow to apply.", "Bandage") },
+            new[] { L("Frayed Gauze", "Heals a little.", "Bandage") },
+            new[] { L("Field Gauze", "Heals some.", "Bandage") },
             new[] { L("Bandages", "Full healing.\nThe path forks next.", "Bandage") },
             new[] { L("Blessed Health Pack", "Evolves! Heals half of\neverything wrong with you.", "FirstAidKit", 1),
                     L("Murky Medkit", "Evolves! Half your wounds\nand glass turn to poison.", "FirstAidKit", 2) },

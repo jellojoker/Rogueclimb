@@ -327,7 +327,8 @@ internal class Blessing : MonoBehaviour
                 Style = CardStyle.Perk,
                 Theme = tree.Theme,
                 Title = fork ? $"{tree.Name}: Fork" : def.Name,
-                Tag = from == 0 ? (to > 1 ? $"New · Lv {to}" : "New") : $"Lv {from} → {to}",
+                Tag = from == 0 ? (to > 1 ? $"New · Lv {to}" : "New")
+                      : !fork && tree.At(from, branch).Grants != def.Grants ? $"NEW ITEM · Lv {from} → {to}" : $"Lv {from} → {to}",
                 TagColor = Trees.LevelColor(tree.Id, to, branch),
                 Body = fork ? string.Join("  or  ", Offers.Paths(tree, ForkLevel()).Select(x => x.Name)) + "\nChoose your path next." : CardStats.Tree(tree, def, to, branch),
                 Footer = $"{RoleTag(role)} · {tree.Name} +{to - from}",

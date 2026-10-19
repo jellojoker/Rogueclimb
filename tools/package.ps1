@@ -18,7 +18,7 @@ $manifest = [ordered]@{
     name           = "Rogue_Climb"
     version_number = $Version
     website_url    = "https://github.com/jellojoker/Rogueclimb"
-    description    = "A roguelike for PEAK: crate picks, item trees that evolve and fuse, relics, coloured suns and blood moons. Early test build."
+    description    = "A roguelike for PEAK: crate picks, item trees that evolve and fuse, relics, coloured suns and blood moons. Beta."
     dependencies   = @("BepInEx-BepInExPack_PEAK-5.4.75301")
 }
 [IO.File]::WriteAllText("$stage\manifest.json", ($manifest | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))
