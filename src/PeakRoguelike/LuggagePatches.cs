@@ -241,6 +241,7 @@ internal static class LuggagePatches
                     result.Add(item);
                 }
             }
+            CurioRelics.Boost(luggage, result);
             Plugin.Log.LogInfo($"{luggage.displayName}: vanilla {vanilla} + {scouts} scout(s) = {count} cards, rolled {result.Count}: "
                 + string.Join(", ", result.Select(r => r.gameObject.name)) + ".");
         }

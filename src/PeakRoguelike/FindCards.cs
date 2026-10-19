@@ -6,22 +6,19 @@ using UnityEngine.SceneManagement;
 namespace PeakRoguelike;
 
 /// <summary>
-/// The crash-site curios - Flare, Bing Bong, Binoculars, Frisbee and Compass - show a card the
-/// first time you pick each kind up in a run. Placeholder for now: the items work as in vanilla;
-/// their own relic powers come later. Claim takes it, Back leaves it lying there.
+/// Cards for the crash-site finds, the first time you pick each kind up in a run (only ones lying
+/// in the world - items handed straight to you skip it). Flare and Lantern get an item card; the
+/// curios (Bugle, Binoculars, Compass, Frisbee, Bing Bong) offer their starting relic instead.
 /// </summary>
 [HarmonyPatch]
 internal static class FindCards
 {
-    /// <summary>Which curio an item is (null = not one).</summary>
+    /// <summary>Which find an item is (null = not one). Curios are handled by <see cref="CurioRelics"/>.</summary>
     internal static string? KindOf(Item? item)
     {
         if (item == null) return null;
         if (item.GetComponent<Flare>() != null) return "Flare";
-        if (item.GetComponent<BingBong>() != null) return "Bing Bong";
-        if (item.GetComponentInChildren<Actions_Binoculars>(true) != null) return "Binoculars";
-        if (item.GetComponent<Frisbee>() != null) return "Frisbee";
-        if (item.GetComponentInChildren<CompassPointer>(true) != null) return "Compass";
+        if (item.GetComponent<Lantern>() != null && !Items.IsEarnedOnly(item)) return "Lantern";
         return null;
     }
 
@@ -47,11 +44,22 @@ internal static class FindCards
     {
         try
         {
-            if (picking || !ModConfig.FindCards.Value || interactor == null || !interactor.IsLocal) return true;
+            if (picking || interactor == null || !interactor.IsLocal) return true;
             if (__instance.itemState != ItemState.Ground || !started.Contains(__instance.GetInstanceID())) return true;
-            if (KindOf(__instance) is not { } kind) return true;
+            if (ChoiceScreen.IsOpen) return false;
             NewRunCheck();
-            if (seen.Contains(kind) || ChoiceScreen.IsOpen) return !ChoiceScreen.IsOpen;
+
+            var curio = CurioRelics.KindOf(__instance);
+            if (curio != Curio.None && ModConfig.CurioRelics.Value)
+            {
+                // Unbound: the relic card every time (Back leaves it). Bound: one look at each other curio, then it's just an item.
+                var mine = CurioRelics.Mine;
+                if (mine == curio || (mine != Curio.None && !seen.Add("relic:" + curio))) return true;
+                CurioRelics.ShowCard(__instance, interactor, curio);
+                return false;
+            }
+
+            if (!ModConfig.FindCards.Value || KindOf(__instance) is not { } kind || seen.Contains(kind)) return true;
             if (!interactor.player.HasEmptySlot(__instance.itemID)) return true; // vanilla says "pockets full"
             Show(__instance, interactor, kind);
             return false;
@@ -82,7 +90,7 @@ internal static class FindCards
                     Title = name,
                     Tag = "Curio",
                     TagColor = ChoiceScreen.ThemeGlow(PerkTheme.Explorer),
-                    Body = "It survived the crash.\nThe mountain seems to notice.",
+                    Body = kind == "Flare" ? "Good for one reroll\nor one emergency drop." : "It survived the crash.\nThe mountain seems to notice.",
                     Footer = "???",
                     Icon = Items.Icon(item),
                 },

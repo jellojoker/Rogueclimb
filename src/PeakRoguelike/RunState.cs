@@ -44,6 +44,9 @@ internal static class RunState
 
     public static event Action? Changed;
 
+    /// <summary>Something the relic tray shows changed outside RunState (a starting relic).</summary>
+    internal static void Touch() => Changed?.Invoke();
+
     public static IReadOnlyDictionary<RelicGem, RelicTrigger> Relics => relics;
 
     public static void Install()
@@ -73,6 +76,7 @@ internal static class RunState
         ItemLevels.Reset();
         PerkLuggage.ClearRoom();
         DeathDrops.Reset();
+        CurioRelics.Reset();
         Publish();
         Changed?.Invoke();
         Plugin.Log.LogInfo("Run progress reset.");

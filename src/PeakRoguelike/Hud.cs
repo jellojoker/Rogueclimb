@@ -162,6 +162,32 @@ internal class Hud : MonoBehaviour
             medallions[kv.Key] = m;
             i++;
         }
+
+        // The starting relic: the curio's own picture in a plain silver ring (it never touches the moon).
+        if (CurioRelics.TrayIcon() is { } curio)
+        {
+            Color c = new Color(0.82f, 0.84f, 0.88f);
+            var rect = Ui.Rect(tray, CurioRelics.Name(CurioRelics.Mine));
+            rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
+            rect.sizeDelta = new Vector2(76, 76);
+            rect.anchoredPosition = new Vector2(38 + i * 90, -38);
+            var shadow = Ui.Image(rect, "Shadow", UiArt.Radial(128, 0.55f, 1.2f), new Color(0, 0, 0, 0.6f));
+            shadow.rectTransform.sizeDelta = new Vector2(100, 100);
+            var ring = Ui.Image(rect, "Ring", UiArt.Ring(128, 0.82f), Color.Lerp(c, Color.black, 0.45f));
+            ring.rectTransform.sizeDelta = new Vector2(80, 80);
+            var pic = new GameObject("Curio", typeof(RectTransform)).AddComponent<RawImage>();
+            pic.rectTransform.SetParent(rect, false);
+            pic.rectTransform.sizeDelta = new Vector2(60, 60);
+            pic.texture = curio;
+            pic.raycastTarget = false;
+            var rim = Ui.Image(rect, "Rim", UiArt.Ring(128, 0.9f), c);
+            rim.rectTransform.sizeDelta = new Vector2(78, 78);
+            var label = Ui.Text(rect, "Kind", "RELIC", UiArt.BodyFont, 12, c, TextAlignmentOptions.Center);
+            label.rectTransform.sizeDelta = new Vector2(90, 18);
+            label.rectTransform.anchoredPosition = new Vector2(0, -48);
+            label.characterSpacing = 4;
+            label.fontStyle = FontStyles.Bold;
+        }
     }
 
     public static void Pulse(RelicGem gem)

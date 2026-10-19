@@ -9,7 +9,7 @@ public class Plugin : BaseUnityPlugin
 {
     public const string Id = "rey.PeakRoguelike";
     public const string Name = "Rogue Climb";
-    public const string Version = "0.12.17";
+    public const string Version = "0.12.20";
 
     internal static ManualLogSource Log = null!;
     internal static string ConfigPath = "";
@@ -31,6 +31,7 @@ public class Plugin : BaseUnityPlugin
         Net.Install();
         SupplyDrop.Install();
         DropClock.Install();
+        CurioRelics.Install();
         Hud.Install();
         ItemLevels.Install();
         Fusion.Install();

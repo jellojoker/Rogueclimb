@@ -153,8 +153,8 @@ internal class SupplyDrop : IPunPrefabPool
         bool ancient = Random.value < ModConfig.FlareAncientChance.Value && Template(DropKind.Ancient, at) is { } t && Blessing.IsAncient(t);
         var kind = ancient ? DropKind.Ancient : DropKind.Big;
         if (Template(kind, at) == null) { Hud.Toast("The flare went unanswered", ChoiceScreen.Muted); return; }
-        Vector3 ground = Spot(at, look, 2f * M, 6f * M) ?? Below(at + Vector3.ProjectOnPlane(look, Vector3.up).normalized * 3f * M);
-        Spawn(kind, DropStyle.Slam, ground, caller);
+        Vector3 ground = Spot(at, look, 6f * M, 10f * M) ?? Below(at + Vector3.ProjectOnPlane(look, Vector3.up).normalized * 8f * M);
+        Spawn(kind, DropStyle.Float, ground, caller);
     }
 
     private static Vector3 Below(Vector3 at) =>
@@ -164,7 +164,7 @@ internal class SupplyDrop : IPunPrefabPool
     private static void Spawn(DropKind kind, DropStyle style, Vector3 ground, string caller)
     {
         var rot = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-        PhotonNetwork.InstantiateRoomObject(Prefix + kind, ground, rot, 0, new object[] { PhotonNetwork.Time, caller ?? "", (int)style, (int)kind });
+        PhotonNetwork.InstantiateRoomObject(Prefix + kind, ground, rot, 0, new object[] { PhotonNetwork.Time + SkyDrop.PlaneLead, caller ?? "", (int)style, (int)kind });
         Plugin.Log.LogInfo($"Supply drop: {kind} ({style}) for {(string.IsNullOrEmpty(caller) ? "the squad" : caller)} at {ground}.");
     }
 
@@ -295,6 +295,11 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
     private Light? glow;
     private bool markerOff;
 
+    /// <summary>Seconds of plane overhead before the crate is let go.</summary>
+    internal const float PlaneLead = 3f;
+    private Renderer[] shown = new Renderer[0];
+    private bool hidden;
+
     internal static bool Falling(Luggage? l) => l != null && l.GetComponent<SkyDrop>() is { landed: false };
 
     /// <summary>Empty pockets at a sky crate: one more card.</summary>
@@ -323,6 +328,14 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
         foreach (var b in bodies) { wasKinematic.Add(b.isKinematic); b.isKinematic = true; }
         // Late joiners see it already down.
         if (PhotonNetwork.Time - start > seconds) { Land(quiet: true); return; }
+        if (PhotonNetwork.Time < start)
+        {
+            // Not let go yet: the plane is still on its way.
+            shown = GetComponentsInChildren<Renderer>().Where(x => x.enabled).ToArray();
+            foreach (var x in shown) x.enabled = false;
+            hidden = true;
+        }
+        Flyover.Play(ground + Vector3.up * height, (float)(start - PhotonNetwork.Time));
         if (style == DropStyle.Float) TieBalloons();
         Place(0f);
 
@@ -336,6 +349,13 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
     {
         if (!landed)
         {
+            if (hidden && PhotonNetwork.Time >= start)
+            {
+                hidden = false;
+                foreach (var x in shown) if (x != null) x.enabled = true;
+                foreach (var b in balloons) if (b != null) b.SetActive(true);
+                foreach (var s in strings) if (s != null) s.enabled = true;
+            }
             float k = Mathf.Clamp01((float)(PhotonNetwork.Time - start) / seconds);
             Place(k);
             if (k >= 1f) Land(quiet: false);
@@ -397,11 +417,13 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
                 b.AddComponent<MeshFilter>().sharedMesh = mesh;
                 b.AddComponent<MeshRenderer>().sharedMaterial = colours[(i * 3 + Random.Range(0, colours.Length)) % colours.Length];
                 b.transform.localScale = scale;
+                b.SetActive(!hidden);
                 balloons.Add(b);
                 var lr = new GameObject("Supply Drop String").AddComponent<LineRenderer>();
                 if (tied.lr != null) { lr.sharedMaterial = tied.lr.sharedMaterial; lr.widthMultiplier = tied.lr.widthMultiplier; lr.colorGradient = tied.lr.colorGradient; }
                 else lr.widthMultiplier = 0.02f;
                 lr.positionCount = 2;
+                lr.enabled = !hidden;
                 strings.Add(lr);
             }
         }
@@ -515,5 +537,79 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
         src.outputAudioMixerGroup = Meteors.MixerGroup("SFX");
         src.Play();
         Destroy(go, src.clip.length / Mathf.Max(0.1f, pitch) + 0.5f);
+    }
+}
+
+/// <summary>
+/// The plane from the loading screen passing over a supply drop: its sound crosses the sky above
+/// the landing spot, overhead just as the crate is let go.
+/// </summary>
+internal class Flyover : MonoBehaviour
+{
+    private const float M = 1f / 1.6f;
+    private const float Seconds = 9f;
+    private const float Span = 260f * M;
+
+    private Vector3 from, to;
+    private float age, overheadAt;
+    private AudioSource src = null!;
+
+    private static AudioClip? clip;
+    private static bool looked;
+
+    /// <summary>The loading screen plane's sound, else any loaded clip named like a plane.</summary>
+    private static AudioClip? Clip()
+    {
+        if (clip != null || looked) return clip;
+        looked = true;
+        try
+        {
+            var handler = RetrievableResourceSingleton<LoadingScreenHandler>.Instance;
+            var plane = handler != null ? handler.loadingScreenPrefabPlane : null;
+            if (plane != null)
+                clip = plane.GetComponentsInChildren<AudioSource>(true).Select(a => a.clip).Where(c => c != null).OrderByDescending(c => c.length).FirstOrDefault();
+            if (clip == null)
+                clip = Resources.FindObjectsOfTypeAll<AudioClip>().FirstOrDefault(c => c != null && (c.name.ToLowerInvariant().Contains("airplane") || c.name.ToLowerInvariant().Contains("plane")));
+            Plugin.Log.LogInfo(clip != null ? $"Supply drop: plane sound is '{clip.name}' ({clip.length:0.0}s)." : "Supply drop: no plane sound found - drops come in quiet.");
+            if (clip != null && clip.loadState == AudioDataLoadState.Unloaded) clip.LoadAudioData();
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Supply drop: plane sound lookup failed: {e.Message}"); }
+        return clip;
+    }
+
+    /// <summary>A pass over this point, overhead in this many seconds.</summary>
+    internal static void Play(Vector3 over, float overheadIn)
+    {
+        var c = Clip();
+        if (c == null || overheadIn < -2f) return;
+        var dir = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
+        var go = new GameObject("Supply Drop Plane");
+        var f = go.AddComponent<Flyover>();
+        f.overheadAt = Mathf.Max(0f, overheadIn);
+        float speed = Span / Seconds;
+        f.from = over + Vector3.up * 30f * M - dir * speed * f.overheadAt;
+        f.to = f.from + dir * Span;
+        f.src = go.AddComponent<AudioSource>();
+        f.src.clip = c;
+        f.src.loop = true;
+        f.src.spatialBlend = 1f;
+        f.src.dopplerLevel = 0.6f;
+        f.src.rolloffMode = AudioRolloffMode.Linear;
+        f.src.minDistance = 40f * M;
+        f.src.maxDistance = 500f * M;
+        f.src.volume = 0f;
+        f.src.outputAudioMixerGroup = Meteors.MixerGroup("SFX");
+        go.transform.position = f.from;
+        f.src.Play();
+    }
+
+    private void Update()
+    {
+        age += Time.deltaTime;
+        float k = Mathf.Clamp01(age / Seconds);
+        transform.position = Vector3.Lerp(from, to, k);
+        // Fades in from far off, loudest overhead, fades away.
+        src.volume = 0.9f * Mathf.Min(Mathf.Clamp01(age / 2f), Mathf.Clamp01((Seconds - age) / 2.5f));
+        if (age >= Seconds) Destroy(gameObject);
     }
 }

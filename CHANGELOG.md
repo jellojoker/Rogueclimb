@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.12.20
+- Binoculars and Compass relics no longer drop a world ping. A label floats over the nearest target instead ("Crate 42m", "Granola Bar 18m"), visible through terrain and fog, pinned to the screen edge when it's behind you. Range 10m to 250m.
+- Binoculars only find helpful things: food, healing, Magic Beans and fungi. Never explosives.
+
+## 0.12.19
+- Starting relics: the Bugle, Binoculars, Compass, Frisbee and Bing Bong at the crash site each offer a relic. Every scout binds one, and the curio stays put so everyone can choose from all of them. They are normal relics: they never raise or add to a blood moon, and they last the whole run.
+  - Bugle: your helping hand reaches twice as far, scouts you carry weigh half as much, and more healing turns up in crates you open.
+  - Binoculars: every 10 seconds the nearest item lying out in the world is pinged for you, and more food turns up in your crates.
+  - Compass (the Pirate Compass too): every 10 seconds the nearest unopened crate is pinged for you, and more tools turn up in your crates.
+  - Frisbee: anything you throw knocks back whatever it hits, scouts and creatures alike.
+  - Bing Bong: he wants to play.
+- Your starting relic shows in the relic tray in a silver ring.
+
+## 0.12.18
+- Flare drops float down on balloons too (no more crate slamming down on your head), and land a few steps further in front of you.
+- A plane passes overhead before every supply drop: the loading screen's plane, heard crossing the sky as the crate is let go.
+- The Lantern shows a card the first time you pick one up, and the Flare's card says what it's good for.
+
 ## 0.12.17
 - Supply drops: every 2.5 minutes out on the mountain (not at a campfire, the crash site or during a blood moon), a crate floats down on balloons near the scout carrying the least. It lands on flat ground with open sky above it and smokes until you open it.
 - Open a supply crate with empty pockets and you take two cards.

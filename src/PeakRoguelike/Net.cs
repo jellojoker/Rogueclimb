@@ -20,6 +20,7 @@ public enum AuraKind : byte
 /// </summary>
 internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
 {
+    private const byte BingBongEvent = 169;
     private const byte SupplyDropEvent = 170;
     private const byte AuraEvent = 171;
     private const byte PitonBrittleEvent = 172;
@@ -160,6 +161,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     }
 
     /// <summary>We were fed / healed by this scout: their food or healing relics fire on both of us.</summary>
+    /// <summary>Bing Bong's swaps: the other scout's half (see BingBongPranks.Receive).</summary>
+    public static void Bing(int actor, int kind, object payload) => SendTo(actor, BingBongEvent, new object[] { Me, kind, payload });
+
     public static void RelicFed(int feederActor, bool food, bool healing) => SendTo(feederActor, RelicFedEvent, new object[] { Me, food, healing });
     /// <summary>XP for the scout who fed or bandaged us with a crate item.</summary>
     public static void XpFed(int feederActor, int xp) => SendTo(feederActor, XpFedEvent, new object[] { Me, xp });
@@ -221,6 +225,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     break;
                 case SpawnItemEvent when e.CustomData is object[] a && PhotonNetwork.IsMasterClient:
                     PhotonNetwork.InstantiateItemRoom((string)a[0], (Vector3)a[1], Quaternion.identity);
+                    break;
+                case BingBongEvent when e.CustomData is object[] a:
+                    BingBongPranks.Receive((int)a[0], (int)a[1], a[2]);
                     break;
                 case SupplyDropEvent when e.CustomData is object[] a && PhotonNetwork.IsMasterClient:
                     PeakRoguelike.SupplyDrop.FlareDrop((Vector3)a[0], (Vector3)a[1], (string)a[2]);

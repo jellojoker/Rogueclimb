@@ -47,6 +47,8 @@ internal static class ModConfig
     public static ConfigEntry<bool> Blessings = null!;
     public static ConfigEntry<bool> FlareReroll = null!, FlareSupplyDrop = null!, TimedDrops = null!, EmptyHandedPicks = null!, FindCards = null!;
     public static ConfigEntry<float> FlareAncientChance = null!, DropSeconds = null!;
+    public static ConfigEntry<bool> CurioRelics = null!, FrisbeeHitsScouts = null!;
+    public static ConfigEntry<float> CurioPingSeconds = null!, CurioCrateBoost = null!, FrisbeeForce = null!, BingBongMinSeconds = null!, BingBongMaxSeconds = null!;
     public static ConfigEntry<float> HuntSeconds = null!;
     public static ConfigEntry<bool> RelicDrops = null!;
     internal static ConfigEntry<StatueOrder> StatueOrder = null!;
@@ -300,7 +302,14 @@ internal static class ModConfig
         TimedDrops = cfg.Bind("Supply", "TimedDrops", true, "Host: while anyone is out on the mountain (not at a campfire, the crash site or a blood moon), a supply crate floats down on balloons near the scout carrying the least.");
         DropSeconds = cfg.Bind("Supply", "IntervalSeconds", 150f, "Seconds out on the mountain between timed supply drops.");
         EmptyHandedPicks = cfg.Bind("Supply", "EmptyHandedPicks", true, "Opening a supply crate with empty pockets lets you take two cards.");
-        FindCards = cfg.Bind("Systems", "FindCards", true, "Flare, Bing Bong, Binoculars, Frisbee and Compass show a card the first time you pick each up in a run.");
+        FindCards = cfg.Bind("Systems", "FindCards", true, "Flare and Lantern show a card the first time you pick each up in a run.");
+        CurioRelics = cfg.Bind("Curios", "StartingRelics", true, "Bugle, Binoculars, Compass, Frisbee and Bing Bong offer a starting relic (one per scout, never raises a blood moon).");
+        CurioPingSeconds = cfg.Bind("Curios", "PingSeconds", 10f, "Binoculars / Compass relics: seconds between pings.");
+        CurioCrateBoost = cfg.Bind("Curios", "CrateBoost", 0.1f, "Bugle / Binoculars / Compass relics: chance each card of a crate you roll becomes healing / food / a tool.");
+        FrisbeeHitsScouts = cfg.Bind("Curios", "FrisbeeHitsScouts", true, "Frisbee relic: throws knock back other scouts too (off = enemies only).");
+        FrisbeeForce = cfg.Bind("Curios", "FrisbeeForce", 1500f, "Frisbee relic: knockback force of a fast throw.");
+        BingBongMinSeconds = cfg.Bind("Curios", "BingBongMinSeconds", 120f, "Bing Bong relic: shortest wait between pranks.");
+        BingBongMaxSeconds = cfg.Bind("Curios", "BingBongMaxSeconds", 180f, "Bing Bong relic: longest wait between pranks.");
         HuntSeconds = cfg.Bind("Relics", "ScoutmasterHuntSeconds", 60f, "Only with blood moons off: binding a relic sets the Scoutmaster hunting everyone for this long (0 = off).");
         RelicDrops = cfg.Bind("Relics", "DropOnDeath", true, "Dying drops your relics as amulets; whoever picks one up gets that exact relic.");
         StatueOrder = cfg.Bind("Relics", "StatueOrder", PeakRoguelike.StatueOrder.Off, "Which amulet sits on each biome's statue (the suns follow). Off = the game's own order; Daily = shuffled by the day's map, the same for everyone that day; EveryRun = a new order every run. The host's setting counts - also on the airport ticket and in F8.");
