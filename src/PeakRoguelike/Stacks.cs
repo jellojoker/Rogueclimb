@@ -22,7 +22,8 @@ internal enum StackKind : byte
 /// Stacking: the same item picked up again joins the pocket that already holds it, up to
 /// <see cref="Limit"/> copies (a tree item only as many as its level). The box shows the count.
 /// Using up the one in hand spends a copy instead of emptying the pocket; a fresh copy comes
-/// with full uses / fuel. A dropped stack spills into a pile of single items. A whole stack is
+/// with full uses / fuel. Dropping or throwing lets go of one copy; a stack dropped whole (death)
+/// spills into a pile of single items. A whole stack is
 /// one item with one level stamp, so it levels up together.
 ///
 /// Counts live in room properties keyed by the item's instance guid (like level stamps), so
@@ -47,8 +48,10 @@ internal class Stacks : MonoBehaviourPunCallbacks
         var go = new GameObject("PEAK Roguelike - Stacks");
         DontDestroyOnLoad(go);
         go.hideFlags = HideFlags.HideAndDontSave;
-        go.AddComponent<Stacks>();
+        instance = go.AddComponent<Stacks>();
     }
+
+    private static Stacks? instance;
 
     // --- what stacks ----------------------------------------------------------------------------
 
@@ -425,6 +428,72 @@ internal class Stacks : MonoBehaviourPunCallbacks
     private static void GlideLonger(ref float usage)
     {
         if (gliding > 1 && usage > 0f) usage /= gliding;
+    }
+
+    // --- dropping or throwing one copy -----------------------------------------------------------
+
+    /// <summary>The pocket a drop is splitting off one copy from (it stays in the pocket).</summary>
+    private static (Player player, byte slot)? splitting;
+
+    /// <summary>
+    /// Everyone: a dropped or thrown stack lets go of ONE copy; the rest stay in hand. The host
+    /// spawns that copy as a fresh single item at the stack's level. Dying and the game's other
+    /// drop-everything moments (cacheToDroppedItems) still drop the whole stack, which spills.
+    /// </summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(CharacterItems), nameof(CharacterItems.DropItemRpc))]
+    private static void DropOne(CharacterItems __instance, byte slotID, ref ItemInstanceData itemInstanceData, bool cacheToDroppedItems)
+    {
+        splitting = null;
+        try
+        {
+            if (!On || cacheToDroppedItems || slotID == 250 || itemInstanceData == null) return;
+            var ch = __instance.character;
+            var player = ch != null ? ch.player : null;
+            if (player == null || ch!.data.currentItem == null) return;
+            var slot = player.GetItemSlot(slotID);
+            if (slot == null || slot.IsEmpty() || slot.prefab == null || slot.data == null || slot.data.guid != itemInstanceData.guid) return;
+            if (!Stackable(slot.prefab, slot.data)) return;
+            int n = Count(slot.data);
+            if (n <= 1) return;
+            splitting = (player, slotID);
+            var stack = itemInstanceData;
+            if (PhotonNetwork.IsMasterClient)
+            {
+                var single = new ItemInstanceData(Guid.NewGuid());
+                ItemInstanceDataHandler.AddInstanceData(single);
+                int lv = ItemLevels.Stamp(stack);
+                if (lv > 0) ItemLevels.StampPath(single.guid, lv, ItemLevels.IsSecondPath(stack) ? 2 : 1, $"{slot.prefab.gameObject.name} dropped from a stack");
+                itemInstanceData = single;
+            }
+            if (ch.IsLocal)
+            {
+                SetCount(stack.guid, n - 1, $"{slot.prefab.gameObject.name} dropped one");
+                instance?.StartCoroutine(Reequip(ch, slotID));
+            }
+        }
+        catch (Exception e)
+        {
+            splitting = null;
+            Plugin.Log.LogWarning($"Stack drop-one failed: {e.Message}");
+        }
+    }
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(CharacterItems), nameof(CharacterItems.DropItemRpc))]
+    private static void DropOneEnd() => splitting = null;
+
+    /// <summary>The pocket being split keeps the rest of its stack.</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(Player), nameof(Player.EmptySlot))]
+    private static bool KeepRest(Player __instance, Optionable<byte> slot) =>
+        !(splitting is { } s && s.player == __instance && slot.IsSome && slot.Value == s.slot);
+
+    /// <summary>The game un-equips right after a drop: a frame later the rest of the stack goes back in hand.</summary>
+    private static IEnumerator Reequip(Character ch, byte slotID)
+    {
+        yield return null;
+        if (ch == null || ch.data.dead || ch.data.currentItem != null || ch.player == null) yield break;
+        var slot = ch.player.GetItemSlot(slotID);
+        if (slot == null || slot.IsEmpty()) yield break;
+        ch.refs.items.EquipSlot(Optionable<byte>.Some(slotID));
     }
 
     // --- dropped stacks spill -----------------------------------------------------------------

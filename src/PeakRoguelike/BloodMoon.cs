@@ -104,6 +104,19 @@ internal class BloodMoon : MonoBehaviour
     /// <summary>Until the last wave of this tier is over.</summary>
     internal static float EffectsEnd(int tier) => (Mathf.Clamp(tier, 1, 4) - 1) * Gap + WaveFor;
 
+    /// <summary>Host: a Void moon's own length (0 = the tier's usual length).</summary>
+    private static float voidLength;
+    /// <summary>How long this moon lasts (host's view).</summary>
+    internal static float Length => voidLength > 0f ? voidLength : EffectsEnd(Tier);
+
+    /// <summary>Host, the Void: a tier 1 moon bringing only this hazard, for this long.</summary>
+    internal static void VoidMoon(Hazard h, float seconds)
+    {
+        if (instance == null || !PhotonNetwork.IsMasterClient || !InRun || !ModConfig.BloodMoon.Value) return;
+        instance.nightfallPending = false;
+        instance.Rise(1, "", h, seconds);
+    }
+
     private void Update()
     {
         Blend = Mathf.MoveTowards(Blend, Active ? 1f : 0f, Time.deltaTime / 6f);
@@ -130,6 +143,7 @@ internal class BloodMoon : MonoBehaviour
         if (raw == null)
         {
             if (Active) Plugin.Log.LogInfo("Blood moon over.");
+            if (Active && InRun) SurviveGlass();
             Active = false;
             seenId = null;
             return;
@@ -212,26 +226,28 @@ internal class BloodMoon : MonoBehaviour
         {
             expectStart = -1;
             RunWaves();
-            if (Elapsed >= EffectsEnd(Tier)) End();
+            if (Elapsed >= Length) End();
         }
         wasNight = night;
     }
 
-    private void Rise(int tier, string binder)
+    private void Rise(int tier, string binder, Hazard? only = null, float length = 0f)
     {
         if (Active) StopEffects(); // a new relic mid-moon: start over at the new tier
+        voidLength = length;
         string now = PhotonNetwork.Time.ToString("R", CultureInfo.InvariantCulture);
         expectStart = double.Parse(now, CultureInfo.InvariantCulture);
         endedFor = -1;
         var order = RelicShuffle.MoonOrder(out string how);
-        if (DevFirst is { } first && order.Remove(first)) { order.Insert(0, first); how += $", F8 put {first} first"; }
+        if (only is { } v && order.Remove(v)) { order.Insert(0, v); how += $", the Void's turn for {v}"; }
+        else if (DevFirst is { } first && order.Remove(first)) { order.Insert(0, first); how += $", F8 put {first} first"; }
         Plugin.Log.LogInfo($"Blood moon order (host): {string.Join(" > ", order)} - shuffled from {how}.");
         SetRoom($"{tier}|{now}|{binder}", string.Join(",", order));
         huntDone = zombiesDone = zombiesCleared = tornadoDone = finalDone = false;
         stagesFor = -2; // ours from the start: claimed on the first wave tick
         ReadRoom();
-        Plugin.Log.LogInfo(binder.Length > 0
-            ? $"{binder} bound a relic - blood moon tier {tier}."
+        Plugin.Log.LogInfo(only != null ? $"The Void: blood moon ({only}) for {length:0}s."
+            : binder.Length > 0 ? $"{binder} bound a relic - blood moon tier {tier}."
             : $"Nightfall with {tier} relic(s) held - blood moon.");
     }
 
@@ -242,7 +258,28 @@ internal class BloodMoon : MonoBehaviour
         StopEffects();
         safeUntil = PhotonNetwork.Time + SafetySeconds;
         nightfallPending = false;
+        voidLength = 0f;
         Plugin.Log.LogInfo("Blood moon sets.");
+    }
+
+    /// <summary>Everyone still alive when the moon (or eclipse) sets sheds some glass - shown, not told.</summary>
+    private static void SurviveGlass()
+    {
+        try
+        {
+            var me = Character.localCharacter;
+            int heal = ModConfig.BmSurviveGlassHeal.Value;
+            if (me == null || me.data.dead || heal <= 0 || VoidRun.Active) return; // the Void's moons come every minute: no shedding
+            int glass = me.data.petrifyAmount;
+            if (glass <= 0) return;
+            int melt = Mathf.Min(heal, glass);
+            var aff = me.refs.afflictions;
+            aff.AddPetrify(-melt);
+            aff.PlayParticle(CharacterAfflictions.STATUSTYPE.Petrify);
+            AccessTools.Method(typeof(CharacterAfflictions), "StatusSFX")?.Invoke(aff, new object[] { CharacterAfflictions.STATUSTYPE.Petrify, 1f });
+            Plugin.Log.LogInfo($"Survived the blood moon: {melt} glass gone ({glass} -> {glass - melt}).");
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Blood moon glass heal failed: {e.Message}"); }
     }
 
     private static void StopEffects()
@@ -371,7 +408,7 @@ internal class BloodMoon : MonoBehaviour
         }
 
         // Everything the tier unlocks rises together and lasts the whole moon.
-        float left = EffectsEnd(Tier) - t;
+        float left = Length - t;
         if (TierOf(Hazard.Scoutmaster) >= 1 && !huntDone)
         {
             huntDone = true;
@@ -390,7 +427,7 @@ internal class BloodMoon : MonoBehaviour
         if (TierOf(Hazard.Meteors) >= 1 && !finalDone)
         {
             finalDone = true;
-            if (GloomRun ? ModConfig.BmGlassMeteors.Value : ModConfig.BmMeteors.Value) Meteors.Begin(left);
+            if (GloomRun ? ModConfig.BmGlassMeteors.Value : ModConfig.BmMeteors.Value) Meteors.Begin(left, aloneInMoon: Tier <= 1);
         }
         BloodZombies.HostTick();
     }
@@ -616,6 +653,10 @@ internal class BloodMoon : MonoBehaviour
         private static Light? movedMoon;
         private static Quaternion moonLocal;
 
+        /// <summary>How much the moon/eclipse darkens PEAK's ambient light (the shade) right now; Suns applies it.</summary>
+        internal static float AmbientDim { get; private set; }
+        private const float MaxAmbientDim = 0.6f;
+
         internal static void Tick()
         {
             // No screen filter: the moon lights the world red, the way a red sun does by day.
@@ -626,15 +667,17 @@ internal class BloodMoon : MonoBehaviour
             }
         }
 
-        // A blood moon night is lit like a red-sun day, only redder: bright saturated sky (it also
-        // feeds the ambient light) and a light red moonlight - you can see where you're going.
+        // NightDarkness 0: a blood moon night lit like a red-sun day (bright saturated sky, strong red
+        // moonlight). 1: real night - vanilla moonlight turned red, a deep crimson sky going black overhead.
         private static readonly Color NightTop = new(0.75f, 0.06f, 0.04f), NightMid = new(1f, 0.18f, 0.08f), NightBottom = new(1f, 0.3f, 0.15f);
+        private static readonly Color DarkTop = new(0.06f, 0.005f, 0.005f), DarkMid = new(0.3f, 0.03f, 0.02f), DarkBottom = new(0.5f, 0.07f, 0.03f);
         private static readonly Color MoonLightColour = new(1f, 0.5f, 0.4f);
 
         /// <summary>After the game lights the sky: red moonlight, a red sky, and the moon's direction raised.</summary>
         [HarmonyPostfix, HarmonyPatch(typeof(DayNightManager), nameof(DayNightManager.UpdateCycle))]
         private static void Sky(DayNightManager __instance)
         {
+            AmbientDim = 0f;
             if (Application.isPlaying && Ambiance.SkyStrength > 0f)
             {
                 try { AirportSky(__instance, Ambiance.SkyStrength); }
@@ -653,9 +696,11 @@ internal class BloodMoon : MonoBehaviour
                     return;
                 }
 
-                Shader.SetGlobalColor("SkyTopColor", Color.Lerp(Shader.GetGlobalColor("SkyTopColor"), NightTop, b));
-                Shader.SetGlobalColor("SkyMidColor", Color.Lerp(Shader.GetGlobalColor("SkyMidColor"), NightMid, b));
-                Shader.SetGlobalColor("SkyBottomColor", Color.Lerp(Shader.GetGlobalColor("SkyBottomColor"), NightBottom, b));
+                float dark = Mathf.Clamp01(ModConfig.BmNightDarkness.Value);
+                Shader.SetGlobalColor("SkyTopColor", Color.Lerp(Shader.GetGlobalColor("SkyTopColor"), Color.Lerp(NightTop, DarkTop, dark), b));
+                Shader.SetGlobalColor("SkyMidColor", Color.Lerp(Shader.GetGlobalColor("SkyMidColor"), Color.Lerp(NightMid, DarkMid, dark), b));
+                Shader.SetGlobalColor("SkyBottomColor", Color.Lerp(Shader.GetGlobalColor("SkyBottomColor"), Color.Lerp(NightBottom, DarkBottom, dark), b));
+                AmbientDim = b * dark * MaxAmbientDim;
 
                 // Keep the moon high in the sky so it lights the mountain from above.
                 Vector3 dir = -moon.transform.forward;
@@ -675,7 +720,8 @@ internal class BloodMoon : MonoBehaviour
                 moon.transform.rotation = Quaternion.LookRotation(-Vector3.Slerp(vanillaDir, dir, b));
 
                 moon.color = Color.Lerp(moon.color, MoonLightColour, b);
-                moon.intensity = Mathf.Lerp(moon.intensity, Mathf.Max(moon.intensity, ModConfig.BmMoonLight.Value), b);
+                float bright = Mathf.Max(moon.intensity, ModConfig.BmMoonLight.Value);
+                moon.intensity = Mathf.Lerp(moon.intensity, Mathf.Lerp(bright, moon.intensity, dark), b);
                 ShowNightDisc(__instance, dir, b);
             }
             catch (System.Exception e)
@@ -712,12 +758,16 @@ internal class BloodMoon : MonoBehaviour
         /// <summary>A blood moon in daylight: dimmed blood-orange sun, a red sky, and the red moon over the sun.</summary>
         private static void Eclipse(Light? sun, float b)
         {
-            Shader.SetGlobalColor("SkyTopColor", Color.Lerp(Shader.GetGlobalColor("SkyTopColor"), new Color(0.28f, 0.03f, 0.03f), b * 0.8f));
-            Shader.SetGlobalColor("SkyMidColor", Color.Lerp(Shader.GetGlobalColor("SkyMidColor"), new Color(0.62f, 0.12f, 0.06f), b * 0.8f));
-            Shader.SetGlobalColor("SkyBottomColor", Color.Lerp(Shader.GetGlobalColor("SkyBottomColor"), new Color(0.85f, 0.28f, 0.10f), b * 0.8f));
+            // EclipseDarkness 0 = the old dusky look (sun at 70%); 1 = sun at 20%, near-black sky - day turned to night.
+            float dark = Mathf.Clamp01(ModConfig.BmEclipseDarkness.Value);
+            float k = b * Mathf.Lerp(0.8f, 1f, dark);
+            Shader.SetGlobalColor("SkyTopColor", Color.Lerp(Shader.GetGlobalColor("SkyTopColor"), Color.Lerp(new Color(0.28f, 0.03f, 0.03f), DarkTop, dark), k));
+            Shader.SetGlobalColor("SkyMidColor", Color.Lerp(Shader.GetGlobalColor("SkyMidColor"), Color.Lerp(new Color(0.62f, 0.12f, 0.06f), DarkMid, dark), k));
+            Shader.SetGlobalColor("SkyBottomColor", Color.Lerp(Shader.GetGlobalColor("SkyBottomColor"), Color.Lerp(new Color(0.85f, 0.28f, 0.10f), DarkBottom, dark), k));
+            AmbientDim = b * dark * MaxAmbientDim;
             if (sun == null || !sun.enabled) { HideDisc(); return; }
             sun.color = Color.Lerp(sun.color, new Color(1f, 0.34f, 0.2f), b * 0.85f);
-            sun.intensity *= Mathf.Lerp(1f, 0.7f, b);
+            sun.intensity *= Mathf.Lerp(1f, Mathf.Lerp(0.7f, 0.2f, dark), b);
             Vector3 dir = -sun.transform.forward;
             if (dir.y > 0f) ShowDisc(dir, b, eclipse: true);
             else HideDisc();

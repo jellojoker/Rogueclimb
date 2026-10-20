@@ -33,6 +33,7 @@ internal static class RunState
     public static bool UsedSkull, UsedDagger;
 
     public static bool IsCursed(RelicGem gem) => cursed.Contains(gem);
+    public static bool IsShared(RelicGem gem) => shared.Contains(gem);
     public static int Stacks(RelicGem gem) => stacks.TryGetValue(gem, out int n) ? n : 0;
 
     public static void AddStack(RelicGem gem)
@@ -77,6 +78,8 @@ internal static class RunState
         PerkLuggage.ClearRoom();
         DeathDrops.Reset();
         CurioRelics.Reset();
+        Badges.Reset();
+        PeakRoguelike.Relics.ResetOffers();
         Publish();
         Changed?.Invoke();
         Plugin.Log.LogInfo("Run progress reset.");

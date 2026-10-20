@@ -51,7 +51,7 @@ internal static class FindCards
             NewRunCheck();
 
             var curio = CurioRelics.KindOf(__instance);
-            if (curio != Curio.None && ModConfig.CurioRelics.Value)
+            if (curio != Curio.None && ModConfig.CurioRelics.Value && !VoidRun.Active)
             {
                 // The relic card every time (Back leaves it) until every scout has bound one or the Shore is behind
                 // you - nobody pockets a curio another scout still needs. Then it's just an item.

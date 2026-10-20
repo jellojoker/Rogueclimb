@@ -66,7 +66,6 @@ internal class Luck : MonoBehaviourPunCallbacks
     }
 
     internal static float StatueIngredientChance => Late ? ModConfig.LuckStatueIngredientLate.Value : ModConfig.StatueIngredientChance.Value;
-    internal static float StatueFusionChance => Late ? ModConfig.LuckStatueFusionLate.Value : ModConfig.StatueFusionChance.Value;
     private static float Pull => Mathf.Max(1f, Late ? ModConfig.LuckPullLate.Value : ModConfig.LuckPullEarly.Value);
 
     /// <summary>

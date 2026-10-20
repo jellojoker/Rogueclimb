@@ -92,7 +92,8 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     /// <summary>Host: a revive statue was touched with nobody to revive - everyone gets a blessing.</summary>
     public static void SupplyDrop(Vector3 at, Vector3 look, string caller) => Send(SupplyDropEvent, new object[] { at, look, caller }, ReceiverGroup.MasterClient);
 
-    public static void Bless(int statueViewId) => Send(BlessingEvent, new object[] { statueViewId });
+    /// <summary>A statue blessed the team (revive = it revived someone: everyone gets a random badge instead).</summary>
+    public static void Bless(int statueViewId, bool revive = false) => Send(BlessingEvent, new object[] { statueViewId, revive });
 
     /// <summary>A fresh relic was bound: the host raises a blood moon (or, with blood moons off, everyone gets the Scoutmaster hunt).</summary>
     public static void RelicTaken(float huntSeconds, string binder, RelicGem gem) =>
@@ -233,7 +234,7 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     PeakRoguelike.SupplyDrop.FlareDrop((Vector3)a[0], (Vector3)a[1], (string)a[2]);
                     break;
                 case BlessingEvent when e.CustomData is object[] a:
-                    Blessing.FromStatue((int)a[0]);
+                    Blessing.FromStatue((int)a[0], a.Length > 1 && a[1] is bool r && r);
                     break;
                 case HuntEvent when e.CustomData is object[] a:
                     if (a.Length > 3) BloodMoon.ShareRelic((RelicGem)(int)a[2], (int)a[3]);

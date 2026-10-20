@@ -478,13 +478,28 @@ internal class DevPanel : MonoBehaviour
             .Append(B("Auto", () => { Suns.DevForce = null; Rebuild(); })).ToArray());
         Row(B("Refill parasol shade", () => { if (InGame()) Suns.DevRefillParasol(); }));
         PercentRow("Sunlight colour", ModConfig.SunLight, 1.5f);
+        PercentRow("Sun brightness (makes up for the colour)", ModConfig.SunBrightness, 1.5f);
+        PercentRow("Shade boost under a sun", ModConfig.SunShade, 0.5f);
         PercentRow("Sky colour", ModConfig.SunSkyBlend);
+        PercentRow("Blood moon darkness", ModConfig.BmNightDarkness);
+        PercentRow("Eclipse darkness", ModConfig.BmEclipseDarkness);
         PercentRow("Red sprint cut", ModConfig.SunRedSprintCut);
         PercentRow("Red lunge cut", ModConfig.SunRedLungeCut);
         PercentRow("Yellow Shore drowsy per try", ModConfig.SunYellowDrowsy, 0.3f);
         Row(Toggle("Red heavy: Shore only", ModConfig.SunRedHeavyShoreOnly));
+        Label("<color=#D9C9A3>Jackpots (next blessing / next revive)</color>", 26f);
+        Row(B("Next blessing: fusion", () => { Blessing.DevJackpot = false; Hud.Toast("Next blessing: fusion jackpot", ChoiceScreen.Muted); }),
+            B("Next blessing: dark", () => { Blessing.DevJackpot = true; Hud.Toast("Next blessing: dark jackpot", ChoiceScreen.Muted); }),
+            B("Next revive: dark offer", () => { if (InGame(true)) { Blessing.DevForceRevive(); Hud.Toast("Next revive offers the dark items", ChoiceScreen.Muted); } }));
         Label("<color=#D9C9A3>Squad</color>", 26f);
         Row(B("Jump squad to next biome", () => { if (InGame(true)) DevCheats.NextBiome(); }));
+        Label($"<color=#F2DB9E>Badge relics ({Badges.Owned.Count} owned)</color>", 26f);
+        Row(B("Badge pick (statue)", () => { if (InGame()) Badges.OfferPick("Dev", UnityEngine.Random.Range(1, int.MaxValue), () => Rebuild(), () => { }); }),
+            B("Random badge", () => { if (InGame()) { Badges.GiveRandom(); Rebuild(); } }));
+        Label($"<color=#D9C9A3>Void{(VoidRun.Active ? $" (sun now: {(Suns.Current is { } vs ? Suns.ColorName(vs) : "none")})" : "")}</color>", 26f);
+        Row(B("Give Scout's Honor (use it = Void)", () => { if (InGame()) VoidRun.DevGiveHonor(); }),
+            B("Next Void sun", () => { if (InGame(true)) { VoidRun.DevNextSun(); Rebuild(); } }),
+            B("Next Void moon", () => { if (InGame(true)) { VoidRun.DevNextMoon(); Rebuild(); } }));
         cursorY += 8f;
         text = Label("", 200f, 17);
     }
@@ -538,7 +553,7 @@ internal class DevPanel : MonoBehaviour
         if (MapHandler.Exists) sb.Append($"<color=#D9C9A3>Section: {MapHandler.CurrentSegmentNumber}</color>\n");
         if (Suns.SunGlass > 0) sb.Append($"<color=#74B4FF>Blue sun glass: {Suns.SunGlass}% of your glass</color>\n");
         sb.Append(BloodMoon.Active
-            ? $"<color=#FF5A4A>Blood moon tier {BloodMoon.Tier}: {Mathf.FloorToInt(BloodMoon.Elapsed)}s of {BloodMoon.EffectsEnd(BloodMoon.Tier):0}s\nOrder: {BloodMoon.OrderLabel}</color>"
+            ? $"<color=#FF5A4A>Blood moon tier {BloodMoon.Tier}: {Mathf.FloorToInt(BloodMoon.Elapsed)}s of {BloodMoon.Length:0}s\nOrder: {BloodMoon.OrderLabel}</color>"
             : "<color=#D9C9A3>No blood moon</color>");
         if (!BloodMoon.Active && MapHandler.Exists && (!PhotonNetwork.InRoom || PhotonNetwork.IsMasterClient))
             sb.Append($"\n<color=#D9C9A3>Next moon order: {string.Join(" > ", RelicShuffle.MoonOrder())}</color>");

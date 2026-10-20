@@ -54,6 +54,8 @@ internal static class LuggagePatches
     private static void Open(Luggage luggage, PerkLuggage perk, Character interactor)
     {
         if (luggage == null || luggage.IsOpen || ChoiceScreen.IsOpen || !perk.CanPick) { perk.ReleaseLock(); return; }
+        // The Void's crates hold fusions only, every kind of crate.
+        if (VoidRun.Active) { ShowVoidCrate(luggage, perk); return; }
         // Ancient Luggage holds a blessing instead of loot.
         if (Blessing.TryCrate(luggage, perk, interactor)) return;
         List<Item> choices = perk.GetOrRoll();
@@ -121,6 +123,39 @@ internal static class LuggagePatches
             OnExtra = () => Reroll(luggage, perk!, from),
         });
         if (!shown) perk?.ReleaseLock();
+    }
+
+    /// <summary>
+    /// A Void crate: fusion cards only, as many as the crate would deal, the same ones for every
+    /// scout (shuffled by the crate's network id). Each scout takes one; the cards stay for the next.
+    /// </summary>
+    private static void ShowVoidCrate(Luggage luggage, PerkLuggage perk)
+    {
+        var rng = new System.Random(luggage.photonView != null ? luggage.photonView.ViewID : luggage.GetInstanceID());
+        int scouts = PhotonNetwork.InRoom ? Mathf.Max(1, PhotonNetwork.PlayerList.Count(Modless.HasMod)) : 1;
+        int want = Mathf.Clamp((luggage.GetSpawnSpots()?.Count ?? 0) + scouts, 3, MaxCards);
+        var recipes = Fusion.Recipes.Where(r => r.Result != null && Items.Find(r.Result) != null)
+            .OrderBy(_ => rng.Next()).Take(want).ToList();
+        if (recipes.Count == 0) { perk.ReleaseLock(); Hud.Toast("The crate was empty", ChoiceScreen.Muted); return; }
+        var cards = recipes.Select(r => Fusion.ItemCard(r, "Void")).ToList();
+        // The green sun withers one card here too.
+        var results = recipes.Select(r => Items.Find(r.Result!)!).ToList();
+        if (Suns.WitheredCard(luggage, results) is { } gone) cards[gone].Withered = true;
+        Plugin.Log.LogInfo($"{luggage.displayName} (Void): {recipes.Count} fusion cards: {string.Join(", ", recipes.Select(r => r.Name))}.");
+        Vector3 from = Character.localCharacter != null ? Character.localCharacter.Center : luggage.Center();
+        string crateName = "";
+        try { crateName = luggage.GetName(); } catch { /* not localised */ }
+        bool shown = ChoiceScreen.Show(new ScreenSpec
+        {
+            Title = "CHOOSE YOUR PERK",
+            Subtitle = string.IsNullOrEmpty(crateName) ? "Supply crate" : crateName,
+            Confirm = "CLAIM",
+            Cards = cards,
+            StillValid = () => luggage != null && !luggage.IsOpen && LuggagePatches.StillHere(from),
+            OnConfirm = i => ClaimFusion(luggage, recipes[i]),
+            OnBack = () => perk.ReleaseLock(),
+        });
+        if (!shown) perk.ReleaseLock();
     }
 
     /// <summary>The flare burns away and the crate's cards are dealt again (new ones where the pool allows).</summary>

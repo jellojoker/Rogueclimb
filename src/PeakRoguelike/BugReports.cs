@@ -592,7 +592,9 @@ internal static class ReportState
                 var c = Character.AllCharacters.FirstOrDefault(x => x != null && !x.isBot && x.photonView != null && x.photonView.OwnerActorNr == p.ActorNumber);
                 string where = c == null ? "no scout" : $"at {c.Center}{(me != null && !p.IsLocal ? $", {Vector3.Distance(me.Center, c.Center):0}u from me" : "")}{(c.data.dead ? ", dead" : "")}";
                 string relics = string.Join(" ", RunState.RelicsOf(p).Select(r => $"{r.gem}{(r.cursed ? "*" : "")}"));
-                L($"{p.NickName} (#{p.ActorNumber}{(p.IsMasterClient ? ", host" : "")}): {build}; {where}{(relics.Length > 0 ? $"; relics {relics}" : "")}");
+                var curio = CurioRelics.Of(p);
+                L($"{p.NickName} (#{p.ActorNumber}{(p.IsMasterClient ? ", host" : "")}): {build}; {where}{(relics.Length > 0 ? $"; relics {relics}" : "")}"
+                    + $"; starting relic {(curio == Curio.None ? "none" : CurioRelics.Name(curio))}");
             }
         });
         Part("Threats", () =>

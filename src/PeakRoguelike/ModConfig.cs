@@ -16,7 +16,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> Relics = null!;
 
     // --- fusion --------------------------------------------------------------------------
-    public static ConfigEntry<Key> FusionKey = null!, StackKey = null!;
+    public static ConfigEntry<Key> FusionKey = null!, StackKey = null!, RelicKey = null!;
     public static ConfigEntry<Key> DevPanelKey = null!;
     public static ConfigEntry<float> SugarRushSeconds = null!;
 
@@ -28,7 +28,7 @@ internal static class ModConfig
     // --- relics --------------------------------------------------------------------------
     public static ConfigEntry<int> GlassPerTrigger = null!;
     public static ConfigEntry<float> RelicCooldown = null!, RelicVeil = null!, DaggerStackCooldown = null!;
-    public static ConfigEntry<float> JetpackFuel = null!, FaerieBoost = null!, ShoreOtherItems = null!, StatueIngredientChance = null!, StatueFusionChance = null!;
+    public static ConfigEntry<float> JetpackFuel = null!, FaerieBoost = null!, ShoreOtherItems = null!, StatueIngredientChance = null!, StatueJackpotChance = null!, AncientJackpotChance = null!, JackpotDarkShare = null!, ReviveDarkChance = null!;
     public static ConfigEntry<int> ChainLauncherUses = null!, RescueClawUses = null!, AntiGravUses = null!;
     public static ConfigEntry<float> MedicineRadius = null!, HolyShieldSeconds = null!, PassOutKitCooldown = null!,
         AntidoteCleanse = null!, AntidoteWeight = null!, BookOfBonesWeight = null!;
@@ -38,6 +38,7 @@ internal static class ModConfig
     // --- item trees ----------------------------------------------------------------------
     public static ConfigEntry<float> TreePower = null!, BalloonAirControl = null!, BalloonPopJump = null!;
     public static ConfigEntry<string> BalloonFlightSeconds = null!;
+    public static ConfigEntry<float> BalloonRiseSpeed = null!;
     public static ConfigEntry<bool> TintItems = null!;
 
     // --- loot ----------------------------------------------------------------------------
@@ -59,7 +60,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> BloodMoon = null!, BmDarkRites = null!, BmWarning = null!;
     public static ConfigEntry<bool> BmScoutmaster = null!, BmZombies = null!, BmTornado = null!, BmGlassMeteors = null!, BmMeteors = null!;
     public static ConfigEntry<float> BmMeteorRate = null!;
-    public static ConfigEntry<float> BmMoonLight = null!;
+    public static ConfigEntry<float> BmMoonLight = null!, BmNightDarkness = null!, BmEclipseDarkness = null!, BmMeteorHitGrace = null!;
     public static ConfigEntry<float> BmMusicVolume = null!;
     public static ConfigEntry<bool> BmMusicLoop = null!;
     public static ConfigEntry<float> BmScoutmasterSpawnMin = null!, BmScoutmasterSpawnMax = null!, BmScoutmasterSpawnHeight = null!,
@@ -68,14 +69,19 @@ internal static class ModConfig
     public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmZombiesSoloCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
-    public static ConfigEntry<float> BmTornadoSharedWidth = null!, BmTornadoSharedPull = null!, BmTornadoVeerMin = null!, BmTornadoVeerMax = null!;
+    public static ConfigEntry<float> BmTornadoKilnWidth = null!, BmTornadoKilnPull = null!;
+    public static ConfigEntry<float> BmMeteorAimedEvery = null!, BmMeteorAimedEveryShared = null!, BmMeteorNearShare = null!, BmMeteorNearShareShared = null!;
+    public static ConfigEntry<int> BmSurviveGlassHeal = null!;
+    public static ConfigEntry<bool> VoidMoons = null!, BadgeRelics = null!;
+    public static ConfigEntry<float> VoidSunSeconds = null!, VoidMoonSeconds = null!;
+    public static ConfigEntry<float> BmTornadoSharedWidth = null!, BmTornadoSharedPull = null!, BmTornadoVeerMin = null!, BmTornadoVeerMax = null!, BmTornadoThrowGrace = null!, BmTornadoPinned = null!, BmTornadoSprintShare = null!, BmTornadoSprintRef = null!, BmTornadoPinnedSpeed = null!, BmTornadoHeldMax = null!, BmTornadoNearMax = null!;
 
     // --- suns ----------------------------------------------------------------------------
     public static ConfigEntry<bool> Suns = null!, SunFlareTint = null!, SunBlueFreeze = null!, SunBlueWear = null!, SunBlueBreaks = null!;
     public static ConfigEntry<float> SunSky = null!, SunYellowDrain = null!, SunGreenHunger = null!,
         SunRedJump = null!, GenerosityShare = null!,
         SunRedGravity = null!, SunRedSprintCut = null!, SunRedLungeCut = null!, SunYellowStumble = null!, SunGreenRainEvery = null!,
-        SunSkyBlend = null!, SunLight = null!, SunGreenBite = null!,
+        SunSkyBlend = null!, SunLight = null!, SunBrightness = null!, SunShade = null!, SunGreenBite = null!,
         SunGreenShowerSeconds = null!, SunGreenFoodLife = null!, SunFadeSeconds = null!, MaxedTreeWeight = null!, SunscreenWeight = null!,
         SunBlueHealCap = null!, SunYellowRushCap = null!, SunGreenFoodCap = null!, SunRedMoveCap = null!;
     public static ConfigEntry<bool> SafeZones = null!, SunRedHeavyShoreOnly = null!;
@@ -107,7 +113,7 @@ internal static class ModConfig
     public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!,
         XpLandingXp = null!, XpLandingSpacing = null!, XpLandingCap = null!, XpLandingFloor = null!;
     public static ConfigEntry<int> XpLevelCards = null!;
-    public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckStatueFusionLate = null!, LuckFusionChance = null!;
+    public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckFusionChance = null!;
     public static ConfigEntry<int> LuckLateFrom = null!;
     public static ConfigEntry<bool> LuckGuarantee = null!;
     public static ConfigEntry<Key> FlyKey = null!;
@@ -134,6 +140,9 @@ internal static class ModConfig
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
         BmMeteorRate = cfg.Bind("BloodMoon", "MeteorRate", 1f, "Meteors per second around each scout.");
         BmMoonLight = cfg.Bind("BloodMoon", "MoonLight", 1.6f, "Brightness of the red moonlight (a blood moon night is lit like a red-sun day; never darker than the vanilla moon).");
+        BmNightDarkness = cfg.Bind("BloodMoon", "NightDarkness", 0.6f, "How dark a blood moon night is: 0 = the old bright red-day look (MoonLight), 1 = vanilla moonlight in red, a deep crimson sky and much darker shade. Tune live in F8 > World.");
+        BmEclipseDarkness = cfg.Bind("BloodMoon", "EclipseDarkness", 0.6f, "How dark a blood eclipse (a blood moon by day) is: 0 = the old look (sun at 70%), 1 = sun at 20%, a near-black sky and much darker shade. Tune live in F8 > World.");
+        BmMeteorHitGrace = cfg.Bind("BloodMoon", "MeteorHitGrace", 6f, "Meteors, every tier (fire and glass): after a rock hits you, no other rock can hit you for this many seconds, and none are aimed your way while you're down - time to get up and run.");
         BmMusicVolume = cfg.Bind("BloodMoon", "MusicVolume", 0.3f, "Volume of BloodMoon.ogg/.wav/.mp3 placed next to the mod DLL (no file = no music).");
         BmMusicLoop = cfg.Bind("BloodMoon", "MusicLoop", true, "Loop the blood moon music for the whole blood moon (off = play once).");
         // New key so the old 1.25 doesn't stick around in existing configs.
@@ -185,7 +194,6 @@ internal static class ModConfig
         LuckPullLate = cfg.Bind("Luck", "IngredientPullLate", 3f, "...and this much more often from LateFromSegment on.");
         LuckLateFrom = cfg.Bind("Luck", "LateFromSegment", 3, "Map segment where the late luck starts (0 Shore, 1 Tropics/Roots, 2 Alpine/Mesa, 3 Caldera/Gloom, 4 Kiln) - once the squad is past the third biome's campfire.");
         LuckStatueIngredientLate = cfg.Bind("Luck", "StatueIngredientLate", 0.3f, "Late luck: statue / Ancient Luggage chance of the missing ingredient (early = [Fusion] StatueIngredientChance).");
-        LuckStatueFusionLate = cfg.Bind("Luck", "StatueFusionLate", 0.05f, "Late luck: statue / Ancient Luggage chance of a finished fusion (early = [Fusion] StatueFusionChance).");
         LuckFusionChance = cfg.Bind("Luck", "LuckyFusionChance", 0.1f, "Reaching the second biome's campfire: chance per SQUAD that a scout's next level-up offers a finished fusion (each scout rolls this divided by the squad size).");
         LuckGuarantee = cfg.Bind("Luck", "SquadGuarantee", true, "Reaching the campfire before the Kiln (Caldera / Gloom) with no fusion made by anyone: one scout (the closest to a fusion) is offered a guaranteed one.");
         XpBarScale = cfg.Bind("Xp", "BarScale", 0.75f, "Size of the XP bar (a copy of the stamina bar).");
@@ -194,11 +202,29 @@ internal static class ModConfig
         BmScoutmasterRecover = cfg.Bind("BloodMoon", "ScoutmasterRecover", 5f, "During a hunt, after a throw or a missed lunge he stands still this many seconds, then locks onto his next target (0 = vanilla's 2s after throws only).");
         BmTornadoGrouped = cfg.Bind("BloodMoon", "TornadoGroupedSpeed", 0.5f, "The tornado's speed when the relic holder nearest it is grouped (share of its normal speed).");
         BmTornadoApproach = cfg.Bind("BloodMoon", "TornadoApproachSpeed", 14f, "The tornado's speed (m/s) while it travels up from the section's starting campfire.");
-        BmTornadoChase = cfg.Bind("BloodMoon", "TornadoChaseSpeed", 0.6f, "The tornado's chase speed once close, as a share of its old speed (1 = v0.6 speed).");
-        BmTornadoNear = cfg.Bind("BloodMoon", "TornadoChaseDistance", 60f, "Distance (m) from the nearest scout at which the tornado slows to its chase speed.");
+        BmTornadoChase = cfg.Bind("BloodMoon", "TornadoChaseSpeed", 0.6f, "Unused since 0.12.43 (see TornadoSprintShare).");
+        BmTornadoNear = cfg.Bind("BloodMoon", "TornadoChaseDistance", 150f, "Distance (m) from the nearest scout at which the tornado slows to its chase speed (a little slower than a sprinting scout).");
+        BmTornadoSprintShare = cfg.Bind("BloodMoon", "TornadoSprintShare", 0.85f, "Up close the tornado moves at this share of a sprinting scout's speed (under a red sun, cut like sprints are).");
+        BmTornadoSprintRef = cfg.Bind("BloodMoon", "ScoutSprintSpeed", 7.8f, "How fast a fresh scout sprints on flat ground (game units/s; measured in game: 7.8). The blood moon tornado chases at TornadoSprintShare of this.");
         BmTornadoSharedWidth = cfg.Bind("BloodMoon", "TornadoSharedWidth", 0.75f, "Moon tier 2+ (the tornado shares the moon): its width as a share of the game's tornado (1 = vanilla). Its pull and catch reach shrink with it. Alone at tier 1 it's always vanilla.");
         BmTornadoSharedPull = cfg.Bind("BloodMoon", "TornadoSharedPull", 0.75f, "Moon tier 2+: its pull and spin strength as a share of vanilla (the upward lift stays vanilla).");
+        BmTornadoKilnWidth = cfg.Bind("BloodMoon", "TornadoKilnWidth", 0.35f, "In the Kiln / Citadel (any tier) the tornado rises in the middle of the room at this share of the game's width.");
+        BmTornadoKilnPull = cfg.Bind("BloodMoon", "TornadoKilnPull", 0.3f, "In the Kiln / Citadel: its pull and spin strength as a share of vanilla.");
+        BmMeteorAimedEvery = cfg.Bind("BloodMoon", "MeteorAimedSeconds", 2.5f, "Meteors at moon tier 1: one rock aimed at where each scout stands, about every this many seconds (it takes 4s to land - keep moving).");
+        BmMeteorAimedEveryShared = cfg.Bind("BloodMoon", "MeteorAimedSecondsShared", 4.5f, "Meteors at moon tier 2+ (sharing the moon): seconds between rocks aimed at each scout.");
+        BmMeteorNearShare = cfg.Bind("BloodMoon", "MeteorNearShare", 0.4f, "Meteors at tier 1: share of the other rocks that land 4-10m around a scout (never on them).");
+        BmMeteorNearShareShared = cfg.Bind("BloodMoon", "MeteorNearShareShared", 0.25f, "Meteors at tier 2+: share of the other rocks that land 4-10m around a scout.");
+        BadgeRelics = cfg.Bind("Badges", "Enabled", true, "Badge relics: blessing statues offer 3 (pick one, no level-ups), a revive gives every scout a random one, Ancient Luggage offers one. They last the whole run, the Void included.");
+        VoidMoons = cfg.Bind("Void", "Moons", true, "In the Void, a tier 1 blood moon follows every sun: one hazard each, all four in a random order before any repeats. Off = suns only.");
+        VoidSunSeconds = cfg.Bind("Void", "SunSeconds", 30f, "In the Void: how long each sun shows (with moons off: 60 is the old pace).");
+        VoidMoonSeconds = cfg.Bind("Void", "MoonSeconds", 30f, "In the Void: how long each blood moon lasts (no sun during it, no glass shed after it).");
+        BmSurviveGlassHeal = cfg.Bind("BloodMoon", "SurviveGlassHeal", 25, "Glass (out of 100) healed from every scout still alive when a blood moon or eclipse ends.");
         BmTornadoVeerMin = cfg.Bind("BloodMoon", "TornadoVeerMin", 60f, "When the scout it hunts fires a relic (or nobody can be hunted) it veers off to a spot at least this far (m) away...");
+        BmTornadoThrowGrace = cfg.Bind("BloodMoon", "TornadoThrowGrace", 15f, "Blood moon tornadoes only: after throwing a scout (or freeing one stuck in it) it can't pull or catch them for this many seconds - it goes after someone else, or backs off 60-100m if there's nobody (0 = off).");
+        BmTornadoPinned = cfg.Bind("BloodMoon", "TornadoPinnedSeconds", 3f, "Blood moon tornadoes only: a scout in its pull (caught or not) barely moving for this long (stuck on a wall) is thrown loose and gets the breather.");
+        BmTornadoPinnedSpeed = cfg.Bind("BloodMoon", "TornadoPinnedSpeed", 1.5f, "...'barely moving' = slower than this (game units/s; a sprint is ~8).");
+        BmTornadoHeldMax = cfg.Bind("BloodMoon", "TornadoHeldSeconds", 5f, "Blood moon tornadoes only: holding a scout this long without throwing them, it throws them loose.");
+        BmTornadoNearMax = cfg.Bind("BloodMoon", "TornadoPullSeconds", 10f, "Blood moon tornadoes only: nobody stays in its pull longer than this (in total, since their last throw) - then they're thrown loose.");
         BmTornadoVeerMax = cfg.Bind("BloodMoon", "TornadoVeerMax", 100f, "...and at most this far (m).");
 
         Suns = cfg.Bind("Suns", "Enabled", true, "Coloured suns: each biome's days burn the colour of its statue amulet until the squad holds that relic; blood moon nights only after it.");
@@ -219,6 +245,8 @@ internal static class ModConfig
         SunSkyBlend = cfg.Bind("Suns", "SkyBlend", 0.8f, "How far the sky leans into the sun's colour (0..1).");
         SunFlareTint = cfg.Bind("Suns", "FlareTint", true, "Tint the game's sun glare (lens flare) to the sky's colour - coloured suns, and blood red on the menu and at the airport.");
         SunLight = cfg.Bind("Suns", "SunlightColour", 1f, "How strongly the sunlight itself takes the sun's colour (0 = the game's near-white light, 1 = the full colour, up to 1.5 = deeper than the sun's colour). Real light, not a filter: shadows stay shadows. Tune live in F8 > World.");
+        SunBrightness = cfg.Bind("Suns", "SunBrightness", 1f, "A coloured sun's light is dimmer than white (blue ~37%, red ~47%): how much of that the sun makes up by shining harder (0 = none, the old darker look; 1 = as bright as a normal day; up to 1.5). Capped at x2.5. Tune live in F8 > World.");
+        SunShade = cfg.Bind("Suns", "ShadeBoost", 0.15f, "Under a coloured sun, PEAK's ambient light (the shade) is raised this much (0.15 = +15%, up to 0.5) so shadows don't look murky next to the coloured light. Tune live in F8 > World.");
         SunGreenBite = cfg.Bind("Suns", "GreenFoodBite", 0.05f, "Unused since 0.12.7.");
         SafeZones = cfg.Bind("Suns", "SafeZones", true, "Lit campfires and the summit are safe: no sun effects, no blood moon attacks, music fades. The sky keeps its colour.");
         SpawnRadius = cfg.Bind("Suns", "SpawnSafeRadius", 30f, "Safe radius (m) around the plane crash where the run starts.");
@@ -282,6 +310,7 @@ internal static class ModConfig
 
         FusionKey = cfg.Bind("Fusion", "OpenFusionKey", Key.J, "Re-open the fusion screen after choosing 'Not now'.");
         StackKey = cfg.Bind("Storage", "StackLevelUpKey", Key.K, "Re-open the stack level-up pop-up (3 copies in one pocket) after choosing 'Later'.");
+        RelicKey = cfg.Bind("Relics", "SharedRelicKey", Key.L, "Re-open a shared relic choice after choosing 'Later'.");
         DevPanelKey = cfg.Bind("Dev", "BuildPanelKey", Key.F8, "Show which build of the mod every player in the lobby is running.");
         BugReportKey = cfg.Bind("BugReports", "Key", Key.F7, "Save a bug report (screenshot, recent log, run state, config) on every modded player's PC. Saved in BepInEx/BugReports.");
         BugReportOnError = cfg.Bind("BugReports", "AutoOnError", true, "Save a report by itself the first time the mod hits an error in a run.");
@@ -300,7 +329,10 @@ internal static class ModConfig
         BookOfBonesWeight = cfg.Bind("Medicine", "BookOfBonesWeight", 0.5f, "The Book of Bones: weight in cursed luggage and coffins, as a share of its vanilla weight (= the Skull's and Dagger's).");
         FusionCards = cfg.Bind("Fusion", "UnlockedFusionCards", true, "Once you've made a fusion, crates that roll one of its ingredients also offer the fused item as an extra card.");
         StatueIngredientChance = cfg.Bind("Fusion", "StatueIngredientChance", 0.1f, "Blessing statues / Ancient Luggage: chance the +2 card becomes the one ingredient a maxed item of yours is missing.");
-        StatueFusionChance = cfg.Bind("Fusion", "StatueFusionChance", 0.01f, "Blessing statues / Ancient Luggage: chance the +2 card becomes a random finished fusion item.");
+        StatueJackpotChance = cfg.Bind("Fusion", "StatueJackpotChance", 0.05f, "Revive statue blessings: chance the +2 card becomes a jackpot (a finished fusion or a dark item - see JackpotDarkShare). Every biome.");
+        AncientJackpotChance = cfg.Bind("Fusion", "AncientJackpotChance", 0.1f, "Ancient Luggage: chance the +2 card becomes a jackpot. Every biome.");
+        JackpotDarkShare = cfg.Bind("Fusion", "JackpotDarkShare", 0.5f, "Of the jackpots, this share is a dark item (Cursed Skull / Ritual Dagger / Book of Bones; solo: the Book only), the rest a finished fusion.");
+        ReviveDarkChance = cfg.Bind("Fusion", "ReviveDarkChance", 0.1f, "A statue revive: chance one revived scout is offered the Skull / Dagger / Book of Bones (solo: the Book). Once per run for the whole squad.");
         EqualTreeItems = cfg.Bind("Loot", "EqualTreeItems", true, "Every tree's base item is equally common in every crate (Glider and Lantern join every crate); higher tree items never roll.");
         ShoreOtherItems = cfg.Bind("Loot", "ShoreOtherItems", 0.1f, "On the Shore, crate items outside the trees are this much as likely (1 = no change).");
         CursedCopies = cfg.Bind("Relics", "CursedCopies", true, "Cursed Skull: everyone else gets cursed copies of the user's relics. Ritual Dagger: the killer copies or stacks one relic. Copies shatter on death and don't raise the blood moon.");
@@ -313,7 +345,8 @@ internal static class ModConfig
         RelicVeil = cfg.Bind("Relics", "RelicVeilSeconds", 5f, "Under a blood moon, a relic firing hides you from the Scoutmaster, zombies and tornado for this long (meteors still fall; 0 = off).");
 
         TreePower = cfg.Bind("ItemTrees", "PowerScale", 1f, "Scales how far below vanilla low-level items start (1 = as designed, 0 = no penalty).");
-        BalloonFlightSeconds = cfg.Bind("ItemTrees", "BalloonFlightSeconds", "0, 2, 4, 6, 8, 12", "Seconds of flight per balloon level: three single-balloon levels, then three bunch levels (0 = vanilla floating). The longest rises exactly one max-length vanilla rope; every flight climbs at that same speed.");
+        BalloonFlightSeconds = cfg.Bind("ItemTrees", "BalloonFlightSeconds", "0, 2.5, 4, 6, 8, 10", "Seconds of flight per balloon level: three single-balloon levels, then three bunch levels (0 = vanilla floating). Every flight climbs at BalloonRiseSpeed: at 2 m/s that is 5 / 8 / 12 / 16 / 20m.");
+        BalloonRiseSpeed = cfg.Bind("ItemTrees", "BalloonRiseSpeed", 2f, "How fast a balloon flight climbs (m/s).");
         BalloonAirControl = cfg.Bind("ItemTrees", "BalloonAirControl", 2f, "Steering multiplier while a balloon flies you.");
         BalloonPopJump = cfg.Bind("ItemTrees", "BalloonPopJump", 6f, "Upward speed (units/s) of popping a balloon by jumping in the air (0 = off).");
         TintItems = cfg.Bind("ItemTrees", "TintItems", true, "Colour items by their level.");
@@ -399,6 +432,24 @@ internal static class ModConfig
             DevShareRelics.Value = true;
             defaults.Value = 6;
             Plugin.Log.LogInfo("Config: shared relic pickups on (new default).");
+        }
+        if (defaults.Value < 7)
+        {
+            BmTornadoNear.Value = 150f;
+            defaults.Value = 7;
+            Plugin.Log.LogInfo("Config: blood moon tornado slows to just under sprint speed within 150m (new default).");
+        }
+        if (defaults.Value < 8)
+        {
+            BmTornadoSprintRef.Value = 7.8f;
+            defaults.Value = 8;
+            Plugin.Log.LogInfo("Config: scout sprint speed locked at the measured 7.8 (new default).");
+        }
+        if (defaults.Value < 9)
+        {
+            BalloonFlightSeconds.Value = "0, 2.5, 4, 6, 8, 10";
+            defaults.Value = 9;
+            Plugin.Log.LogInfo("Config: balloon flights nerfed - 2 m/s, 20m at most (new default).");
         }
     }
 }

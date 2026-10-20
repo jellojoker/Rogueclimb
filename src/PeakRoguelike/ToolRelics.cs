@@ -204,7 +204,7 @@ internal class ToolRelics : MonoBehaviour
     private static void Dismount(string what, int placer, bool always = false)
     {
         Plugin.Log.LogInfo($"Tool relics: got off a {what}{(placer > 0 ? $" placed by actor {placer}" : "")}.");
-        if (placer > 0 || always) Relics.Trigger(RelicTrigger.Movement);
+        if (placer > 0 || always) Relics.Trigger(RelicTrigger.Movement, null, what);
         if (placer > 0 && placer != Me && PhotonNetwork.InRoom) Net.ToolUsed(placer);
     }
 }

@@ -31,9 +31,11 @@ internal class Meteors : MonoBehaviour
     private class Rock
     {
         public Vector3 Land, Start, Normal = Vector3.up;
+        /// <summary>Fired from the mountain: it arcs up through this point and down onto its mark.</summary>
+        public Vector3 Control;
         public float Size, SpawnAt, LandAt;
         public int Seed;
-        public bool Spawned, Landed, Glass;
+        public bool Spawned, Landed, Glass, Arc;
         public GameObject? Body, Mark;
         public Light? Glow;
         public Material? MarkMat;
@@ -46,18 +48,34 @@ internal class Meteors : MonoBehaviour
 
     // host
     private static float until;
+    /// <summary>Meteors are the moon's only hazard (tier 1): more rocks aimed at scouts and landing close.</summary>
+    private static bool alone;
     private float rolledTo;
     private readonly Dictionary<int, float> next = new();
+    /// <summary>Per scout: when the next rock aimed right at where they stand is due.</summary>
+    private readonly Dictionary<int, float> aimedNext = new();
     private readonly List<float> pack = new();
+    /// <summary>Per scout: no rocks are aimed their way until then - they were knocked down and need to get up and run.</summary>
+    private readonly Dictionary<int, float> quietUntil = new();
+    /// <summary>Local: after a hit, no rock can hit you again until then.</summary>
+    private static float shakenUntil;
+    private static float HitGrace => Mathf.Max(0f, ModConfig.BmMeteorHitGrace.Value);
+
+    private enum Aiming { Scatter, Near, AtThem }
 
     private void Awake() => instance = this;
 
-    public static void Begin(float seconds)
+    public static void Begin(float seconds, bool aloneInMoon)
     {
         until = Time.time + seconds;
-        if (instance != null) { instance.rolledTo = Time.time; instance.next.Clear(); }
-        Plugin.Log.LogInfo($"Blood moon meteors for {seconds:0}s.");
+        alone = aloneInMoon;
+        if (instance != null) { instance.rolledTo = Time.time; instance.next.Clear(); instance.aimedNext.Clear(); instance.quietUntil.Clear(); }
+        Plugin.Log.LogInfo($"Blood moon meteors for {seconds:0}s ({(alone ? "alone" : "sharing the moon")}: a rock at each scout every ~{AimedEvery:0.#}s, {NearShare:P0} land close).");
     }
+
+    private static float AimedEvery => Mathf.Max(0.5f, alone ? ModConfig.BmMeteorAimedEvery.Value : ModConfig.BmMeteorAimedEveryShared.Value);
+    private static float NearShare => Mathf.Clamp01(alone ? ModConfig.BmMeteorNearShare.Value : ModConfig.BmMeteorNearShareShared.Value);
+    private static Aiming Pick() => Random.value < NearShare ? Aiming.Near : Aiming.Scatter;
 
     public static void Stop() => until = 0f;
 
@@ -83,6 +101,16 @@ internal class Meteors : MonoBehaviour
         rolledTo = to;
         // Scouts on safe ground aren't aimed at, and no rock lands inside a campfire's circle.
         var alive = Squad.Hunted();
+        // Knocked down (by a rock or anything else): nothing is aimed their way while they're down
+        // and for a while after - rocks take 4s to fall, so they get the whole grace to get up and run.
+        foreach (var c in alive)
+            if (c.data != null && c.data.fallSeconds > 0f)
+            {
+                int id = c.photonView.ViewID;
+                float q = now + c.data.fallSeconds + Mathf.Max(0f, HitGrace - FallSeconds);
+                if (!quietUntil.TryGetValue(id, out float was) || was < q) quietUntil[id] = q;
+            }
+        alive.RemoveAll(c => quietUntil.TryGetValue(c.photonView.ViewID, out float q) && q > now);
         if (alive.Count == 0) return;
         pack.Clear();
         float rate = Mathf.Max(0.05f, ModConfig.BmMeteorRate.Value);
@@ -92,18 +120,30 @@ internal class Meteors : MonoBehaviour
             if (!next.TryGetValue(id, out float t) || t < from - 3f) t = from + Random.Range(0f, 1f);
             for (; t < to; t += Mathf.Clamp(-Mathf.Log(1f - Random.value * 0.999f) / rate, 0.08f, 3f))
             {
-                Aim(c, t - now);
+                Aim(c, t - now, Pick());
                 if (Random.value < 0.25f)
-                    for (int i = Random.Range(1, 3); i > 0; i--) Aim(alive[Random.Range(0, alive.Count)], t - now + Random.Range(0.1f, 0.4f));
+                    for (int i = Random.Range(1, 3); i > 0; i--) Aim(alive[Random.Range(0, alive.Count)], t - now + Random.Range(0.1f, 0.4f), Pick());
             }
             next[id] = t;
+            // One rock aimed at the spot they stand on now: it lands 4s later, so only standing still gets you hit.
+            if (!aimedNext.TryGetValue(id, out float a) || a < from - 3f) a = from + Random.Range(0.5f, AimedEvery);
+            for (; a < to; a += AimedEvery * Random.Range(0.8f, 1.2f)) Aim(c, a - now, Aiming.AtThem);
+            aimedNext[id] = a;
         }
         if (pack.Count > 0) Net.Meteors(pack.ToArray());
     }
 
-    private void Aim(Character target, float delay)
+    private void Aim(Character target, float delay, Aiming how)
     {
-        Vector2 off = Random.insideUnitCircle * AroundUnits;
+        float size = Random.Range(3f, 8f) * U;
+        // Near misses land 4-10m away, but always clear of their own blast (reach = half the rock + 1m).
+        float nearMin = Mathf.Max(4f * U, size * 0.5f + 2f * U);
+        Vector2 off = how switch
+        {
+            Aiming.AtThem => Vector2.zero,
+            Aiming.Near => Random.insideUnitCircle.normalized * Random.Range(nearMin, Mathf.Max(nearMin, 10f * U)),
+            _ => Random.insideUnitCircle * AroundUnits,
+        };
         float probe = 170f * U;
         var c = target.Center;
         if (!Physics.Raycast(new Vector3(c.x + off.x, c.y + probe, c.z + off.y), Vector3.down, out var hit, probe * 2f,
@@ -112,11 +152,65 @@ internal class Meteors : MonoBehaviour
         if (Sanctuary.Safe(land)) return;
         float h =Random.Range(110f, 150f) * U;
         if (Physics.Raycast(land + Vector3.up * 0.3f, Vector3.up, h, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore)) return; // roofed over
-        Vector3 slant = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
-        Vector3 start = land + Vector3.up * h + slant * (h * Random.Range(0.08f, 0.3f));
-        if (Physics.Linecast(start, land + Vector3.up * 5f, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
-            start = land + Vector3.up * h;
-        pack.AddRange(new[] { land.x, land.y, land.z, start.x, start.y, start.z, Random.Range(3f, 8f) * U, Mathf.Max(0f, delay), (float)Random.Range(0, 1 << 20) });
+        int seed = Random.Range(0, 1 << 20);
+        // Fired from up the mountain, arcing over onto its mark; if the arc would pass through rock,
+        // it drops from straight above like before.
+        Vector3 start;
+        if (MountainLaunch(land) is { } fired
+            && !Physics.Linecast(Bezier(fired, Control(fired, land, seed), land, 0.5f), land + Vector3.up * 5f, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
+            start = fired;
+        else
+        {
+            Vector3 slant = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f) * Vector3.forward;
+            start = land + Vector3.up * h + slant * (h * Random.Range(0.08f, 0.3f));
+            if (Physics.Linecast(start, land + Vector3.up * 5f, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
+                start = land + Vector3.up * h;
+        }
+        pack.AddRange(new[] { land.x, land.y, land.z, start.x, start.y, start.z, size, Mathf.Max(0f, delay), (float)seed });
+    }
+
+    // --- fired from the mountain ---------------------------------------------------------------------
+
+    /// <summary>A start this far (flat) from its mark was fired from the mountain and flies an arc.</summary>
+    private const float ArcFrom = 60f * U;
+    /// <summary>A start this far (flat) away came down from the summit: a flatter arc.</summary>
+    private const float SummitFrom = 300f * U;
+
+    /// <summary>
+    /// Host: where the mountain fires a rock from - 350-500m off toward the summit, high up near the
+    /// summit's height (150-300m above where it lands, never inside the slope).
+    /// </summary>
+    private static Vector3? MountainLaunch(Vector3 land)
+    {
+        if (Squad.UpMountain(summit: true) is not { } top) return null;
+        Vector3 dir = top - land;
+        dir.y = 0f;
+        if (dir.sqrMagnitude < 1f) dir = Vector3.forward; // right at the top: fired from any side
+        dir = Quaternion.Euler(0f, Random.Range(-20f, 20f), 0f) * dir.normalized;
+        Vector3 at = land + dir * (Random.Range(350f, 500f) * U);
+        float y = Mathf.Clamp(top.y, land.y + 150f * U, land.y + 300f * U);
+        float probe = 1500f * U;
+        if (Physics.Raycast(new Vector3(at.x, land.y + probe, at.z), Vector3.down, out var hit, probe * 2f, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
+            y = Mathf.Max(y, hit.point.y + 10f * U);
+        return new Vector3(at.x, y, at.z);
+    }
+
+    /// <summary>The arc's pull point: high over the middle - from the summit it tops out 20-35m above the start, closer shots 60-80m.</summary>
+    private static Vector3 Control(Vector3 start, Vector3 land, int seed)
+    {
+        Vector3 gap = start - land;
+        gap.y = 0f;
+        float lo = gap.magnitude > SummitFrom ? 20f : 60f, span = gap.magnitude > SummitFrom ? 15f : 20f;
+        float lift = (lo + (seed % 1000) / 1000f * span) * U;
+        Vector3 mid = (start + land) * 0.5f;
+        mid.y = Mathf.Max(start.y, land.y) + lift * 2f;
+        return mid;
+    }
+
+    private static Vector3 Bezier(Vector3 a, Vector3 b, Vector3 c, float t)
+    {
+        float u = 1f - t;
+        return u * u * a + 2f * u * t * b + t * t * c;
     }
 
     // --- everyone: draw, land, hit ----------------------------------------------------------------
@@ -136,6 +230,10 @@ internal class Meteors : MonoBehaviour
                 Seed = (int)data[i + 8],
             };
             r.LandAt = r.SpawnAt + FallSeconds;
+            Vector3 flat = r.Start - r.Land;
+            flat.y = 0f;
+            r.Arc = flat.magnitude > ArcFrom;
+            if (r.Arc) r.Control = Control(r.Start, r.Land, r.Seed);
             instance.rocks.Add(r);
         }
     }
@@ -154,7 +252,10 @@ internal class Meteors : MonoBehaviour
                 float e = t * t;                                         // falling: speeds up
                 if (r.Body != null)
                 {
-                    r.Body.transform.position = Vector3.Lerp(r.Start, r.Land + Vector3.up * r.Size * 0.3f, e);
+                    Vector3 end = r.Land + Vector3.up * r.Size * 0.3f;
+                    r.Body.transform.position = r.Arc
+                        ? Bezier(r.Start, r.Control, end, Mathf.Lerp(t, e, 0.5f))  // up off the mountain, then down onto you
+                        : Vector3.Lerp(r.Start, end, e);
                     r.Body.transform.Rotate(r.Spin * Time.deltaTime, Space.Self);
                 }
                 if (r.MarkMat != null)
@@ -293,15 +394,28 @@ internal class Meteors : MonoBehaviour
         var me = Character.localCharacter;
         if (me == null || me.data == null || me.data.dead || me.refs == null || Sanctuary.LocalSafe) return;
         Vector3 c = me.Center;
+        bool shaken = Time.time < shakenUntil;
         float dx = c.x - r.Land.x, dz = c.z - r.Land.z;
         float reach = r.Size * 0.5f + 1f * U;
         float dy = c.y - r.Land.y;
-        if (dx * dx + dz * dz > reach * reach || dy < -1.5f * U || dy > r.Size + 1f * U) return;
+        // Just hit: rocks already falling at you only shake you until you've had time to get up and run.
+        if (shaken || dx * dx + dz * dz > reach * reach || dy < -1.5f * U || dy > r.Size + 1f * U)
+        {
+            // A near miss: a hard jolt and a deep rumble, nothing more.
+            float near = 10f * U;
+            if (dx * dx + dz * dz < near * near && Mathf.Abs(dy) < near)
+            {
+                GamefeelHandler.instance?.AddPerlinShake(4f, 0.5f, 18f);
+                instance?.PlayAt(ImpactClips(), c + Vector3.down * 0.5f, 0.6f, 0.55f);
+            }
+            return;
+        }
         if (Physics.Linecast(r.Land + Vector3.up * r.Size * 0.5f, c + Vector3.up * 0.3f, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore)) return;
         me.refs.afflictions.AddStatus(CharacterAfflictions.STATUSTYPE.Injury, 0.15f);
         if (r.Glass) me.refs.afflictions.AddPetrify(GlassPerHit);
         else me.refs.afflictions.AddStatus(CharacterAfflictions.STATUSTYPE.Hot, 0.1f);
         me.refs.view.RPC("RPCA_Fall", RpcTarget.All, 2f, 0f);
+        shakenUntil = Time.time + HitGrace;
         Plugin.Log.LogInfo(r.Glass ? "Hit by a glass meteor." : "Hit by a meteor.");
     }
 

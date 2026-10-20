@@ -34,6 +34,7 @@ internal static class BalloonFlight
         var c = item != null ? item.holderCharacter : null;
         if (c == null || !c.IsLocal) return;
         float secs = Stats.BalloonFlight(Items.IsBalloonBunch(item!), Stats.For(item!, TreeId.Balloons).level) * SunCaps.MoveCap;
+        if (Badges.Has(BadgeId.Balloon)) secs *= 1f + Badges.Buff; // same speed, higher
         if (secs <= 0f) return;
         float top = c.Center.y + Stats.BalloonRiseSpeed * secs;
         if (until < 0f) ceiling = top;

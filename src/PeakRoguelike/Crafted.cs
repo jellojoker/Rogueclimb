@@ -206,6 +206,7 @@ internal static class CraftPatches
         __instance.jetpackFuelDecaySpeed = decay / Mathf.Max(0.1f, Crafts.Twist(CraftId.Jetpack));
         // Red sun: the tank burns down faster - a full one flies a third as long.
         if (Suns.Red) __instance.jetpackFuelDecaySpeed *= Mathf.Max(1f, ModConfig.SunRedJetpackBurn.Value);
+        if (Badges.Has(BadgeId.Aeronautics)) __instance.jetpackFuelDecaySpeed /= 1f + Badges.Buff;
     }
 
     // --- faerie lantern: the fusion's longer burn ---------------------------------------------

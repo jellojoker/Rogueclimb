@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.12.48
+- **Badge relics.** 26 of the game's scout badges are now relics that last the whole run (the Void included), each shown with its badge picture and a card that says exactly what it does. Every buff is 25% at most.
+  - Blessing statues offer three badges - pick one (no more level-ups there).
+  - A revive at a statue gives every scout a random badge.
+  - Ancient Luggage: a +2 card, a badge card, and sometimes a mythical gift (a fusion or a dark item).
+  - No duplicates, and never a badge that copies your own starting relic.
+  - Many badges spare an item kind the relic glass (cooked food, pitons, berries, balloons, ropes, jetpacks and the cannon, milk, gliders) and add a second perk; others cut a damage type, speed you up, copy a starting relic (Bing Bong, Bugle, Compass, Frisbee, Binoculars) or hand you the Golden Bing Bong.
+  - [Badges] Enabled in the config; F8 World: Badge pick / Random badge.
+
+## 0.12.47
+- Relic icons (top-left) are just the picture with the relic's name underneath - no circle.
+- Balloons nerfed: flights climb at 2 m/s and top out at 20m (a maxed bunch); 5 / 8 / 12 / 16 / 20m by level. New [ItemTrees] BalloonRiseSpeed.
+- The Void only takes the amulet relics - your starting relic stays.
+
+## 0.12.46
+- Blood moon tornadoes rise at the section's start again and travel up to you (0.12.45 wrongly threw out start spots more than 500m away and spawned them right next to you). With no start spot at all they rise 150-250m away, below the squad and out of sight.
+- The Void: the tornado rises where you arrived (if that's 100m+ away; else the far fallback).
+- Kiln / Citadel: the tornado no longer hunts. It measures the tower around itself, drifts slowly around the middle and rises with the squad. Its throws aren't aimed uphill there (that's into the wall).
+
+## 0.12.45
+- The Void: after every 30s sun comes a 30s tier 1 blood moon with a single hazard - all four take a turn in a random order before any repeats. No sun during a moon, no glass shed after one. [Void] Moons / SunSeconds / MoonSeconds; F8 'Next Void moon'.
+- Blood moon tornadoes rise where you came into this part of the map (the game's section spawn point - the crash site, the Kiln's way in, the Void's arrival - else the starting campfire). A bogus or far-off spot (the Kiln's tornado rose 2km away at the map's origin) falls back to 60-100m from the squad.
+- The tornado's chase speed is based on a fixed sprint speed of 7.8 (measured) - it no longer learns from slowed sprints.
+
+## 0.12.44
+- Blood moon tornadoes can't keep you stuck: held 5s without a throw, barely moving in its pull for 3s, or 10s in its pull at all - it throws you loose and you get the 15s breather.
+
+## 0.12.43
+- Meteors come from the top of the mountain: each rock is flung from high up toward the summit, 350-500m away, and comes down on its mark.
+- Blood moon tornadoes throw you uphill (toward the next campfire) at the same strength as before.
+- Within 150m a blood moon tornado moves a little slower than a sprinting scout - sprint and you get away. Under a red sun it slows by the same share sprints do. The host's game measures real sprint speed and saves it to the config.
+
+## 0.12.42
+- Blood moon tornadoes give you a breather: once one throws you (or you're stuck on a wall in it for 3s - it throws you loose), it can't pull or catch you for 15s. It goes after someone else, or backs off 60-100m if there's nobody. Mesa's own tornadoes are unchanged.
+- Meteors are fired from the mountain: each rock launches from the slope up toward the next campfire / the peak, arcs into the sky and comes down on its mark. Warning time and hits unchanged.
+
+## 0.12.41
+- Blood moons look like night: red moonlight at the moon's normal brightness, a deep crimson sky going black overhead, darker shade. Blood eclipses dim the sun hard, so day turns to night around the burning ring. Tune both in F8 > World (Blood moon darkness / Eclipse darkness).
+- Meteors (every tier, fire and glass): after a rock hits you, no other rock can hit you for 6s and none are aimed your way while you're down - time to get up and run. No more chain stuns.
+
+## 0.12.40
+- Coloured suns no longer darken the day: the sun shines harder to make up for its colour, and shade is lifted a little under a sun. F8 > World sliders (Sun brightness, Shade boost).
+
+## 0.12.39
+- Bing Bong's lights out hides the sky too - real darkness.
+- Jackpots: blessing statues (5%) and Ancient Luggage (10%) can give a finished fusion or a dark item instead of a card.
+- A revive at a statue may offer one revived scout a dark item, once per run.
+
+## 0.12.38
+- Lights out is real darkness: the world's ambient light fades out (campfires and lanterns still glow), with a flashlight on F. Thanks to True Final Ascent for showing how PEAK's ambient light works.
+- The Void: give a relic back at the Scout's Honor statue. In the Void the amulet relics are gone, its crates hold fusions only, and the four suns take turns.
+
+## 0.12.36 - 0.12.37
+- Bing Bong's lights out goes properly dark, with a working flashlight.
+
+## 0.12.35
+- Meteors keep you moving: a rock is aimed at where each scout stands every few seconds (every ~2.5s when meteors are the moon's only hazard, ~4.5s alongside others), and many more land close by. Near misses jolt the screen. Damage is unchanged.
+- In the Kiln / Citadel the blood moon tornado rises in the middle of the room, small and gentle.
+- Surviving a blood moon or eclipse sheds 25 glass.
+
+## 0.12.34
+- Shared relic and cursed relic offers wait until you've stood on flat ground for a second - no more slipping off walls.
+- Closing a shared relic offer is now 'Later': a RELIC WAITING [L] pill brings it back. The blood moon doesn't wait for it.
+- Dropping or throwing a stacked item lets go of one copy; the rest stay in hand. Dying still drops the whole stack.
+
+## 0.12.33
+- Faerie Lantern fuses from a maxed Lantern OR a Candle, plus a maxed Radiant Health Pack (was Lantern + Candle + any holy Health Pack). A candle is used up first if you hold both.
+
+## 0.12.32
+- Bugle: the helping hand pulls twice as hard when the helper or the scout being pulled carries the Bugle, and the reaching arm now shows at the Bugle's full reach.
+- Bug reports list every scout's starting relic; Bugle pulls are logged.
+
 ## 0.12.31
 - "Something survived the crash" now plays right after the SHORE / DAY 1 title fades.
 - Scouts who join after the Shore get to choose a starting relic from all five, once on flat ground ("Later" waits for the next biome).

@@ -21,6 +21,8 @@ internal class Ingredient
     public bool FromTree;
     /// <summary>Fusing: is this pocket item good enough (a maxed item - anyone's)? Null = any match.</summary>
     public Func<ItemSlot, bool>? SlotReady;
+    /// <summary>Fusing: when several pocket items qualify, these are used up first. Null = pocket order.</summary>
+    public Func<ItemSlot, bool>? Prefer;
 }
 
 internal class Recipe
@@ -97,13 +99,14 @@ internal class Fusion : MonoBehaviour
         SlotReady = s => !ModConfig.Leveling.Value || (ItemLevels.IsMaxed(s) && ItemLevels.IsSecondPath(s.data) == (branch == 2)),
     };
 
-    /// <summary>Any holy health pack, whatever its level (the Faerie Lantern's).</summary>
-    private static Ingredient HolyKit() => new()
+    /// <summary>A maxed Lantern or any Candle (the Faerie Lantern's light) - a candle goes first if you hold both.</summary>
+    private static Ingredient Light() => new()
     {
-        Name = "Health Pack (holy)",
-        Match = Items.IsMedKit,
-        Gift = "FirstAidKit",
-        SlotReady = s => !ItemLevels.IsSecondPath(s.data),
+        Name = "Lantern (max) or Candle",
+        Match = i => Items.IsCandle(i) || Trees.Classify(i) == TreeId.Light,
+        Gift = "Candle",
+        SlotReady = s => Items.IsCandle(s.prefab) || !ModConfig.Leveling.Value || ItemLevels.IsMaxed(s),
+        Prefer = s => Items.IsCandle(s.prefab),
     };
 
     public static readonly List<Recipe> Recipes = new()
@@ -133,7 +136,7 @@ internal class Fusion : MonoBehaviour
         {
             Id = "faerie", Name = "Faerie Lantern", Result = "FaerieLantern", Craft = CraftId.FaerieLantern,
             Desc = "Heals and warms scouts around you.\nFused: 150% range and burn time.",
-            Ingredients = new[] { Tree(TreeId.Light, "Lantern (max)", i => Trees.Classify(i) == TreeId.Light), Any("Candle", Items.IsCandle, "Candle"), HolyKit() },
+            Ingredients = new[] { Light(), Kit(1, "Radiant Health Pack (max)") },
             Trees = new[] { TreeId.Light, TreeId.Bandage },
         },
         new Recipe
@@ -228,7 +231,8 @@ internal class Fusion : MonoBehaviour
             bool ok = true;
             foreach (var ing in recipe.Ingredients)
             {
-                var slot = pockets.FirstOrDefault(s => !used.Contains(s.itemSlotID) && ing.Match(s.prefab)
+                var slot = pockets.OrderByDescending(s => ing.Prefer != null && ing.Prefer(s))
+                    .FirstOrDefault(s => !used.Contains(s.itemSlotID) && ing.Match(s.prefab)
                     && (ing.SlotReady == null ? ing.Ready() : ing.SlotReady(s)));
                 if (slot == null) { ok = false; break; }
                 used.Add(slot.itemSlotID);

@@ -5,6 +5,7 @@ using Peak;
 using Peak.Afflictions;
 using Photon.Pun;
 using UnityEngine;
+using UnityEngine.InputSystem;
 using Zorro.Core;
 
 namespace PeakRoguelike;
@@ -99,11 +100,33 @@ internal class Relics : MonoBehaviour
 
     private void Update()
     {
-        if (!ModConfig.Relics.Value || Time.time < nextScan) return;
-        nextScan = Time.time + 0.5f;
+        if (!ModConfig.Relics.Value) return;
         Character me = Character.localCharacter;
         Player p = Player.localPlayer;
-        if (me == null || p == null) { wasDead = false; return; }
+        if (me == null || p == null) { wasDead = false; offerFlatSince = -1f; return; }
+        // The Void: no relics at all - nothing binds, nothing waits to be offered.
+        if (VoidRun.Active)
+        {
+            laterShared.Clear();
+            randomOffers.Clear();
+            while (sharedOffers.Count > 0) { sharedOffers.Dequeue(); Net.SharedDone(); }
+            offerFlatSince = -1f;
+            return;
+        }
+
+        // The relic key reopens a shared relic left for later - anywhere, any time.
+        laterShared.RemoveAll(g => RunState.Relics.ContainsKey(g) && !RunState.IsCursed(g));
+        if (laterShared.Count > 0 && !ChoiceScreen.IsOpen && !me.data.dead && !me.data.passedOut
+            && Keyboard.current != null && Keyboard.current[ModConfig.RelicKey.Value].wasPressedThisFrame)
+        {
+            var gem = laterShared[0];
+            laterShared.RemoveAt(0);
+            OfferShared(gem, later: true);
+            return;
+        }
+
+        if (Time.time < nextScan) return;
+        nextScan = Time.time + 0.5f;
 
         if (me.data.dead && !wasDead) { deathAt = Time.time; DropOnDeath(me); }
         // Raised by the Book of Bones after dying to a dark rite (your own skull, or someone's dagger):
@@ -117,9 +140,21 @@ internal class Relics : MonoBehaviour
         wasDead = me.data.dead;
         // Testing: the dead don't choose shared relics - let the host's moon go on without them.
         if (me.data.dead) while (sharedOffers.Count > 0) { sharedOffers.Dequeue(); Net.SharedDone(); }
-        if (ChoiceScreen.IsOpen || me.data.dead || me.data.passedOut) return;
-        if (sharedOffers.Count > 0) { OfferShared(sharedOffers.Dequeue()); return; }
-        if (randomOffers.Count > 0) { OfferRandom(randomOffers.Dequeue()); return; }
+        if (ChoiceScreen.IsOpen || me.data.dead || me.data.passedOut) { offerFlatSince = -1f; return; }
+        // Others' relics never pop up mid-climb: they wait for 1s of flat ground.
+        if (sharedOffers.Count > 0 || randomOffers.Count > 0)
+        {
+            if (!Xp.OnFlatGround(me)) offerFlatSince = -1f;
+            else if (offerFlatSince < 0f) offerFlatSince = Time.time;
+            else if (Time.time - offerFlatSince >= 1f)
+            {
+                offerFlatSince = -1f;
+                if (sharedOffers.Count > 0) OfferShared(sharedOffers.Dequeue());
+                else OfferRandom(randomOffers.Dequeue());
+                return;
+            }
+        }
+        else offerFlatSince = -1f;
 
         // With all three pockets full, a picked-up item rides in your hand (tempFullSlot) - an
         // amulet there never offered its relic until you juggled it into a pocket.
@@ -235,6 +270,20 @@ internal class Relics : MonoBehaviour
     // --- testing: shared relic pickups ------------------------------------------------------
 
     private static readonly Queue<RelicGem> sharedOffers = new();
+    /// <summary>Shared relics closed with "Later": the relic key brings them back.</summary>
+    private static readonly List<RelicGem> laterShared = new();
+    private static float offerFlatSince = -1f;
+
+    /// <summary>A shared relic is waiting for the relic key (the HUD pill), and its colour.</summary>
+    internal static RelicGem? Waiting => laterShared.Count > 0 ? laterShared[0] : null;
+
+    internal static void ResetOffers()
+    {
+        sharedOffers.Clear();
+        laterShared.Clear();
+        randomOffers.Clear();
+        offerFlatSince = -1f;
+    }
 
     /// <summary>Host (testing option): another scout bound a relic - everyone else gets that colour's choice.</summary>
     internal static void ReceiveSharedOffer(RelicGem gem, int binderActor)
@@ -303,10 +352,11 @@ internal class Relics : MonoBehaviour
         });
     }
 
-    private void OfferShared(RelicGem gem)
+    /// <param name="later">Reopened with the relic key: the host's moon already counted this scout as answered.</param>
+    private void OfferShared(RelicGem gem, bool later = false)
     {
         // Already carrying this colour (a cursed copy can still be traded up).
-        if (RunState.Relics.ContainsKey(gem) && !RunState.IsCursed(gem)) { Net.SharedDone(); return; }
+        if (RunState.Relics.ContainsKey(gem) && !RunState.IsCursed(gem)) { if (!later) Net.SharedDone(); return; }
         var options = All.Where(r => r.Gem == gem).ToList();
         var amulet = Amulet(gem);
         ChoiceScreen.Show(new ScreenSpec
@@ -315,7 +365,7 @@ internal class Relics : MonoBehaviour
             Subtitle = GemName(gem),
             Warning = ModConfig.BloodMoon.Value && ModConfig.BmWarning.Value ? "The moon remembers who takes it." : "",
             Confirm = "BIND",
-            BackHint = "Leave it",
+            BackHint = $"Later ({ModConfig.RelicKey.Value} to reopen)",
             Cards = options.Select(o => new CardSpec
             {
                 Style = CardStyle.Relic,
@@ -332,12 +382,18 @@ internal class Relics : MonoBehaviour
                 var relic = options[i];
                 RunState.SetRelic(relic.Gem, relic.Trigger, isShared: true);
                 Hud.Banner(GemName(relic.Gem).ToUpperInvariant(), relic.Name, GemColor(relic.Gem));
-                Plugin.Log.LogInfo($"Bound shared relic {relic.Name} (testing).");
-                Net.SharedDone();
+                Plugin.Log.LogInfo($"Bound shared relic {relic.Name}{(later ? " (reopened)" : "")}.");
+                if (!later) Net.SharedDone();
             },
-            OnBack = () => Net.SharedDone(),
-            // Knocked out, screen closed by the game...: not a choice. It asks again next scan.
-            OnCancelled = () => sharedOffers.Enqueue(gem),
+            // "Later": the moon goes on without waiting; the relic key brings the choice back.
+            OnBack = () =>
+            {
+                if (!laterShared.Contains(gem)) laterShared.Add(gem);
+                Plugin.Log.LogInfo($"Shared relic {GemName(gem)} left for later.");
+                if (!later) Net.SharedDone();
+            },
+            // Knocked out, screen closed by the game...: not a choice. It asks again on flat ground.
+            OnCancelled = () => { if (later) laterShared.Insert(0, gem); else sharedOffers.Enqueue(gem); },
         });
     }
 
@@ -507,8 +563,8 @@ internal class Relics : MonoBehaviour
             return;
         }
         Plugin.Log.LogInfo($"{verb} {item.gameObject.name}: food={food} healing={healing}");
-        if (food) Trigger(RelicTrigger.Food);
-        if (healing) Trigger(RelicTrigger.Healing);
+        if (food) Trigger(RelicTrigger.Food, item);
+        if (healing) Trigger(RelicTrigger.Healing, item);
     }
 
     /// <summary>We fed or healed another scout: our food / healing relics fire on both of us.</summary>
@@ -587,6 +643,18 @@ internal class Relics : MonoBehaviour
 
     internal static void Trigger(RelicTrigger trigger) => Fire(trigger, null);
 
+    /// <summary>What set the relics off: an item and/or a tool you got off ("rope", "glide"...) - badges spare some of them the glass.</summary>
+    private static Item? firingItem;
+    private static string firingKind = "";
+
+    internal static void Trigger(RelicTrigger trigger, Item? item, string kind = "")
+    {
+        firingItem = item;
+        firingKind = kind;
+        try { Fire(trigger, null); }
+        finally { firingItem = null; firingKind = ""; }
+    }
+
     /// <summary>
     /// Fire my relics of this kind: on me, and/or shared onto another scout (they get the
     /// effect and the glass on their side). I pay the glass whenever one of mine goes off.
@@ -638,7 +706,8 @@ internal class Relics : MonoBehaviour
 
     private static void Glass(Character me, RelicGem gem)
     {
-        me.refs.afflictions.AddPetrify(ModConfig.GlassPerTrigger.Value);
+        int glass = Badges.GlassFor(ModConfig.GlassPerTrigger.Value, firingItem, firingKind);
+        if (glass > 0) me.refs.afflictions.AddPetrify(glass);
         Hud.Pulse(gem);
     }
 
@@ -794,7 +863,9 @@ internal static class RelicPatches
         Relics.DarkRite(__instance);
         // Tools you ride (ropes, pitons, beanstalks, gliders, balloons, jetpacks) fire when you
         // get off them (ToolRelics); lanterns when lit (below); the rest when the use completes.
-        if (Relics.IsMovementItem(__instance) && !ToolRelics.FiresOnDismount(__instance)) Relics.Trigger(RelicTrigger.Movement);
+        if (Relics.IsMovementItem(__instance) && !ToolRelics.FiresOnDismount(__instance)) Relics.Trigger(RelicTrigger.Movement, __instance);
+        // Leave No Trace: every item you use costs glass.
+        if (Badges.Has(BadgeId.LeaveNoTrace)) holder.refs.afflictions.AddPetrify(ModConfig.GlassPerTrigger.Value);
     }
 
     /// <summary>Lighting a lantern (not snuffing it) fires healing relics; a Faerie Lantern fires food, healing and tool relics.</summary>
@@ -808,10 +879,10 @@ internal static class RelicPatches
             var holder = item?.holderCharacter;
             if (lantern == null || holder == null || !holder.IsLocal) return;
             if (lantern.GetData<BoolItemData>(DataEntryKey.FlareActive).Value) return; // about to snuff
-            Relics.Trigger(RelicTrigger.Healing);
+            Relics.Trigger(RelicTrigger.Healing, item);
             if (!Items.IsFaerie(item!)) return;
-            Relics.Trigger(RelicTrigger.Food);
-            Relics.Trigger(RelicTrigger.Movement);
+            Relics.Trigger(RelicTrigger.Food, item);
+            Relics.Trigger(RelicTrigger.Movement, item);
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Lantern relic hook failed: {e.Message}"); }
     }

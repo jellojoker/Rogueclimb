@@ -23,6 +23,10 @@ internal class Hud : MonoBehaviour
     private CanvasGroup stackPrompt = null!;
     private TextMeshProUGUI stackLabel = null!;
     private float stackAlpha;
+    private CanvasGroup relicPrompt = null!;
+    private TextMeshProUGUI relicLabel = null!;
+    private Image relicGlow = null!;
+    private float relicAlpha;
     private TextMeshProUGUI ropeMeter = null!;
     private float ropeAlpha;
 
@@ -102,6 +106,20 @@ internal class Hud : MonoBehaviour
         Ui.Stretch(stackLabel.rectTransform);
         stackLabel.characterSpacing = 3;
 
+        // "Relic waiting" pill (the waiting relic's colour), under the others.
+        var relicPill = Ui.Rect(root, "RelicWaiting");
+        relicPill.anchorMin = relicPill.anchorMax = relicPill.pivot = new Vector2(0f, 1f);
+        relicPill.anchoredPosition = new Vector2(30, -216);
+        relicPill.sizeDelta = new Vector2(250, 40);
+        relicPrompt = relicPill.gameObject.AddComponent<CanvasGroup>();
+        relicPrompt.alpha = 0f;
+        relicGlow = Ui.Image(relicPill, "Glow", UiArt.Glow(96, 40, 18, 18), new Color(0.75f, 0.55f, 0.15f, 0.75f));
+        relicGlow.rectTransform.sizeDelta = new Vector2(290, 70);
+        relicGlow.rectTransform.anchoredPosition = new Vector2(125, -20);
+        relicLabel = Ui.Text(relicPill, "Label", "", UiArt.BodyFont, 19, ChoiceScreen.Cream, TextAlignmentOptions.Center);
+        Ui.Stretch(relicLabel.rectTransform);
+        relicLabel.characterSpacing = 3;
+
         // Rope readout above the item bar while a spool is in hand.
         ropeMeter = Ui.Text(root, "RopeMeter", "", UiArt.BodyFont, 22, ChoiceScreen.Cream, TextAlignmentOptions.Center);
         ropeMeter.rectTransform.anchorMin = ropeMeter.rectTransform.anchorMax = new Vector2(0.5f, 0f);
@@ -140,71 +158,77 @@ internal class Hud : MonoBehaviour
             // A cursed copy is a darker, bruised version of the gem.
             Color c = cursedCopy ? Color.Lerp(Relics.GemColor(kv.Key), new Color(0.25f, 0.05f, 0.3f), 0.55f) : Relics.GemColor(kv.Key);
             var m = new Medallion();
-            m.Rect = Ui.Rect(tray, def.Name);
-            m.Rect.anchorMin = m.Rect.anchorMax = new Vector2(0f, 1f);
-            m.Rect.sizeDelta = new Vector2(76, 76);
-            m.Rect.anchoredPosition = new Vector2(38 + i * 90, -38);
-
+            m.Rect = TraySlot(def.Name, i);
+            // Only shows when the relic fires (Pulse).
             m.Glow = Ui.Image(m.Rect, "Glow", UiArt.Radial(128, 0.2f, 1.6f), new Color(c.r, c.g, c.b, 0.0f));
             m.Glow.rectTransform.sizeDelta = new Vector2(150, 150);
-            var shadow = Ui.Image(m.Rect, "Shadow", UiArt.Radial(128, 0.55f, 1.2f), new Color(0, 0, 0, 0.6f));
-            shadow.rectTransform.sizeDelta = new Vector2(100, 100);
-            var ring = Ui.Image(m.Rect, "Ring", UiArt.Ring(128, 0.82f), Color.Lerp(c, Color.black, 0.45f));
-            ring.rectTransform.sizeDelta = new Vector2(80, 80);
             // The real amulet's icon; the mockup gem only if the amulet can't be found.
             if (Items.Icon(Relics.Amulet(kv.Key)) is { } icon)
             {
-                var gem = new GameObject("Gem", typeof(RectTransform)).AddComponent<RawImage>();
-                gem.rectTransform.SetParent(m.Rect, false);
-                gem.rectTransform.sizeDelta = new Vector2(64, 64);
-                gem.texture = icon;
-                gem.raycastTarget = false;
+                var gem = TrayPicture(m.Rect, icon);
                 if (cursedCopy) gem.color = new Color(0.55f, 0.4f, 0.6f);
             }
             else
             {
                 var gem = Ui.Image(m.Rect, "Gem", UiArt.Embedded($"gem_{kv.Key.ToString().ToLowerInvariant()}"), Color.white);
-                gem.rectTransform.sizeDelta = new Vector2(68, 68);
+                gem.rectTransform.sizeDelta = new Vector2(72, 72);
             }
-            var rim = Ui.Image(m.Rect, "Rim", UiArt.Ring(128, 0.9f), Color.Lerp(c, Color.white, 0.35f));
-            rim.rectTransform.sizeDelta = new Vector2(78, 78);
-
-            string text = kv.Value.ToString().ToUpperInvariant() + (stack > 0 ? $"  x{stack + 1}" : "");
-            var label = Ui.Text(m.Rect, "Trigger", text, UiArt.BodyFont, 12, Color.Lerp(c, Color.white, 0.5f), TextAlignmentOptions.Center);
-            label.rectTransform.sizeDelta = new Vector2(90, 18);
-            label.rectTransform.anchoredPosition = new Vector2(0, -48);
-            label.characterSpacing = 4;
-            label.fontStyle = FontStyles.Bold;
-
+            TrayName(m.Rect, def.Name.ToUpperInvariant() + (stack > 0 ? $"  x{stack + 1}" : ""), Color.Lerp(c, Color.white, 0.55f));
             medallions[kv.Key] = m;
             i++;
         }
 
-        // The starting relic: the curio's own picture in a plain silver ring (it never touches the moon).
+        // The starting relic: the curio's own picture (it never touches the moon).
         if (CurioRelics.TrayIcon() is { } curio)
         {
-            Color c = new Color(0.82f, 0.84f, 0.88f);
-            var rect = Ui.Rect(tray, CurioRelics.Name(CurioRelics.Mine));
-            rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
-            rect.sizeDelta = new Vector2(76, 76);
-            rect.anchoredPosition = new Vector2(38 + i * 90, -38);
-            var shadow = Ui.Image(rect, "Shadow", UiArt.Radial(128, 0.55f, 1.2f), new Color(0, 0, 0, 0.6f));
-            shadow.rectTransform.sizeDelta = new Vector2(100, 100);
-            var ring = Ui.Image(rect, "Ring", UiArt.Ring(128, 0.82f), Color.Lerp(c, Color.black, 0.45f));
-            ring.rectTransform.sizeDelta = new Vector2(80, 80);
-            var pic = new GameObject("Curio", typeof(RectTransform)).AddComponent<RawImage>();
-            pic.rectTransform.SetParent(rect, false);
-            pic.rectTransform.sizeDelta = new Vector2(60, 60);
-            pic.texture = curio;
-            pic.raycastTarget = false;
-            var rim = Ui.Image(rect, "Rim", UiArt.Ring(128, 0.9f), c);
-            rim.rectTransform.sizeDelta = new Vector2(78, 78);
-            var label = Ui.Text(rect, "Kind", "RELIC", UiArt.BodyFont, 12, c, TextAlignmentOptions.Center);
-            label.rectTransform.sizeDelta = new Vector2(90, 18);
-            label.rectTransform.anchoredPosition = new Vector2(0, -48);
-            label.characterSpacing = 4;
-            label.fontStyle = FontStyles.Bold;
+            var rect = TraySlot(CurioRelics.Name(CurioRelics.Mine), i);
+            TrayPicture(rect, curio);
+            TrayName(rect, CurioRelics.Name(CurioRelics.Mine).ToUpperInvariant(), new Color(0.88f, 0.9f, 0.94f));
+            i++;
         }
+
+        // Badge relics: the game's badge picture, its name underneath.
+        foreach (var id in Badges.Owned)
+        {
+            var def = Badges.Get(id);
+            var rect = TraySlot(def.Name, i);
+            if (Badges.Icon(id) is { } pic) TrayPicture(rect, pic);
+            TrayName(rect, def.Name.ToUpperInvariant(), new Color(0.95f, 0.86f, 0.62f));
+            i++;
+        }
+    }
+
+    // A relic in the tray: just its picture, its name underneath.
+    private RectTransform TraySlot(string name, int i)
+    {
+        var rect = Ui.Rect(tray, name);
+        rect.anchorMin = rect.anchorMax = new Vector2(0f, 1f);
+        rect.sizeDelta = new Vector2(76, 76);
+        rect.anchoredPosition = new Vector2(44 + (i % 10) * 96, -38 - (i / 10) * 100); // ten to a row
+        return rect;
+    }
+
+    private static RawImage TrayPicture(RectTransform slot, Texture icon)
+    {
+        var pic = new GameObject("Picture", typeof(RectTransform)).AddComponent<RawImage>();
+        pic.rectTransform.SetParent(slot, false);
+        pic.rectTransform.sizeDelta = new Vector2(72, 72);
+        pic.texture = icon;
+        pic.raycastTarget = false;
+        return pic;
+    }
+
+    private static void TrayName(RectTransform slot, string text, Color color)
+    {
+        var label = Ui.Text(slot, "Name", text, UiArt.BodyFont, 13, color, TextAlignmentOptions.Center);
+        label.rectTransform.sizeDelta = new Vector2(96, 18);
+        label.rectTransform.anchoredPosition = new Vector2(0, -46);
+        label.enableAutoSizing = true;
+        label.fontSizeMin = 9;
+        label.fontSizeMax = 13;
+        label.textWrappingMode = TextWrappingModes.NoWrap;
+        label.characterSpacing = 2;
+        label.fontStyle = FontStyles.Bold;
     }
 
     public static void Pulse(RelicGem gem)
@@ -508,5 +532,20 @@ internal class Hud : MonoBehaviour
         stackPrompt.alpha = stackAlpha * (0.75f + 0.25f * Mathf.Sin(now * 3f));
         if (stack) stackLabel.text = $"STACK READY  <color=#FFE3A0>[{ModConfig.StackKey.Value}]</color>";
         stackPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight - 44f * fusionAlpha);
+
+        // Shared relic left for later: below the fusion and stack pills.
+        // (Or the statue's dark gift, put off - same key, the relic goes first.)
+        var waiting = Relics.Waiting;
+        bool dark = waiting == null && Blessing.DarkWaiting;
+        bool relic = (waiting != null || dark) && !ChoiceScreen.IsOpen;
+        relicAlpha = Mathf.MoveTowards(relicAlpha, relic ? 1f : 0f, Time.unscaledDeltaTime * 4f);
+        relicPrompt.alpha = relicAlpha * (0.75f + 0.25f * Mathf.Sin(now * 3f));
+        if (relic)
+        {
+            Color c = dark ? (Color)new Color32(0x9A, 0x6B, 0xC8, 0xFF) : Relics.GemColor(waiting!.Value);
+            relicGlow.color = new Color(c.r * 0.8f, c.g * 0.8f, c.b * 0.8f, 0.75f);
+            relicLabel.text = $"{(dark ? "GIFT WAITING" : "RELIC WAITING")}  <color=#{ColorUtility.ToHtmlStringRGB(Color.Lerp(c, Color.white, 0.55f))}>[{ModConfig.RelicKey.Value}]</color>";
+        }
+        relicPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight - 44f * fusionAlpha - 44f * stackAlpha);
     }
 }

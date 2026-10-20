@@ -44,8 +44,8 @@ internal class Suns : MonoBehaviour
     internal static bool Red => Hits(RelicGem.Initiative);
     internal static bool Blue => Hits(RelicGem.Tenacity);
     private static bool On => ModConfig.Suns.Value;
-    /// <summary>The Shore teaches each sun: blue glass, yellow drowsiness, a withered green card.</summary>
-    internal static bool OnShore => InRun && Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore;
+    /// <summary>The Shore teaches each sun: blue glass, yellow drowsiness, a withered green card. The Void tests it.</summary>
+    internal static bool OnShore => InRun && (VoidRun.Active || Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore);
 
     // A relic beats its own sun: carrying it, that sun can't touch you.
     private static bool Hits(RelicGem gem) => On && Current == gem && !Sanctuary.SunSpared && !(ModConfig.Relics.Value && RunState.Relics.ContainsKey(gem));
@@ -69,7 +69,7 @@ internal class Suns : MonoBehaviour
     private static bool InRun =>
         DayNightManager.instance != null && GameUtils.instance != null && !GameUtils.instance.m_inAirport && MapHandler.Exists;
 
-    private static bool IsDay => InRun && DayNightManager.instance.isDay >= 0.5f;
+    private static bool IsDay => InRun && (VoidRun.Active || DayNightManager.instance.isDay >= 0.5f);
 
     private void Update()
     {
@@ -276,6 +276,7 @@ internal class Suns : MonoBehaviour
         if (sun == null) return false;
         var item = me.data.currentItem;
         if (item != null && item.gliderHold) return false; // (an open parasol spares you through SunSpared - a burnt one doesn't)
+        if (VoidRun.Active) return true; // no shade in the Void
         var hit = HelperFunctions.LineCheck(me.Center - sun.transform.forward * 1000f, me.Center, HelperFunctions.LayerType.AllPhysical);
         return hit.transform == null || hit.transform.root == me.transform.root;
     }
@@ -285,6 +286,7 @@ internal class Suns : MonoBehaviour
 
     private static RelicGem? TodaysSun()
     {
+        if (VoidRun.Active) return VoidRun.Sun();
         if (FinalStretch)
         {
             // Peak / Citadel / Kiln: a different held relic's colour each day.
@@ -430,6 +432,38 @@ internal class Suns : MonoBehaviour
         _ => (new Color(0.55f, 0.72f, 1f), new Color(0f, 0.28f, 1f), new Color(0.04f, 0.45f, 1f), new Color(0.25f, 0.62f, 1f)),
     };
 
+    private const float MaxBoost = 2.5f;
+    private static RelicGem? boostLogged;
+
+    /// <summary>How bright a colour looks (Rec. 709 weights).</summary>
+    private static float Luma(Color c) => 0.2126f * c.r + 0.7152f * c.g + 0.0722f * c.b;
+
+    // --- the shade under a coloured sun ------------------------------------------------------------
+    // PEAK's ambient light (its light volume's _AmbienceStrength - see LightsOut) never takes the sun's
+    // colour, so shade looks murky next to the coloured light: it's raised a little while a sun shows.
+    // The game's own value is remembered per scene and put back as the sun fades.
+
+    private static readonly int AmbStrength = Shader.PropertyToID("_AmbienceStrength");
+    private float shadeBase = -1f;
+    private int shadeScene = -1;
+
+    private void LateUpdate()
+    {
+        if (LightsOut.Active) return; // lights out owns the ambient while it lasts
+        int scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().handle;
+        if (scene != shadeScene) { shadeScene = scene; shadeBase = -1f; }
+        float lift = Shown != null && IsDay ? Mathf.Clamp(ModConfig.SunShade.Value, 0f, 0.5f) * Blend : 0f;
+        // A blood moon / eclipse darkens the shade instead (its night look).
+        float dim = BloodMoon.Visuals.AmbientDim;
+        if (lift <= 0f && dim <= 0f)
+        {
+            if (shadeBase >= 0f) { Shader.SetGlobalFloat(AmbStrength, shadeBase); shadeBase = -1f; }
+            return;
+        }
+        if (shadeBase < 0f) shadeBase = Shader.GetGlobalFloat(AmbStrength);
+        Shader.SetGlobalFloat(AmbStrength, shadeBase * (1f + lift) * (1f - dim));
+    }
+
     [HarmonyPatch]
     private static class SkyPatches
     {
@@ -474,6 +508,20 @@ internal class Suns : MonoBehaviour
                 // Past 1 the light overshoots the sun's colour (more saturated), never below black.
                 Color lit = Color.LerpUnclamped(c, hue, k);
                 d.sun.color = new Color(Mathf.Max(0f, lit.r), Mathf.Max(0f, lit.g), Mathf.Max(0f, lit.b), c.a);
+                // A deep colour is a dim light (blue keeps about a third of white's brightness): the
+                // sun shines harder to make up what the colour took, so the day stays as bright.
+                float before = Luma(c), after = Luma(d.sun.color);
+                if (before > 0.001f && after > 0.001f)
+                {
+                    float ratio = Mathf.Clamp(before / after, 1f, MaxBoost);
+                    float boost = Mathf.Clamp(Mathf.LerpUnclamped(1f, ratio, Mathf.Clamp(ModConfig.SunBrightness.Value, 0f, 1.5f)), 0.1f, MaxBoost);
+                    d.sun.intensity *= boost;
+                    if (gem != boostLogged && Blend >= 1f)
+                    {
+                        boostLogged = gem;
+                        Plugin.Log.LogInfo($"Sun: {ColorName(gem)} light is {after / before:P0} as bright - boosted x{boost:0.00}.");
+                    }
+                }
             }
         }
     }

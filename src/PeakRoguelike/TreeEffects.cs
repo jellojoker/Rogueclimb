@@ -135,11 +135,8 @@ internal static class Stats
     /// <summary>Balloons one single-balloon item ties: two from level 3.</summary>
     public static int BalloonTies(int lv) => On && lv >= 3 ? 2 : 1;
 
-    /// <summary>One steady climb speed (units/s): the longest flight rises exactly one max-length vanilla rope.</summary>
-    public static float BalloonRiseSpeed => MaxRope / Mathf.Max(0.5f, BalloonFlightTable.DefaultIfEmpty(1f).Max());
-
-    /// <summary>A full vanilla rope: 40 segments of 0.75 units.</summary>
-    public static float MaxRope => Rope.MaxSegments * 0.75f;
+    /// <summary>One steady climb speed (units/s) for every balloon flight (config BalloonRiseSpeed, m/s).</summary>
+    public static float BalloonRiseSpeed => Mathf.Max(0.1f, ModConfig.BalloonRiseSpeed.Value) / CharacterStats.unitsToMeters;
 
     private static string flightKey = "";
     private static float[] flightTable = new float[0];
@@ -397,6 +394,7 @@ internal static class TreePatches
         float capacity = Stats.On
             ? Stats.RopeSegments(__instance.isAntiRope, lv, br, li.VanillaRopeFuel, RopeSpacing(__instance)) ?? li.VanillaRopeFuel
             : li.VanillaRopeFuel;
+        if (Badges.Has(BadgeId.KnotTying)) capacity *= 1f + Badges.Buff;
         __instance.minSegments = Mathf.Min(li.VanillaMinSegments, capacity * 0.5f);
         __instance.ropeStartFuel = capacity;
 
@@ -437,7 +435,7 @@ internal static class TreePatches
     [HarmonyPostfix, HarmonyPatch(typeof(CharacterItems), "HammerClimbingSpike")]
     private static void MarkBrittle(CharacterItems __instance, RaycastHit hit, int __state)
     {
-        if (!Stats.On || !__instance.character.IsLocal) return;
+        if (!Stats.On || !__instance.character.IsLocal || Badges.Has(BadgeId.Bouldering)) return;
         if (Stats.PitonHoldSeconds(__state) is { } seconds)
             Net.MarkBrittlePiton(hit.point, seconds);
     }

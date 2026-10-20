@@ -17,6 +17,8 @@ A roguelike mod for PEAK. Crates, statues and amulets turn every climb into a ru
 - **Pockets** - backpacks and fanny packs become extra pockets. Three of the same item stack,
   and a full stack levels up.
 - **Starting relics** - the crash site holds a few gifts. Choose one.
+- **Badge relics** - the game's own scout badges as run-long relics: blessing statues offer
+  three, revives hand everyone one, Ancient Luggage may hold one. Each card says what it does.
 - **Supply drops and flares** - help falls from the sky. A flare can call it, or deal a crate again.
 - **XP** - climb, open crates and use what they give you; every level is another pick.
 

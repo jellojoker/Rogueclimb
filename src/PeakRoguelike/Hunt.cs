@@ -482,7 +482,7 @@ internal class ScoutmasterHunt : MonoBehaviour
         HuntPatches.Discovered(sm) = null!;
     }
 
-    private static bool SomeoneSees(Vector3 pos)
+    internal static bool SomeoneSees(Vector3 pos)
     {
         foreach (var c in Character.AllCharacters)
         {

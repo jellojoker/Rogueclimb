@@ -16,7 +16,7 @@ public enum Curio { None, Bugle, Binoculars, Compass, Frisbee, BingBong }
 /// <summary>
 /// Starting relics: the crash-site curios. Each scout binds one (the curio stays where it lies, so
 /// everyone can pick from all of them). Normal relics: they never raise or add to a blood moon.
-///   Bugle      - helping hand reaches twice as far, carried scouts weigh half, more healing in crates
+///   Bugle      - helping hand reaches twice as far, pulls (and is pulled) twice as hard, carried scouts weigh half, more healing in crates
 ///   Binoculars - pings the nearest item lying in the world, more food in crates
 ///   Compass    - pings the nearest unopened crate, more tools in crates (the Pirate Compass too)
 ///   Frisbee    - everything you throw knocks back what it hits
@@ -50,6 +50,19 @@ internal class CurioRelics : MonoBehaviour
         Publish();
     }
 
+    /// <summary>The Void takes the starting relic too (the run's other state stays).</summary>
+    internal static void Wipe()
+    {
+        if (Mine == Curio.None) return;
+        Plugin.Log.LogInfo($"Curio relic: the Void took the {Name(Mine)}.");
+        Mine = Curio.None;
+        BingBongPranks.Reset();
+        LightsOut.End();
+        Marker.Hide();
+        Publish();
+        RunState.Touch();
+    }
+
     // --- what is what ---------------------------------------------------------------------------
 
     internal static Curio KindOf(Item? item)
@@ -75,7 +88,7 @@ internal class CurioRelics : MonoBehaviour
 
     internal static string Desc(Curio c) => c switch
     {
-        Curio.Bugle => "Your helping hand reaches twice as far.\nScouts you carry weigh half as much.\nMore healing in your crates.",
+        Curio.Bugle => "Your helping hand reaches twice as far and pulls twice as hard.\nHelping hands pull you up twice as hard.\nScouts you carry weigh half as much.\nMore healing in your crates.",
         Curio.Binoculars => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest useful thing lying out in the world.\nMore food in your crates.",
         Curio.Compass => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest unopened crate.\nMore tools in your crates.",
         Curio.Frisbee => "Everything you throw knocks back whatever it hits.",
@@ -89,12 +102,36 @@ internal class CurioRelics : MonoBehaviour
             && !(c == Curio.Compass && i.GetComponentInChildren<CompassPointer>(true)?.compassType == CompassPointer.CompassType.Pirate));
 
     /// <summary>Does this scout carry this starting relic? (Others' come from their player properties.)</summary>
+    /// <summary>A player's starting relic, from their player properties (for bug reports).</summary>
+    internal static Curio Of(Photon.Realtime.Player p) =>
+        p.IsLocal ? Mine : p.CustomProperties.TryGetValue(PropKey, out object raw) && raw is int v ? (Curio)v : Curio.None;
+
+    /// <summary>This scout has a starting relic's effects: their own, or a badge relic copying it.</summary>
+    internal static bool Has(Curio kind) =>
+        kind != Curio.None && (Mine == kind || Badges.GrantsCurio(PhotonNetwork.LocalPlayer, kind));
+
+    private static readonly Curio[] Kinds = { Curio.Bugle, Curio.Binoculars, Curio.Compass, Curio.Frisbee, Curio.BingBong };
+
+    /// <summary>Any starting-relic effect at all (own or from a badge).</summary>
+    private static bool AnyActive => Mine != Curio.None || Kinds.Any(Has);
+
+    /// <summary>The one HUD marker: your own relic's if it marks things, else a badge's (the Compass before the Binoculars).</summary>
+    private static Curio MarkerKind =>
+        Mine is Curio.Compass or Curio.Binoculars ? Mine : Has(Curio.Compass) ? Curio.Compass : Has(Curio.Binoculars) ? Curio.Binoculars : Curio.None;
+
+    /// <summary>A badge relic just gave you a starting relic's effects: its clocks start now.</summary>
+    internal static void BadgeBound(Curio c)
+    {
+        nextPing = Time.time + 1f;
+        if (c == Curio.BingBong) nextPrank = Time.time + Random.Range(ModConfig.BingBongMinSeconds.Value, ModConfig.BingBongMaxSeconds.Value);
+    }
+
     internal static bool Holds(Character? c, Curio kind)
     {
         if (c == null || kind == Curio.None) return false;
-        if (c.IsLocal) return Mine == kind;
+        if (c.IsLocal) return Has(kind);
         var owner = c.photonView?.Owner;
-        return owner != null && owner.CustomProperties.TryGetValue(PropKey, out object raw) && raw is int v && v == (int)kind;
+        return owner != null && ((owner.CustomProperties.TryGetValue(PropKey, out object raw) && raw is int v && v == (int)kind) || Badges.GrantsCurio(owner, kind));
     }
 
     /// <summary>On the Shore, while some scout with the mod has yet to bind a starting relic.</summary>
@@ -230,7 +267,7 @@ internal class CurioRelics : MonoBehaviour
     /// </summary>
     private static void LatePick(Character? me)
     {
-        if (!ModConfig.CurioRelics.Value || Mine != Curio.None || sawShore || ChoiceScreen.IsOpen) { flatSince = -1f; return; }
+        if (!ModConfig.CurioRelics.Value || Mine != Curio.None || sawShore || ChoiceScreen.IsOpen || VoidRun.Active) { flatSince = -1f; return; }
         if (me == null || !MapHandler.Exists || LoadingScreenHandler.loading) { flatSince = -1f; return; }
         int seg = Singleton<MapHandler>.Instance.currentSegment;
         if (seg == 0 || seg == declinedAt || !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
@@ -264,10 +301,10 @@ internal class CurioRelics : MonoBehaviour
             try { BingBongPranks.TickHidden(self); }
             catch (System.Exception e) { Plugin.Log.LogError($"Bing Bong hidden item failed: {e}"); }
         }
-        if (!ModConfig.CurioRelics.Value || Mine == Curio.None || Character.localCharacter is not { } me || me.data.dead) { Marker.Hide(); return; }
+        if (!ModConfig.CurioRelics.Value || !AnyActive || Character.localCharacter is not { } me || me.data.dead) { Marker.Hide(); return; }
         try
         {
-            if (Mine == Curio.Binoculars || Mine == Curio.Compass)
+            if (MarkerKind != Curio.None)
             {
                 if (Time.time >= nextPing || !StillMarked())
                 {
@@ -277,7 +314,7 @@ internal class CurioRelics : MonoBehaviour
                 ShowMarker(me);
             }
             else Marker.Hide();
-            if (Mine == Curio.BingBong && Time.time >= nextPrank) BingBongPranks.Tick(me, ref nextPrank);
+            if (Has(Curio.BingBong) && Time.time >= nextPrank) BingBongPranks.Tick(me, ref nextPrank);
         }
         catch (System.Exception e)
         {
@@ -292,7 +329,7 @@ internal class CurioRelics : MonoBehaviour
     private static float MetresTo(Character me, Vector3 p) => Vector3.Distance(me.Center, p) / M;
 
     /// <summary>The Compass looks out to FarM; the Binoculars see everywhere.</summary>
-    private static bool InRange(Character me, Vector3 p) => MetresTo(me, p) is var d && d >= NearM && (Mine == Curio.Binoculars || d <= FarM);
+    private static bool InRange(Character me, Vector3 p) => MetresTo(me, p) is var d && d >= NearM && (MarkerKind == Curio.Binoculars || d <= FarM);
 
     /// <summary>The Binoculars only find helpful things: food, healing, beans and fungi - never explosives.</summary>
     internal static bool Helpful(Item i)
@@ -305,7 +342,7 @@ internal class CurioRelics : MonoBehaviour
     }
 
     private static bool StillMarked() =>
-        Mine == Curio.Compass
+        MarkerKind == Curio.Compass
             ? markedCrate != null && markedCrate.state == Luggage.LuggageState.Closed
             : markedItem != null && markedItem.itemState == ItemState.Ground && markedItem.gameObject.activeInHierarchy;
 
@@ -314,7 +351,7 @@ internal class CurioRelics : MonoBehaviour
         var before = markedItem;
         markedCrate = null;
         markedItem = null;
-        if (Mine == Curio.Compass)
+        if (MarkerKind == Curio.Compass)
         {
             markedCrate = Luggage.ALL_LUGGAGE
                 .Where(l => l != null && l is not RespawnChest && l.state == Luggage.LuggageState.Closed && !SkyDrop.Falling(l) && InRange(me, l.Center()))
@@ -338,9 +375,9 @@ internal class CurioRelics : MonoBehaviour
 
     private static void ShowMarker(Character me)
     {
-        Vector3? at = Mine == Curio.Compass ? markedCrate?.Center() : markedItem?.Center();
+        Vector3? at = MarkerKind == Curio.Compass ? markedCrate?.Center() : markedItem?.Center();
         if (at == null || !StillMarked() || ChoiceScreen.IsOpen || !InRange(me, at.Value)) { Marker.Hide(); return; }
-        var colour = Mine == Curio.Compass ? new Color(0.92f, 0.78f, 0.55f) : new Color(0.6f, 0.95f, 0.55f);
+        var colour = MarkerKind == Curio.Compass ? new Color(0.92f, 0.78f, 0.55f) : new Color(0.6f, 0.95f, 0.55f);
         Marker.Show(at.Value + Vector3.up * 1.2f * M, $"{markedName} {MetresTo(me, at.Value):0}m", colour);
     }
 
@@ -349,7 +386,9 @@ internal class CurioRelics : MonoBehaviour
     /// <summary>Whoever rolls a crate: each card has a chance to become their relic's kind, from the same crate's pool.</summary>
     internal static void Boost(Luggage luggage, List<Item> cards)
     {
-        System.Func<Item, bool>? kind = Mine switch
+        Curio boost = Mine is Curio.Bugle or Curio.Binoculars or Curio.Compass ? Mine
+            : new[] { Curio.Bugle, Curio.Binoculars, Curio.Compass }.FirstOrDefault(Has);
+        System.Func<Item, bool>? kind = boost switch
         {
             Curio.Bugle => Relics.IsHealing,
             Curio.Binoculars => Relics.IsFood,
@@ -364,17 +403,68 @@ internal class CurioRelics : MonoBehaviour
             {
                 var pick = luggage.GetObjectsToSpawn(1, true)?.Where(o => o != null).Select(o => o.GetComponent<Item>()).FirstOrDefault(x => x != null);
                 if (pick == null || !kind(pick) || (ModConfig.Leveling.Value && Items.IsEarnedOnly(pick)) || cards.Any(c => c.itemID == pick.itemID)) continue;
-                Plugin.Log.LogInfo($"{Name(Mine)} relic: card {cards[i].gameObject.name} -> {pick.gameObject.name}.");
+                Plugin.Log.LogInfo($"{Name(boost)} relic: card {cards[i].gameObject.name} -> {pick.gameObject.name}.");
                 cards[i] = pick;
                 break;
             }
         }
     }
 
-    // --- Bugle: longer helping hand, lighter carries -------------------------------------------
+    // --- Bugle: longer, stronger helping hand, lighter carries ----------------------------------
 
     internal static float ReachFor(CharacterGrabbing g) =>
         ModConfig.CurioRelics.Value && Holds(g.character, Curio.Bugle) ? 8f : 4f;
+
+    /// <summary>Whose helping hand is pulling right now (set around CharacterGrabbing.Reach).</summary>
+    private static Character? helping;
+    private static float nextPullLog;
+
+    [HarmonyPrefix, HarmonyPatch(typeof(CharacterGrabbing), "Reach")]
+    private static void ReachStart(CharacterGrabbing __instance) => helping = __instance.character;
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(CharacterGrabbing), "Reach")]
+    private static void ReachEnd() => helping = null;
+
+    /// <summary>A Bugle on either end of the helping hand pulls twice as hard.</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(Character), "DragTowards")]
+    private static void StrongerPull(Character __instance, ref float force)
+    {
+        var helper = helping;
+        if (helper == null || !ModConfig.CurioRelics.Value) return;
+        bool helperHas = Holds(helper, Curio.Bugle), pulledHas = Holds(__instance, Curio.Bugle);
+        if (!helperHas && !pulledHas) return;
+        force *= 2f;
+        if (Time.time < nextPullLog) return;
+        nextPullLog = Time.time + 3f;
+        float d = Vector3.Distance(helper.Center, __instance.Center);
+        Plugin.Log.LogInfo($"Bugle pull: {helper.characterName} pulled {__instance.characterName} from {d / M:0.0}m ({d:0.0}u{(d > 4f ? ", past vanilla reach" : "")}), "
+            + $"bugle on {(helperHas && pulledHas ? "both" : helperHas ? "helper" : "pulled scout")}.");
+    }
+
+    private static readonly AccessTools.FieldRef<CharacterAnimations, Character> AnimChar =
+        AccessTools.FieldRefAccess<CharacterAnimations, Character>("character");
+
+    internal static float HelpArmFor(CharacterAnimations a) =>
+        ModConfig.CurioRelics.Value && Holds(AnimChar(a), Curio.Bugle) ? 7.5f : 3.5f;
+
+    /// <summary>The help pose shows out to the Bugle's full reach (vanilla shows it within 3.5u).</summary>
+    [HarmonyTranspiler, HarmonyPatch(typeof(CharacterAnimations), "Update")]
+    private static IEnumerable<CodeInstruction> LongerHelpArm(IEnumerable<CodeInstruction> code)
+    {
+        bool done = false;
+        foreach (var c in code)
+        {
+            if (!done && c.opcode == OpCodes.Ldc_R4 && c.operand is float f && f == 3.5f)
+            {
+                done = true;
+                yield return new CodeInstruction(OpCodes.Ldarg_0).MoveLabelsFrom(c);
+                yield return new CodeInstruction(OpCodes.Call, AccessTools.Method(typeof(CurioRelics), nameof(HelpArmFor)));
+                continue;
+            }
+            yield return c;
+        }
+        if (!done) Plugin.Log.LogWarning("Bugle relic: couldn't find the help pose's distance.");
+    }
 
     [HarmonyTranspiler, HarmonyPatch(typeof(CharacterGrabbing), "Reach")]
     private static IEnumerable<CodeInstruction> LongerReach(IEnumerable<CodeInstruction> code)
@@ -422,7 +512,7 @@ internal class CurioRelics : MonoBehaviour
     [HarmonyPostfix, HarmonyPatch(typeof(GlobalEvents), nameof(GlobalEvents.TriggerItemThrown))]
     private static void Thrown(Item item)
     {
-        if (!ModConfig.CurioRelics.Value || Mine != Curio.Frisbee || item == null) return;
+        if (!ModConfig.CurioRelics.Value || !Has(Curio.Frisbee) || item == null) return;
         if (item.lastThrownCharacter is { } thrower && !thrower.IsLocal) return;
         var k = item.GetComponent<FrisbeeKnock>() ?? item.gameObject.AddComponent<FrisbeeKnock>();
         k.Arm();
@@ -966,18 +1056,29 @@ internal static class BingBongPranks
 }
 
 /// <summary>
-/// Bing Bong's lights out: your screen goes near-black for a while, under the game's HUD and
-/// ours. The flashlight key (F) opens a soft circle of sight in the middle and shines a real
-/// light from your eyes.
+/// Bing Bong's lights out: the world's own light goes out for you alone, real lights keep working.
+/// The sun, moon, sky, fog and PEAK's ambient light (its light volume's _AmbienceStrength /
+/// _AmbienceMin - found by reading True Final Ascent's darkness, thanks CptPICHU) fade to black;
+/// campfires, lanterns, lava and flares light the world as they always do. No camera exposure, so
+/// nothing real is dimmed. F shines a real flashlight from your eyes. Sun effects keep working:
+/// they read the sun's direction and the time of day, and the sun light is never switched off.
 /// </summary>
+[HarmonyPatch]
 internal class LightsOut : MonoBehaviour
 {
     private static LightsOut? instance;
-    private Image dark = null!, beam = null!;
     private TextMeshProUGUI hint = null!;
     private Light? torch;
-    private float until, alpha;
+    private AudioSource? click;
+    private float until;
     private bool on;
+
+    /// <summary>How dark the world is right now (0 = normal, 1 = lights out).</summary>
+    internal static float Dark { get; private set; }
+
+    private static readonly int SkyTop = Shader.PropertyToID("SkyTopColor"),
+        SkyMid = Shader.PropertyToID("SkyMidColor"), SkyBottom = Shader.PropertyToID("SkyBottomColor"),
+        AmbStrength = Shader.PropertyToID("_AmbienceStrength"), AmbMin = Shader.PropertyToID("_AmbienceMin");
 
     internal static bool Active => instance != null;
 
@@ -1009,38 +1110,12 @@ internal class LightsOut : MonoBehaviour
         scaler.referenceResolution = new Vector2(1920, 1080);
         scaler.matchWidthOrHeight = 1f;
         var root = (RectTransform)transform;
-
-        dark = Ui.Image(root, "Dark", null, new Color(0f, 0f, 0f, 0f));
-        Ui.Stretch(dark.rectTransform);
-        // The flashlight: black with a soft hole, big enough to cover any screen shape.
-        beam = Ui.Image(root, "Beam", Hole(), new Color(0f, 0f, 0f, 0f));
-        beam.rectTransform.anchorMin = beam.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
-        beam.rectTransform.sizeDelta = new Vector2(4200f, 4200f);
         hint = Ui.Text(root, "Hint", "", UiArt.BodyFont, 20, ChoiceScreen.Muted, TextAlignmentOptions.Center);
         hint.rectTransform.anchorMin = hint.rectTransform.anchorMax = new Vector2(0.5f, 0f);
         hint.rectTransform.anchoredPosition = new Vector2(0f, 150f);
         hint.rectTransform.sizeDelta = new Vector2(600f, 30f);
-        foreach (var g in GetComponentsInChildren<Graphic>()) g.raycastTarget = false;
-    }
-
-    private static Sprite? hole;
-
-    /// <summary>Clear in the middle (about 210px of a 1080p screen), fading to black by about 400px.</summary>
-    private static Sprite Hole()
-    {
-        if (hole != null) return hole;
-        const int n = 512;
-        var tex = new Texture2D(n, n, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
-        var px = new Color32[n * n];
-        for (int y = 0; y < n; y++)
-            for (int x = 0; x < n; x++)
-            {
-                float d = new Vector2(x - n / 2f + 0.5f, y - n / 2f + 0.5f).magnitude / (n / 2f) * 2100f;
-                px[y * n + x] = new Color32(0, 0, 0, (byte)(255 * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(210f, 400f, d))));
-            }
-        tex.SetPixels32(px);
-        tex.Apply();
-        return hole = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f));
+        hint.raycastTarget = false;
+        Remember();
     }
 
     private void Update()
@@ -1048,17 +1123,115 @@ internal class LightsOut : MonoBehaviour
         var me = Character.localCharacter;
         bool live = Time.time < until && me != null && !me.data.dead;
         var kb = UnityEngine.InputSystem.Keyboard.current;
-        if (live && kb != null && !ChoiceScreen.IsOpen && !DevPanel.Interactive && kb[ModConfig.FlashlightKey.Value].wasPressedThisFrame) on = !on;
-        alpha = Mathf.MoveTowards(alpha, live ? 0.97f : 0f, Time.deltaTime / (live ? 0.6f : 1.2f));
-        dark.color = new Color(0f, 0f, 0f, on ? 0f : alpha);
-        beam.color = new Color(0f, 0f, 0f, on ? alpha : 0f);
+        if (live && kb != null && !ChoiceScreen.IsOpen && !DevPanel.Interactive && kb[ModConfig.FlashlightKey.Value].wasPressedThisFrame)
+        {
+            on = !on;
+            Click(on);
+        }
+        Dark = Mathf.MoveTowards(Dark, live ? 1f : 0f, Time.deltaTime / (live ? 1f : 1.2f));
         hint.text = live ? $"{ModConfig.FlashlightKey.Value}  Flashlight" : "";
-        hint.alpha = alpha * 0.55f;
+        hint.alpha = Dark * 0.55f;
         Torch(live && on);
-        if (!live && alpha <= 0f) Destroy(gameObject);
+        if (!live && Dark <= 0f) Destroy(gameObject);
     }
 
-    /// <summary>A real light from your eyes while the flashlight is on (night stays dark around it).</summary>
+    // --- the world's light ---------------------------------------------------------------------
+    // The day/night values the game sets every frame are dimmed right after it sets them (no restore
+    // needed). The rest are set now and then, so they're remembered once and put back at the end.
+
+    private float strengthWas, minWas, intensityWas, reflectWas;
+    private UnityEngine.Rendering.AmbientMode modeWas;
+    private Color fogWas, lightWas;
+
+    private void Remember()
+    {
+        strengthWas = Shader.GetGlobalFloat(AmbStrength);
+        minWas = Shader.GetGlobalFloat(AmbMin);
+        modeWas = RenderSettings.ambientMode;
+        intensityWas = RenderSettings.ambientIntensity;
+        reflectWas = RenderSettings.reflectionIntensity;
+        fogWas = RenderSettings.fogColor;
+        lightWas = RenderSettings.ambientLight;
+        var d = DayNightManager.instance;
+        Plugin.Log.LogInfo($"Lights out: the game's light was ambience {strengthWas:0.###} (min {minWas:0.###}), "
+            + $"ambient {modeWas} x{intensityWas:0.##}, reflections x{reflectWas:0.##}, fog {fogWas}, "
+            + (d != null && d.sun != null ? $"sun {d.sun.intensity:0.###}, moon {(d.moon != null ? d.moon.intensity : 0f):0.###}." : "no day/night."));
+    }
+
+    private void LateUpdate()
+    {
+        if (Dark <= 0f) return;
+        float k = 1f - Dark;
+        Shader.SetGlobalFloat(AmbStrength, strengthWas * k);
+        Shader.SetGlobalFloat(AmbMin, minWas * k);
+        RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
+        RenderSettings.ambientIntensity = intensityWas * k;
+        RenderSettings.ambientLight = Dim(lightWas, k);
+        RenderSettings.reflectionIntensity = reflectWas * k;
+        RenderSettings.fogColor = Dim(fogWas, k);
+        Sky(Dark >= 0.8f);
+    }
+
+    // The clouds live in the skybox (the game puts it back every frame): once it's nearly dark the
+    // sky is swapped for plain black. Ambient is flat by then, so the lighting doesn't change.
+    private Material? skyWas;
+    private Camera? skyCam;
+    private CameraClearFlags clearWas;
+    private Color backWas;
+
+    private void Sky(bool black)
+    {
+        if (!black)
+        {
+            if (skyCam != null) { skyCam.clearFlags = clearWas; skyCam.backgroundColor = backWas; skyCam = null; }
+            if (skyWas != null && RenderSettings.skybox == null) RenderSettings.skybox = skyWas;
+            return;
+        }
+        if (RenderSettings.skybox != null) skyWas = RenderSettings.skybox;
+        RenderSettings.skybox = null;
+        var cam = Meteors.Eye();
+        if (cam != skyCam)
+        {
+            if (skyCam != null) { skyCam.clearFlags = clearWas; skyCam.backgroundColor = backWas; }
+            skyCam = cam;
+            if (cam != null) { clearWas = cam.clearFlags; backWas = cam.backgroundColor; }
+        }
+        if (cam != null) { cam.clearFlags = CameraClearFlags.SolidColor; cam.backgroundColor = Color.black; }
+    }
+
+    /// <summary>Sun, moon, flare and sky, after the game (and our suns and moons) set them this frame.</summary>
+    [HarmonyPostfix, HarmonyPriority(Priority.Last), HarmonyPatch(typeof(DayNightManager), nameof(DayNightManager.UpdateCycle))]
+    private static void DimCycle(DayNightManager __instance)
+    {
+        if (Dark <= 0f) return;
+        float k = 1f - Dark;
+        var d = __instance;
+        // Brightness only: the sun stays enabled so the sun checks that look at it keep working.
+        if (d.sun != null) { d.sun.intensity *= k; d.sun.color = Dim(d.sun.color, k); }
+        if (d.moon != null) { d.moon.intensity *= k; d.moon.color = Dim(d.moon.color, k); }
+        if (d.lensFlare != null) d.lensFlare.intensity *= k;
+        Shader.SetGlobalColor(SkyTop, Dim(Shader.GetGlobalColor(SkyTop), k));
+        Shader.SetGlobalColor(SkyMid, Dim(Shader.GetGlobalColor(SkyMid), k));
+        Shader.SetGlobalColor(SkyBottom, Dim(Shader.GetGlobalColor(SkyBottom), k));
+    }
+
+    private static Color Dim(Color c, float k) => new(c.r * k, c.g * k, c.b * k, c.a);
+
+    private void Restore()
+    {
+        Sky(false);
+        Shader.SetGlobalFloat(AmbStrength, strengthWas);
+        Shader.SetGlobalFloat(AmbMin, minWas);
+        RenderSettings.ambientMode = modeWas;
+        RenderSettings.ambientIntensity = intensityWas;
+        RenderSettings.reflectionIntensity = reflectWas;
+        RenderSettings.fogColor = fogWas;
+        RenderSettings.ambientLight = lightWas;
+    }
+
+    // --- the flashlight --------------------------------------------------------------------------
+
+    /// <summary>A real light from your eyes: soft edge, rocks cast shadows, your own head doesn't.</summary>
     private void Torch(bool want)
     {
         if (!want) { if (torch != null) torch.enabled = false; return; }
@@ -1069,19 +1242,44 @@ internal class LightsOut : MonoBehaviour
             if (torch != null) Destroy(torch.gameObject);
             var go = new GameObject("Bing Bong Flashlight");
             go.transform.SetParent(cam.transform, false);
+            go.transform.localPosition = new Vector3(0f, -0.05f, 0.3f);
             torch = go.AddComponent<Light>();
             torch.type = LightType.Spot;
             torch.spotAngle = 55f;
-            torch.range = 30f;
-            torch.intensity = 3f;
+            torch.innerSpotAngle = 24f;
+            torch.range = 45f;
+            torch.intensity = 10f;
             torch.color = new Color(1f, 0.95f, 0.85f);
-            torch.shadows = LightShadows.None;
+            torch.shadows = LightShadows.Soft;
+            torch.shadowNearPlane = 0.5f;
         }
         torch.enabled = true;
     }
 
+    private static AudioClip? clickClip;
+    private static bool clickLooked;
+
+    /// <summary>The game's own UI click: higher switching on, lower switching off.</summary>
+    private void Click(bool turnedOn)
+    {
+        if (!clickLooked)
+        {
+            clickLooked = true;
+            clickClip = Resources.FindObjectsOfTypeAll<AudioClip>().Where(c => c != null && c.name.ToLowerInvariant().Contains("click"))
+                .OrderBy(c => c.length).FirstOrDefault();
+            Plugin.Log.LogInfo(clickClip != null ? $"Lights out: flashlight click is '{clickClip.name}'." : "Lights out: no click sound found.");
+        }
+        if (clickClip == null) return;
+        if (click == null) click = gameObject.AddComponent<AudioSource>();
+        click.spatialBlend = 0f;
+        click.pitch = turnedOn ? 1.15f : 0.9f;
+        click.PlayOneShot(clickClip, 0.5f);
+    }
+
     private void OnDestroy()
     {
+        Dark = 0f;
+        Restore();
         if (torch != null) Destroy(torch.gameObject);
         if (instance == this) instance = null;
     }

@@ -17,6 +17,31 @@ internal static class Squad
         .ToList();
 
     /// <summary>Scouts out in the open: alive and not on safe ground (lit campfire / summit). Meteors fall on these.</summary>
+    private static Vector3? fire, peak;
+    private static float upAt = -99f;
+
+    /// <summary>
+    /// Uphill: the campfire ending this section, or the peak once past the last one. With
+    /// <paramref name="summit"/> the peak itself first (the mountain's top), the campfire if there's none.
+    /// </summary>
+    public static Vector3? UpMountain(bool summit)
+    {
+        if (Time.time - upAt > 5f)
+        {
+            upAt = Time.time;
+            fire = peak = null;
+            try
+            {
+                var map = Zorro.Core.Singleton<MapHandler>.Instance;
+                int i = (int)MapHandler.CurrentSegmentNumber;
+                if (map != null && i < map.segments.Length && map.segments[i].segmentCampfire is { } f) fire = f.transform.position;
+                if (UnityEngine.Object.FindFirstObjectByType<PeakSequence>() is { } p) peak = p.transform.position;
+            }
+            catch (System.Exception e) { Plugin.Log.LogWarning($"No way up the mountain found: {e.Message}"); }
+        }
+        return summit ? peak ?? fire : fire ?? peak;
+    }
+
     public static List<Character> Hunted() => Alive().Where(c => !Sanctuary.Safe(c)).ToList();
 
     /// <summary>Scouts the hunters (Scoutmaster, zombies, tornado) can see: in the open and not veiled by a relic.</summary>
@@ -309,53 +334,87 @@ internal class BloodTornado : MonoBehaviour
     {
         var alive = Squad.Alive();
         if (alive.Count == 0) return;
-        Vector3 pos = StartCampfire(alive) is { } fire
-            ? Squad.GroundNear(fire, 6f, 16f, 30f) ?? fire
-            : FarFrom(alive);
+        // It rises where the squad came into this part of the map (the Kiln / Citadel: a small, gentle one).
+        bool kiln = MapHandler.Exists && MapHandler.CurrentSegmentNumber == Segment.TheKiln;
+        Vector3 pos = EntrySpot(alive) is { } entry ? Squad.GroundNear(entry, 6f, 16f, 30f) ?? entry : FarFallback(alive);
         Look look = LookHere();
-        float width = alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedWidth.Value, 0.2f, 3f);
-        float pull = alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedPull.Value, 0f, 3f);
+        float width = kiln ? Mathf.Clamp(ModConfig.BmTornadoKilnWidth.Value, 0.1f, 3f)
+            : alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedWidth.Value, 0.2f, 3f);
+        float pull = kiln ? Mathf.Clamp(ModConfig.BmTornadoKilnPull.Value, 0f, 3f)
+            : alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedPull.Value, 0f, 3f);
         try
         {
             PhotonNetwork.Instantiate("Tornado", pos, Quaternion.identity, 0, new object[] { Tag, (int)look, seconds, width, pull });
             float d = alive.Min(c => Vector3.Distance(c.Center, pos));
-            Plugin.Log.LogInfo($"Blood moon tornado ({look}, {seconds:0}s, {(alone ? "alone" : "shared")}: width x{width:0.##}, pull x{pull:0.##}) at {pos}, {d:0}m from the nearest scout.");
+            Plugin.Log.LogInfo($"Blood moon tornado ({look}, {seconds:0}s, {(kiln ? "kiln" : alone ? "alone" : "shared")}: width x{width:0.##}, pull x{pull:0.##}) at {pos}, {d:0}m from the nearest scout.");
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Tornado spawn failed: {e.Message}"); }
     }
 
+    /// <summary>The Void's arrival spot is only used this far (or further) from every scout.</summary>
+    private const float VoidArrivalMin = 100f * Squad.M;
+
     /// <summary>
-    /// The campfire this section started from (the crash site on the beach) - as long as it's
-    /// actually behind / below the squad.
+    /// Where the squad came into this part of the map: the game's own spawn point for the section
+    /// (the crash site on the beach, the Kiln's way in), else the campfire the section started
+    /// from; in the Void, where the squad arrived. Null when it's missing, sits at the map's origin
+    /// (a bogus spot), or the squad fell back below it.
     /// </summary>
-    private static Vector3? StartCampfire(List<Character> alive)
+    private static Vector3? EntrySpot(List<Character> alive)
     {
         try
         {
             var map = Zorro.Core.Singleton<MapHandler>.Instance;
             int i = (int)MapHandler.CurrentSegmentNumber;
-            Vector3? spot = null;
-            if (i > 0 && i - 1 < map.segments.Length && map.segments[i - 1].segmentCampfire is { } fire) spot = fire.transform.position;
-            else if (i == 0 && map.segments.Length > 0 && map.segments[0].reconnectSpawnPos is { } crash) spot = crash.position;
-            if (spot == null) return null;
-            float lowest = alive.Min(c => c.Center.y);
-            if (spot.Value.y > lowest + 25f) return null; // the squad fell back below it
-            return spot;
+            var tried = new List<string>();
+            var spots = VoidRun.Active
+                ? new (string, Vector3?)[] { ("Void arrival", VoidRun.Arrival) }
+                : new (string, Vector3?)[]
+                {
+                    ("section spawn", i < map.segments.Length && map.segments[i].reconnectSpawnPos is { } rs ? rs.position : null),
+                    ("starting campfire", i > 0 && i - 1 < map.segments.Length ? FirePos(map.segments[i - 1].segmentCampfire) : null),
+                };
+            foreach (var (name, spot) in spots)
+            {
+                if (spot is not { } s) { tried.Add($"{name}: none"); continue; }
+                float d = alive.Min(c => Vector3.Distance(c.Center, s));
+                if (s.sqrMagnitude < 1f) { tried.Add($"{name}: bogus {s}"); continue; }
+                if (VoidRun.Active && d < VoidArrivalMin) { tried.Add($"{name}: only {d / Squad.M:0}m away"); continue; }
+                if (s.y > alive.Min(c => c.Center.y) + 25f) { tried.Add($"{name}: above the squad"); continue; }
+                return s;
+            }
+            Plugin.Log.LogInfo($"Blood tornado: no entry spot ({string.Join(", ", tried)}) - rising far below the squad.");
+            return null;
         }
         catch (System.Exception e)
         {
-            Plugin.Log.LogWarning($"No starting campfire for the tornado: {e.Message}");
+            Plugin.Log.LogWarning($"Blood tornado: no entry spot: {e.Message}");
             return null;
         }
     }
 
-    /// <summary>No campfire to rise from: well away from the squad, below them if possible.</summary>
-    private static Vector3 FarFrom(List<Character> alive)
+    /// <summary>A section campfire's real spot: its Campfire piece (the object itself can sit at the origin).</summary>
+    private static Vector3? FirePos(GameObject? go)
+    {
+        if (go == null) return null;
+        var fire = go.GetComponentInChildren<Campfire>(true);
+        return fire != null ? fire.transform.position : go.transform.position;
+    }
+
+    /// <summary>No entry spot: 150-250m from the squad, below them and out of everyone's sight if possible.</summary>
+    private static Vector3 FarFallback(List<Character> alive)
     {
         var low = alive.OrderBy(c => c.Center.y).First().Center;
-        return Squad.GroundNear(low + Vector3.down * 30f, 80f, 110f, 90f)
-               ?? Squad.GroundNear(low, 70f, 100f, 90f)
-               ?? low + Vector3.forward * 80f;
+        float min = 150f * Squad.M, max = 250f * Squad.M;
+        Vector3? seen = null;
+        for (int i = 0; i < 6; i++)
+        {
+            var spot = Squad.GroundNear(low + Vector3.down * (40f * Squad.M), min, max, 90f) ?? Squad.GroundNear(low, min, max, 90f);
+            if (spot is not { } s) continue;
+            if (!ScoutmasterHunt.SomeoneSees(s + Vector3.up * 3f)) return s;
+            seen ??= s;
+        }
+        return seen ?? low + Vector3.forward * max;
     }
 
     public static void SetTarget(int viewId, Vector3 pos)
@@ -390,7 +449,7 @@ internal class BloodTornado : MonoBehaviour
                     t.tornado.view.RPC("RPCA_ThrowPlayer", RpcTarget.All, c.photonView.ViewID);
                     Plugin.Log.LogInfo($"Blood tornado: {c.characterName}'s relic threw them out.");
                 }
-            if (t.preyActor != actor) continue;
+            if (t.kiln || t.preyActor != actor) continue;
             var scout = Squad.Alive().FirstOrDefault(c => c.photonView != null && c.photonView.Owner != null && c.photonView.Owner.ActorNumber == actor);
             t.Veer(scout != null ? scout.Center : (Vector3?)null, seconds);
             Plugin.Log.LogInfo($"Blood tornado: veers away from {(scout != null ? scout.characterName : $"player {actor}")} for {seconds:0.#}s.");
@@ -419,9 +478,61 @@ internal class BloodTornado : MonoBehaviour
         Net.TornadoTarget(tornado.view.ViewID, spot);
     }
 
+    // --- the Kiln / Citadel: a tower, so it keeps to the middle and rises with the squad ----------
+
+    /// <summary>Kiln / Citadel (everyone's copy): no hunting - it drifts around the tower's middle.</summary>
+    private bool kiln;
+    /// <summary>Its drifting pace in a tower, as a share of the game's tornado speed.</summary>
+    private const float TowerDrift = 0.25f;
+    private Vector3? towerCentre;
+    private float towerRadius, nextScan;
+
+    /// <summary>
+    /// Host, in a tower: every few seconds it measures the tower around itself at the lowest scout's
+    /// height and heads for a spot near the middle (within a quarter of its width), at that height.
+    /// Starting off-centre, each scan brings it closer to the real middle.
+    /// </summary>
+    private void Circle()
+    {
+        if (Time.time < nextScan) return;
+        nextScan = Time.time + 3f;
+        var alive = Squad.Alive();
+        if (alive.Count == 0) return;
+        var low = alive.OrderBy(c => c.Center.y).First().Center;
+        var from = new Vector3(transform.position.x, low.y + 0.5f, transform.position.z);
+        if ((TowerScan(from) ?? TowerScan(low + Vector3.up * 0.5f)) is { } scan)
+        {
+            if (towerCentre == null) Plugin.Log.LogInfo($"Blood tornado (tower): middle {scan.centre}, {scan.radius * 2f / Squad.M:0}m across.");
+            towerCentre = scan.centre;
+            towerRadius = scan.radius;
+        }
+        Vector3 mid = towerCentre ?? from;
+        Vector2 off = Random.insideUnitCircle * (towerRadius * 0.5f);
+        Net.TornadoTarget(tornado.view.ViewID, new Vector3(mid.x + off.x, low.y - 3f, mid.z + off.y));
+    }
+
+    /// <summary>Rays out to the walls in a full circle: the middle of what they hit and its radius. Null when too few hit (not inside a tower).</summary>
+    private static (Vector3 centre, float radius)? TowerScan(Vector3 from)
+    {
+        const int Rays = 16;
+        float reach = 150f * Squad.M;
+        var hits = new List<Vector3>();
+        for (int i = 0; i < Rays; i++)
+        {
+            var dir = Quaternion.Euler(0f, i * 360f / Rays, 0f) * Vector3.forward;
+            if (Physics.Raycast(from, dir, out var hit, reach, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
+                hits.Add(hit.point);
+        }
+        if (hits.Count < Rays * 0.6f) return null;
+        var centre = new Vector3(hits.Average(h => h.x), from.y, hits.Average(h => h.z));
+        float radius = hits.Average(h => new Vector2(h.x - centre.x, h.z - centre.z).magnitude);
+        return (centre, radius);
+    }
+
     private void Init(Tornado t, Look look, float seconds, float width, float pull)
     {
         tornado = t;
+        kiln = MapHandler.Exists && MapHandler.CurrentSegmentNumber == Segment.TheKiln;
         target = new GameObject("Blood Tornado Target").transform;
         target.position = transform.position;
         tornado.target = target;
@@ -437,10 +548,132 @@ internal class BloodTornado : MonoBehaviour
         }
     }
 
+    // --- breather: a scout it just threw (or pinned to a wall) is left alone for a while -----------
+
+    /// <summary>Everyone's copy: scouts no blood tornado may pull or catch until then.</summary>
+    private static readonly Dictionary<Character, float> spared = new();
+
+    private static float Grace => Mathf.Max(0f, ModConfig.BmTornadoThrowGrace.Value);
+    private static bool Spared(Character c) => c != null && spared.TryGetValue(c, out float t) && t > Time.time;
+
+    /// <summary>Who it may hunt: the marked scouts, minus any catching their breath.</summary>
+    private static List<Character> Huntable()
+    {
+        var list = Squad.Marked();
+        list.RemoveAll(Spared);
+        return list;
+    }
+
+    /// <summary>Everyone: it let go of this scout. Host: it goes after someone else, or backs off if there's nobody.</summary>
+    private void Thrown(Character? c)
+    {
+        if (c == null) return;
+        if (c.IsLocal && !kiln) ThrowUphill(c); // in a tower "uphill" is straight into the wall
+        Forget(c);
+        if (Grace <= 0f) return;
+        foreach (var gone in spared.Where(kv => kv.Key == null || kv.Value <= Time.time).Select(kv => kv.Key).ToList()) spared.Remove(gone);
+        spared[c] = Time.time + Grace;
+        if (tornado == null || tornado.view == null || !tornado.view.IsMine) return;
+        if (kiln) { Plugin.Log.LogInfo($"Blood tornado (tower): let go of {c.characterName} - spared {Grace:0}s."); return; }
+        if (Huntable().Count == 0)
+        {
+            Veer(c.Center, Grace);
+            Plugin.Log.LogInfo($"Blood tornado: let go of {c.characterName} - backs off for {Grace:0}s.");
+        }
+        else
+        {
+            nextPick = 0f;
+            Plugin.Log.LogInfo($"Blood tornado: let go of {c.characterName} - leaves them alone for {Grace:0}s.");
+        }
+    }
+
+    /// <summary>
+    /// The thrown scout's own game: the throw carries on at the same speed, but toward the campfire
+    /// ending this section (uphill) and a little upward, instead of wherever the spin pointed.
+    /// </summary>
+    private static void ThrowUphill(Character c)
+    {
+        if (Squad.UpMountain(summit: false) is not { } top || c.refs?.ragdoll?.partList is not { Count: > 0 } parts) return;
+        Vector3 dir = top - c.Center;
+        dir.y = 0f;
+        if (dir.sqrMagnitude < 1f) return;
+        dir.Normalize();
+        Vector3 avg = Vector3.zero;
+        foreach (var p in parts) avg += p.Rig.linearVelocity;
+        avg /= parts.Count;
+        float speed = new Vector2(avg.x, avg.z).magnitude;
+        Vector3 flat = dir * speed;
+        float lift = speed * 0.25f;
+        foreach (var p in parts)
+        {
+            var v = p.Rig.linearVelocity;
+            p.Rig.linearVelocity = new Vector3(flat.x, Mathf.Max(v.y, avg.y) + lift, flat.z);
+        }
+        Plugin.Log.LogInfo($"Blood tornado threw you uphill at {speed:0.#} u/s.");
+    }
+
+    /// <summary>
+    /// Host: nobody gets stuck in it. Thrown loose - the game's own release - with the breather when
+    /// it has held a scout too long without a throw (pinned to a wall by the spin), when a scout in
+    /// its pull has barely moved for a few seconds, or when they've spent too long in its pull at all.
+    /// </summary>
+    private void CheckPinned()
+    {
+        float pullAt = transform.localScale.x * tornado.range;
+        float heldMax = Mathf.Max(1f, ModConfig.BmTornadoHeldMax.Value);
+        float pinnedMax = Mathf.Max(0.5f, ModConfig.BmTornadoPinned.Value);
+        float nearMax = Mathf.Max(heldMax, ModConfig.BmTornadoNearMax.Value);
+        float slow = Mathf.Max(0f, ModConfig.BmTornadoPinnedSpeed.Value);
+        float dt = Time.deltaTime;
+        foreach (var c in Squad.Alive())
+        {
+            float h = c.Center.y - transform.position.y;
+            bool inPull = !Spared(c) && h > -10f && h < 50f && HelperFunctions.FlatDistance(transform.position, c.Center) < pullAt;
+            if (!inPull) { held.Remove(c); still.Remove(c); continue; }
+            bool caught = tornado.caughtCharacters.Contains(c);
+            float heldFor = caught ? Add(held, c, dt) : Drop(held, c);
+            float stillFor = c.data.avarageVelocity.magnitude < slow ? Add(still, c, dt) : Drop(still, c);
+            float nearFor = Add(near, c, dt);
+            string? why = heldFor >= heldMax ? $"held {heldFor:0.#}s without a throw"
+                : stillFor >= pinnedMax ? $"pinned {stillFor:0.#}s{(caught ? " (caught)" : "")}"
+                : nearFor >= nearMax ? $"in its pull {nearFor:0.#}s"
+                : null;
+            if (why == null) continue;
+            Forget(c);
+            Plugin.Log.LogInfo($"Blood tornado: {c.characterName} {why} - thrown loose.");
+            tornado.view.RPC("RPCA_ThrowPlayer", RpcTarget.All, c.photonView.ViewID);
+        }
+    }
+
+    /// <summary>Host: how long each scout has been held / barely moving in its pull / in its pull at all (since their last throw).</summary>
+    private readonly Dictionary<Character, float> held = new(), still = new(), near = new();
+
+    private static float Add(Dictionary<Character, float> d, Character c, float dt)
+    {
+        d.TryGetValue(c, out float t);
+        return d[c] = t + dt;
+    }
+
+    private static float Drop(Dictionary<Character, float> d, Character c)
+    {
+        d.Remove(c);
+        return 0f;
+    }
+
+    private void Forget(Character c)
+    {
+        held.Remove(c);
+        still.Remove(c);
+        near.Remove(c);
+    }
+
     private void Update()
     {
-        if (tornado == null || !tornado.view.IsMine || Time.time < nextPick) return;
-        var alive = Squad.Marked();
+        if (tornado == null || !tornado.view.IsMine) return;
+        CheckPinned();
+        if (kiln) { Circle(); return; }
+        if (Time.time < nextPick) return;
+        var alive = Huntable();
         if (alive.Count == 0)
         {
             // Nobody it can hunt (all safe or veiled): it wanders off somewhere, like the game's does.
@@ -453,7 +686,7 @@ internal class BloodTornado : MonoBehaviour
         wandering = false;
         veerUntil = 0f;
         // Far away it heads straight for the nearest scout; close up it picks prey every few seconds.
-        bool far = Nearest(alive) > ModConfig.BmTornadoNear.Value;
+        bool far = Far(alive);
         nextPick = Time.time + (far ? 2f : Random.Range(6f, 12f));
         // Relic holders first: it heads for the nearest one, and up close favours them two to one.
         var weighted = alive.SelectMany(c => Squad.Priority(c) == 0 ? new[] { c, c } : new[] { c }).ToList();
@@ -477,20 +710,34 @@ internal class BloodTornado : MonoBehaviour
     /// Fast while it travels up from the campfire, slow once it's on the squad - and slower still
     /// when the relic holder it's nearest to has company.
     /// </summary>
+    /// <summary>Further than the chase distance from every scout it may hunt: it rushes in.</summary>
+    private bool Far(List<Character> marked) => Nearest(marked) > ModConfig.BmTornadoNear.Value * Squad.M;
+
+    /// <summary>
+    /// Close up it moves a little slower than a sprinting scout (a sprint gets away, a jog doesn't);
+    /// under a red sun sprints are cut, so it slows by the same share.
+    /// </summary>
+    private static float ChaseSpeed()
+    {
+        float sprint = Mathf.Max(1f, ModConfig.BmTornadoSprintRef.Value);
+        float red = Suns.Red ? Mathf.Clamp01(ModConfig.SunRedSprintSpeed.Value) : 1f;
+        return sprint * Mathf.Clamp(ModConfig.BmTornadoSprintShare.Value, 0.1f, 2f) * red;
+    }
+
     private float Speed()
     {
+        if (kiln) return VanillaSpeed * TowerDrift;
         if (speed < 0f || Time.time >= nextSpeedCheck)
         {
             nextSpeedCheck = Time.time + 0.5f;
-            var marked = Squad.Marked();
+            var marked = Huntable();
             if (Drifting)
             {
                 // Veering off or wandering: its chase pace, not the rush up from the campfire.
-                speed = VanillaSpeed * ModConfig.BmTornadoChase.Value;
+                speed = ChaseSpeed();
                 return speed;
             }
-            bool far = Nearest(marked) > ModConfig.BmTornadoNear.Value;
-            speed = far ? ModConfig.BmTornadoApproach.Value : VanillaSpeed * ModConfig.BmTornadoChase.Value;
+            speed = Far(marked) ? ModConfig.BmTornadoApproach.Value : ChaseSpeed();
             var holder = Squad.Holders().OrderBy(c => Vector3.Distance(c.Center, transform.position)).FirstOrDefault();
             if (holder != null && Squad.Grouped(holder)) speed *= Mathf.Clamp(ModConfig.BmTornadoGrouped.Value, 0.05f, 1f);
         }
@@ -526,11 +773,19 @@ internal class BloodTornado : MonoBehaviour
                 vel = Vector3.zero;
             }
         }
-        // Look for ground from just above the higher of it / its prey (low enough to stay under the Kiln's roof).
-        float top = Mathf.Max(pos.y, target.position.y) + 15f;
-        if (Physics.Raycast(new Vector3(pos.x, top, pos.z), Vector3.down, out var hit, top - pos.y + 120f,
-                HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
-            pos.y = Mathf.MoveTowards(pos.y, hit.point.y, Time.deltaTime * 40f);
+        if (kiln)
+        {
+            // In a tower it floats up (and down) with the squad, wherever the floor is.
+            pos.y = Mathf.MoveTowards(pos.y, target.position.y, Time.deltaTime * 20f);
+        }
+        else
+        {
+            // Look for ground from just above the higher of it / its prey (low enough to stay under the Kiln's roof).
+            float top = Mathf.Max(pos.y, target.position.y) + 15f;
+            if (Physics.Raycast(new Vector3(pos.x, top, pos.z), Vector3.down, out var hit, top - pos.y + 120f,
+                    HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
+                pos.y = Mathf.MoveTowards(pos.y, hit.point.y, Time.deltaTime * 40f);
+        }
         transform.position = pos;
     }
 
@@ -567,6 +822,39 @@ internal class BloodTornado : MonoBehaviour
             var bt = __instance.GetComponent<BloodTornado>();
             if (bt == null || bt.size == Vector3.one) return;
             __instance.transform.localScale = Vector3.Lerp(grownFrom, bt.size, Time.deltaTime * 0.25f);
+        }
+
+        /// <summary>Every throw (its own, a stuck release, a relic) starts the thrown scout's breather.</summary>
+        [HarmonyPostfix, HarmonyPatch(typeof(Tornado), "RPCA_ThrowPlayer")]
+        private static void Threw(Tornado __instance, int targetView)
+        {
+            var bt = __instance.GetComponent<BloodTornado>();
+            if (bt == null) return;
+            var view = PhotonView.Find(targetView);
+            bt.Thrown(view != null ? view.GetComponent<Character>() : null);
+        }
+
+        private static readonly List<Character> spareAdded = new();
+
+        /// <summary>Scouts catching their breath are neither pulled nor caught (the game's own ignore list, for longer).</summary>
+        [HarmonyPrefix, HarmonyPatch(typeof(Tornado), "AttractCharacters")]
+        private static void Spare(Tornado __instance)
+        {
+            spareAdded.Clear();
+            if (spared.Count == 0 || __instance.GetComponent<BloodTornado>() == null) return;
+            foreach (var kv in spared)
+                if (kv.Key != null && kv.Value > Time.time && !__instance.ignoredCharacters.Contains(kv.Key))
+                {
+                    __instance.ignoredCharacters.Add(kv.Key);
+                    spareAdded.Add(kv.Key);
+                }
+        }
+
+        [HarmonyPostfix, HarmonyPatch(typeof(Tornado), "AttractCharacters")]
+        private static void Unspare(Tornado __instance)
+        {
+            foreach (var c in spareAdded) __instance.ignoredCharacters.Remove(c);
+            spareAdded.Clear();
         }
 
         /// <summary>Ours has no Mesa waypoints - the host steers it instead.</summary>

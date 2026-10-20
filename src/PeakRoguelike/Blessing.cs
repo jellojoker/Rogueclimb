@@ -24,7 +24,7 @@ internal class Blessing : MonoBehaviour
     }
 
     private static Blessing? instance;
-    private static readonly HashSet<int> blessedStatues = new();
+    private static readonly HashSet<int> blessedStatues = new(), revivedStatues = new();
     /// <summary>A statue blessing waiting for its screen (another screen was open, or "Decide later").</summary>
     private static bool pending;
     private static float pendingAt;
@@ -43,7 +43,15 @@ internal class Blessing : MonoBehaviour
     internal static void Reset()
     {
         blessedStatues.Clear();
+        revivedStatues.Clear();
         pending = false;
+        darkTaken = darkLater = false;
+        darkFlat = -1f;
+        if (PhotonNetwork.InRoom && PhotonNetwork.IsMasterClient && PhotonNetwork.CurrentRoom != null)
+        {
+            try { PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [DarkKey] = null }); }
+            catch (Exception e) { Plugin.Log.LogWarning($"Couldn't reset the statue's dark offer: {e.Message}"); }
+        }
         runSalt = UnityEngine.Random.Range(1, int.MaxValue);
     }
 
@@ -65,8 +73,14 @@ internal class Blessing : MonoBehaviour
     // --- sources ----------------------------------------------------------------------------
 
     /// <summary>Everyone: the host says a statue blessed the team.</summary>
-    internal static void FromStatue(int statueViewId)
+    internal static void FromStatue(int statueViewId, bool revive = false)
     {
+        if (revive)
+        {
+            // It revived someone: every scout gets a random badge, no pick.
+            if (ModConfig.BadgeRelics.Value && revivedStatues.Add(statueViewId)) Badges.GiveRandom();
+            return;
+        }
         if (!On || !blessedStatues.Add(statueViewId)) return;
         pendingSource = unchecked(statueViewId + 1000003);
         Hud.Banner("", "The statue blesses you", Trees.Gold);
@@ -76,15 +90,28 @@ internal class Blessing : MonoBehaviour
 
     private void Update()
     {
+        try { DarkTick(); }
+        catch (Exception e) { darkTaken = true; Plugin.Log.LogError($"Revive dark offer failed: {e}"); }
         if (!pending || Time.time < pendingAt || ChoiceScreen.IsOpen) return;
         Character me = Character.localCharacter;
         if (me == null || me.data.dead || me.data.passedOut) return;
         pending = false;
-        Show("Revive statue", pendingSource, onTaken: () => { }, onBack: () =>
+        void Later()
         {
             pending = true;
             pendingAt = Time.time + 8f;
-        }, stillValid: null);
+        }
+        // A blessing statue offers badge relics now - no level-ups.
+        if (ModConfig.BadgeRelics.Value)
+        {
+            if (!Badges.OfferPick("Blessing statue", pendingSource, onTaken: () => { }, onBack: Later))
+            {
+                if (Badges.AnyLeft) Later(); // the screen couldn't open: try again shortly
+                else Hud.Toast("The statue is silent", Trees.Gold);
+            }
+            return;
+        }
+        Show("Revive statue", pendingSource, onTaken: () => { }, onBack: Later, stillValid: null);
     }
 
     /// <summary>Dev panel: a statue blessing for you, right now.</summary>
@@ -109,7 +136,8 @@ internal class Blessing : MonoBehaviour
                 GlobalEvents.TriggerLuggageOpened(luggage, interactor);
             },
             onBack: () => perk.ReleaseLock(),
-            stillValid: () => luggage != null && !luggage.IsOpen && LuggagePatches.StillHere(from));
+            stillValid: () => luggage != null && !luggage.IsOpen && LuggagePatches.StillHere(from),
+            from: Source.Ancient);
         if (!shown) perk.ReleaseLock();
         return true;
     }
@@ -118,9 +146,20 @@ internal class Blessing : MonoBehaviour
 
     // --- the cards --------------------------------------------------------------------------
 
-    private static bool Show(string subtitle, int source, Action onTaken, Action onBack, Func<bool>? stillValid)
+    private enum Source { Statue, Ancient }
+
+    /// <summary>Whose blessing BuildOptions is dealing (their jackpots differ).</summary>
+    private static Source building;
+
+    /// <summary>F8: the next blessing's jackpot is forced (true = dark item, false = fusion).</summary>
+    internal static bool? DevJackpot;
+
+    private static bool Show(string subtitle, int source, Action onTaken, Action onBack, Func<bool>? stillValid, Source from = Source.Statue)
     {
-        var options = Seeded(source, BuildOptions);
+        building = from;
+        List<Option> options;
+        try { options = Seeded(source, BuildOptions); }
+        finally { DevJackpot = null; }
         if (options.Count == 0)
         {
             Hud.Toast("The statue is silent", Trees.Gold);
@@ -138,7 +177,7 @@ internal class Blessing : MonoBehaviour
             OnConfirm = i => options[i].Take(ok =>
             {
                 if (ok) onTaken();
-                else Show(subtitle, source, onTaken, onBack, stillValid);
+                else Show(subtitle, source, onTaken, onBack, stillValid, from);
             }),
             OnBack = onBack,
         });
@@ -168,6 +207,7 @@ internal class Blessing : MonoBehaviour
     /// </summary>
     private static List<Option> BuildOptions()
     {
+        if (building == Source.Ancient && ModConfig.BadgeRelics.Value) return AncientOptions();
         var list = new List<Option>();
         var used = new HashSet<string>();
         var lanes = Lanes();
@@ -203,17 +243,28 @@ internal class Blessing : MonoBehaviour
             list.Add(new TreeOption(syn, 0, 0, 1, "Synergy"));
 
         // The luck of the statue: the +2 card (or the first card) sometimes turns into the one
-        // ingredient a maxed item of yours is missing - and once in a long while, a whole fusion.
+        // ingredient a maxed item of yours is missing - and once in a while, a jackpot: a whole
+        // fusion or a dark item. Ancient Luggage hits the jackpot more often than statues.
         if (ModConfig.Fusion.Value && list.Count > 0)
         {
             int at = Mathf.Max(0, list.FindIndex(o => o is TreeOption { Role: "Specialize" }));
+            float jackpotChance = Mathf.Clamp01(building == Source.Ancient ? ModConfig.AncientJackpotChance.Value : ModConfig.StatueJackpotChance.Value);
             float roll = UnityEngine.Random.value;
-            if (roll < Luck.StatueFusionChance)
+            Option? jackpot = null;
+            if (roll < jackpotChance || DevJackpot != null)
             {
-                var jackpot = Fusion.Recipes.Where(r => r.Result != null && Items.Find(r.Result) != null).OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
-                if (jackpot != null) { list[at] = new GiftOption(jackpot); Plugin.Log.LogInfo($"Blessing: jackpot - {jackpot.Name}."); }
+                bool dark = DevJackpot ?? (UnityEngine.Random.value < Mathf.Clamp01(ModConfig.JackpotDarkShare.Value));
+                var fusion = Fusion.Recipes.Where(r => r.Result != null && Items.Find(r.Result) != null).OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
+                var darkItem = DarkItems().OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
+                if (dark && darkItem != null) jackpot = new DarkOption(darkItem);
+                else if (fusion != null) jackpot = new GiftOption(fusion);
             }
-            else if (roll < Luck.StatueFusionChance + Luck.StatueIngredientChance && MissingIngredient() is { } gift)
+            if (jackpot != null)
+            {
+                list[at] = jackpot;
+                Plugin.Log.LogInfo($"Blessing ({building}): jackpot - {jackpot.Card().Title}.");
+            }
+            else if (roll >= jackpotChance && roll < jackpotChance + Luck.StatueIngredientChance && MissingIngredient() is { } gift)
             {
                 list[at] = new IngredientOption(gift.recipe, gift.ingredient);
                 Plugin.Log.LogInfo($"Blessing: {gift.ingredient.Name} for the {gift.recipe.Name}.");
@@ -415,6 +466,173 @@ internal class Blessing : MonoBehaviour
         }
     }
 
+    /// <summary>The other jackpot: a dark item, found like any other (using it later raises the moon as always).</summary>
+    /// <summary>
+    /// Ancient Luggage: +2 on your top item (a new path if you have none), a badge relic, and -
+    /// when the luggage's luck hits (Esoterica raises it) - a mythical gift: a fusion or a dark item.
+    /// </summary>
+    private static List<Option> AncientOptions()
+    {
+        var list = new List<Option>();
+        if (Lanes().FirstOrDefault()?.Option("Specialize") is { } top) list.Add(top);
+        else if (Fresh(null).FirstOrDefault() is { } fresh) list.Add(new TreeOption(fresh, 0, 0, 1, "New path"));
+        if (Badges.RandomPick() is { } badge) list.Add(new BadgeOption(badge));
+        if (ModConfig.Fusion.Value)
+        {
+            float chance = Mathf.Clamp01(ModConfig.AncientJackpotChance.Value * (Badges.Has(BadgeId.Esoterica) ? 1f + Badges.Buff : 1f));
+            if (DevJackpot != null || UnityEngine.Random.value < chance)
+            {
+                bool dark = DevJackpot ?? (UnityEngine.Random.value < Mathf.Clamp01(ModConfig.JackpotDarkShare.Value));
+                var fusion = Fusion.Recipes.Where(r => r.Result != null && Items.Find(r.Result) != null).OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
+                var darkItem = DarkItems().OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
+                Option? jackpot = dark && darkItem != null ? new DarkOption(darkItem) : fusion != null ? new GiftOption(fusion) : null;
+                if (jackpot != null)
+                {
+                    list.Add(jackpot);
+                    Plugin.Log.LogInfo($"Ancient Luggage: jackpot - {jackpot.Card().Title} (chance {chance:P0}).");
+                }
+            }
+        }
+        return list;
+    }
+
+    private sealed class BadgeOption : Option
+    {
+        private readonly BadgeId badge;
+
+        public BadgeOption(BadgeId badge) => this.badge = badge;
+
+        public override CardSpec Card() => Badges.Card(Badges.Get(badge));
+
+        public override void Take(Action<bool> done)
+        {
+            Badges.Take(badge, "THE LUGGAGE GIVES");
+            done(true);
+        }
+    }
+
+    private sealed class DarkOption : Option
+    {
+        private readonly Item item;
+
+        public DarkOption(Item item) => this.item = item;
+
+        public override CardSpec Card() => DarkCard(item);
+
+        public override void Take(Action<bool> done)
+        {
+            Grant(item);
+            Hud.Banner("THE STATUE GIVES", Items.DisplayName(item), ChoiceScreen.Muted);
+            done(true);
+        }
+    }
+
+    private static CardSpec DarkCard(Item item)
+    {
+        var card = CrateCards.ForItem(item);
+        card.Cursed = true;
+        card.Footer = RoleTag("The statue remembers");
+        return card;
+    }
+
+    private static bool Solo => !PhotonNetwork.InRoom || PhotonNetwork.OfflineMode || PhotonNetwork.CurrentRoom == null || PhotonNetwork.CurrentRoom.PlayerCount <= 1;
+
+    /// <summary>Skull, Dagger and Book of Bones - alone, only the Book (the Dagger is banned in solo, the Skull needs a squad).</summary>
+    private static List<Item> DarkItems()
+    {
+        var all = new List<Item>();
+        void One(Func<Item, bool> what) { if (Items.Database.FirstOrDefault(i => i != null && what(i)) is { } it) all.Add(it); }
+        if (!Solo) { One(Items.IsSkull); One(Items.IsDagger); }
+        One(Items.IsBookOfBones);
+        return all;
+    }
+
+    // --- the statue remembers: one revived scout per run may take a dark item ---------------------
+
+    private const string DarkKey = "prl.rdo"; // room: the actor a revive offered the dark items to
+
+    private static bool darkTaken, darkLater;
+    private static float darkFlat = -1f;
+
+    /// <summary>Host, as a statue revives the fallen: once per run, one of them may be offered the dark items.</summary>
+    internal static void HostReviveRoll()
+    {
+        if (!On || !PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null) return;
+        if (PhotonNetwork.CurrentRoom.CustomProperties.ContainsKey(DarkKey)) return;
+        var fallen = Character.AllCharacters.Where(c => c != null && (c.data.dead || c.data.fullyPassedOut)
+            && c.photonView?.Owner != null && Modless.HasMod(c.photonView.Owner)).ToList();
+        if (fallen.Count == 0) return;
+        float roll = UnityEngine.Random.value;
+        bool hit = DevRevive || roll < Mathf.Clamp01(ModConfig.ReviveDarkChance.Value);
+        DevRevive = false;
+        Plugin.Log.LogInfo($"Revive statue: dark offer roll {roll:0.00} - {(hit ? "hit" : "miss")}.");
+        if (!hit) return;
+        var who = fallen[UnityEngine.Random.Range(0, fallen.Count)];
+        PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [DarkKey] = who.photonView.Owner.ActorNumber });
+        Plugin.Log.LogInfo($"Revive statue: {who.characterName} is offered the dark items (once per run).");
+    }
+
+    /// <summary>F8: the next revive's dark offer is a hit (and clears this run's "already offered").</summary>
+    internal static bool DevRevive;
+
+    internal static void DevForceRevive()
+    {
+        DevRevive = true;
+        if (PhotonNetwork.IsMasterClient && PhotonNetwork.CurrentRoom != null)
+            PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [DarkKey] = null });
+        darkTaken = darkLater = false;
+    }
+
+    private static bool OfferedToMe =>
+        !darkTaken && PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null && PhotonNetwork.LocalPlayer != null
+        && PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(DarkKey, out object raw) && raw is int a && a == PhotonNetwork.LocalPlayer.ActorNumber;
+
+    /// <summary>The dark offer was put off ("Later"): the HUD's waiting pill shows it.</summary>
+    internal static bool DarkWaiting => darkLater && OfferedToMe;
+
+    private static void DarkTick()
+    {
+        if (!OfferedToMe || ChoiceScreen.IsOpen) { darkFlat = -1f; return; }
+        Character me = Character.localCharacter;
+        if (me == null || me.data.dead || me.data.passedOut) { darkFlat = -1f; return; }
+        if (darkLater)
+        {
+            // Put off: the relic key reopens it (a waiting shared relic goes first).
+            darkFlat = -1f;
+            if (Relics.Waiting == null && UnityEngine.InputSystem.Keyboard.current is { } kb && kb[ModConfig.RelicKey.Value].wasPressedThisFrame)
+                ShowDark();
+            return;
+        }
+        if (!Xp.OnFlatGround(me)) { darkFlat = -1f; return; }
+        if (darkFlat < 0f) darkFlat = Time.time;
+        if (Time.time - darkFlat >= 1f) { darkFlat = -1f; ShowDark(); }
+    }
+
+    private static void ShowDark()
+    {
+        var items = DarkItems();
+        if (items.Count == 0) { darkTaken = true; return; }
+        bool shown = ChoiceScreen.Show(new ScreenSpec
+        {
+            Title = "THE STATUE REMEMBERS",
+            Subtitle = "Choose one",
+            Confirm = "TAKE",
+            BackHint = $"Later ({ModConfig.RelicKey.Value} to reopen)",
+            Cards = items.Select(DarkCard).ToList(),
+            OnConfirm = i =>
+            {
+                darkTaken = true;
+                darkLater = false;
+                Grant(items[i]);
+                Hud.Banner("THE STATUE GIVES", Items.DisplayName(items[i]), ChoiceScreen.Muted);
+                Plugin.Log.LogInfo($"Revive statue: took {items[i].gameObject.name}.");
+            },
+            OnBack = () => darkLater = true,
+            OnCancelled = () => { },
+        });
+        if (shown) Plugin.Log.LogInfo("Revive statue: dark offer shown.");
+    }
+
     private sealed class FusionOption : Option
     {
         private readonly Recipe recipe;
@@ -443,7 +661,19 @@ internal static class BlessingPatches
     private static bool StatueBlessing(RespawnChest __instance, ref List<PhotonView> __result)
     {
         if (!Blessing.On || !PhotonNetwork.IsMasterClient) return true;
-        if (Ascents.canReviveDead && Character.PlayerIsDeadOrDown()) return true;
+        if (Ascents.canReviveDead && Character.PlayerIsDeadOrDown())
+        {
+            // Not re-opened from its spawn history: this is the revive itself.
+            if (!(__instance.HasSpawnTracking(out var tracker) && tracker.HasSpawnHistory))
+            {
+                try { Blessing.HostReviveRoll(); }
+                catch (System.Exception e) { Plugin.Log.LogWarning($"Revive dark offer roll failed: {e.Message}"); }
+                // Every scout gets a random badge relic for the revive.
+                Net.Bless(__instance.photonView.ViewID, revive: true);
+                Plugin.Log.LogInfo("Revive statue: a random badge for every scout.");
+            }
+            return true;
+        }
         __result = new List<PhotonView>();
         Net.Bless(__instance.photonView.ViewID);
         Plugin.Log.LogInfo("Revive statue: nobody to revive - blessing the team.");
