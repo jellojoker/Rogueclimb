@@ -708,6 +708,22 @@ internal static class SunMarks
         _ => false,
     };
 
+    /// <summary>
+    /// A bold red line on any card offering an item today's sun weakens - safe ground or not (you
+    /// pick it now, carry it out). Not while you hold that sun's relic: it can't touch you.
+    /// The item is found by the card's icon. Relic cards and curios are never marked.
+    /// </summary>
+    internal static void MarkCard(CardSpec card)
+    {
+        if (card.Style == CardStyle.Relic || card.Icon == null || card.Withered || card.Body.Contains(CardLine)) return;
+        if (!ModConfig.Suns.Value || Suns.Current is not { } sun || (ModConfig.Relics.Value && RunState.Relics.ContainsKey(sun))) return;
+        var item = Items.Database.FirstOrDefault(i => i != null && Items.Icon(i) == card.Icon);
+        if (item == null || CurioRelics.KindOf(item) != Curio.None || KindOf(item) != sun) return;
+        card.Body += $"\n<b><color=#FF4A3A>The {Suns.ColorName(sun).ToLowerInvariant()} {CardLine}</color></b>";
+    }
+
+    private const string CardLine = "sun weakens this.";
+
     [HarmonyPostfix, HarmonyPatch(typeof(Item), nameof(Item.GetItemName)), HarmonyPriority(Priority.Last)]
     private static void Red(Item __instance, ref string __result)
     {

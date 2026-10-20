@@ -29,20 +29,22 @@ internal class CurioRelics : MonoBehaviour
     private const float M = 1f / 1.6f;
 
     internal static Curio Mine { get; private set; }
+    private static CurioRelics? self;
 
     internal static void Install()
     {
         var go = new GameObject("PEAK Roguelike - Curio relics");
         DontDestroyOnLoad(go);
         go.hideFlags = HideFlags.HideAndDontSave;
-        go.AddComponent<CurioRelics>();
+        self = go.AddComponent<CurioRelics>();
     }
 
     internal static void Reset()
     {
         Mine = Curio.None;
-        wakeNoticed = false;
-        awakeSince = -1f;
+        wakeNoticed = titleStarted = titleDone = sawShore = false;
+        awakeSince = flatSince = -1f;
+        declinedAt = -1;
         BingBongPranks.Reset();
         LightsOut.End();
         Publish();
@@ -141,17 +143,7 @@ internal class CurioRelics : MonoBehaviour
             Locked = locked,
             Cards = new List<CardSpec>
             {
-                new()
-                {
-                    Style = CardStyle.Perk,
-                    Theme = PerkTheme.Explorer,
-                    Title = Name(c),
-                    Tag = "Relic",
-                    TagColor = ChoiceScreen.ThemeGlow(PerkTheme.Explorer),
-                    Body = Desc(c),
-                    Footer = "Lasts the whole run",
-                    Icon = Items.Icon(item),
-                },
+                Card(c, Items.Icon(item)),
             },
             StillValid = () => item != null && who != null && Vector3.Distance(who.Center, item.Center()) < 6f * M,
             OnConfirm = _ => { if (Mine == Curio.None) Bind(c); },
@@ -159,6 +151,18 @@ internal class CurioRelics : MonoBehaviour
             OnCancelled = () => { },
         });
     }
+
+    private static CardSpec Card(Curio c, Texture? icon) => new()
+    {
+        Style = CardStyle.Perk,
+        Theme = PerkTheme.Explorer,
+        Title = Name(c),
+        Tag = "Relic",
+        TagColor = ChoiceScreen.ThemeGlow(PerkTheme.Explorer),
+        Body = Desc(c),
+        Footer = "Lasts the whole run",
+        Icon = icon,
+    };
 
     internal static void DevBind(Curio c)
     {
@@ -175,34 +179,86 @@ internal class CurioRelics : MonoBehaviour
 
     // --- waking at the crash ---------------------------------------------------------------------
 
-    private static bool wakeNoticed;
+    private static bool wakeNoticed, titleStarted, titleDone, sawShore;
     private static float awakeSince = -1f;
 
     /// <summary>
-    /// Once per run, the moment you first move at the crash site: the curios are out there.
-    /// (The game calls you conscious while the screen is still black, so we wait for your feet.)
-    /// Announced, never explained. Not for scouts who already carry one, wake elsewhere, or join
-    /// after the Shore.
+    /// Once per run, right after the game's "SHORE / DAY 1" title fades: the curios are out there.
+    /// (Earlier, it played behind the black wake-up screen.) Scouts who never see that title - a late
+    /// join on the Shore - get it after 10 seconds awake. Announced, never explained. Not for scouts
+    /// who already carry one, or who join after the Shore (they get the pick instead: LatePick).
     /// </summary>
     private static void WakeNotice(Character? me)
     {
-        if (wakeNoticed || !ModConfig.CurioRelics.Value || !ModConfig.CurioWakeNotice.Value) return;
+        if (wakeNoticed || !ModConfig.CurioRelics.Value) return;
         if (me == null || me.data.dead || !MapHandler.Exists) { awakeSince = -1f; return; }
-        if (Mine != Curio.None || Singleton<MapHandler>.Instance.currentSegment != 0) { wakeNoticed = true; return; }
+        if (Singleton<MapHandler>.Instance.currentSegment != 0) { wakeNoticed = true; return; }
         if (!me.data.fullyConscious || me.data.passedOut || LoadingScreenHandler.loading) { awakeSince = -1f; return; }
-        var input = me.input;
-        if (awakeSince < 0f && (input.movementInput.magnitude > 0.1f || input.jumpWasPressed)) awakeSince = Time.time;
-        if (awakeSince < 0f || Time.time - awakeSince < 0.3f) return;
-        wakeNoticed = true;
-        if (!Sanctuary.AtCrash(me.Center)) return;
+        if (awakeSince < 0f) awakeSince = Time.time;
+        float awake = Time.time - awakeSince;
+        if (awake >= 5f) sawShore = true;
+        if (Mine != Curio.None || !ModConfig.CurioWakeNotice.Value) { if (sawShore) wakeNoticed = true; return; }
+        if (awake < 1f || (titleStarted ? !titleDone : awake < 10f)) return;
+        wakeNoticed = sawShore = true;
         Hud.Banner("", "Something survived the crash", ChoiceScreen.LevelGold, "It's waiting for you.");
-        Plugin.Log.LogInfo("Curio relic: wake notice shown.");
+        Plugin.Log.LogInfo($"Curio relic: wake notice shown ({(titleDone ? "after the Shore title" : "no title seen")}).");
+    }
+
+    [HarmonyPostfix, HarmonyPatch(typeof(GUIManager), nameof(GUIManager.SetHeroTitle))]
+    private static void HeroTitle(GUIManager __instance)
+    {
+        if (self == null || !MapHandler.Exists || Singleton<MapHandler>.Instance.currentSegment != 0 || titleStarted) return;
+        titleStarted = true;
+        self.StartCoroutine(WatchTitle(__instance));
+    }
+
+    private static System.Collections.IEnumerator WatchTitle(GUIManager gui)
+    {
+        yield return null;
+        while (gui != null && gui.heroCanvasObject != null && gui.heroCanvasObject.activeSelf) yield return null;
+        titleDone = true;
+    }
+
+    // --- joining after the Shore -----------------------------------------------------------------
+
+    private static int declinedAt = -1;
+    private static float flatSince = -1f;
+
+    /// <summary>
+    /// A scout who never stood on the Shore this run (joined late) gets every starting relic on one
+    /// screen, once on flat ground. Back puts it off to the next biome.
+    /// </summary>
+    private static void LatePick(Character? me)
+    {
+        if (!ModConfig.CurioRelics.Value || Mine != Curio.None || sawShore || ChoiceScreen.IsOpen) { flatSince = -1f; return; }
+        if (me == null || !MapHandler.Exists || LoadingScreenHandler.loading) { flatSince = -1f; return; }
+        int seg = Singleton<MapHandler>.Instance.currentSegment;
+        if (seg == 0 || seg == declinedAt || !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
+        if (flatSince < 0f) flatSince = Time.time;
+        if (Time.time - flatSince < 1f) return;
+        flatSince = -1f;
+        var kinds = new[] { Curio.Bugle, Curio.Binoculars, Curio.Compass, Curio.Frisbee, Curio.BingBong };
+        bool shown = ChoiceScreen.Show(new ScreenSpec
+        {
+            Title = "STARTING RELIC",
+            Subtitle = "Choose one",
+            Confirm = "BIND",
+            BackHint = "Later",
+            Cards = kinds.Select(k => Card(k, Items.Icon(ItemOf(k)))).ToList(),
+            StillValid = () => Mine == Curio.None,
+            OnConfirm = i => { if (Mine == Curio.None) Bind(kinds[i]); },
+            OnBack = () => declinedAt = seg,
+            OnCancelled = () => declinedAt = seg,
+        });
+        if (shown) Plugin.Log.LogInfo($"Curio relic: late-join pick shown (biome {seg}).");
     }
 
     private void Update()
     {
         try { WakeNotice(Character.localCharacter); }
         catch (System.Exception e) { wakeNoticed = true; Plugin.Log.LogError($"Wake notice failed: {e}"); }
+        try { LatePick(Character.localCharacter); }
+        catch (System.Exception e) { sawShore = true; Plugin.Log.LogError($"Late relic pick failed: {e}"); }
         if (Character.localCharacter is { } self)
         {
             try { BingBongPranks.TickHidden(self); }

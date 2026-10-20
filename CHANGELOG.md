@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.31
+- "Something survived the crash" now plays right after the SHORE / DAY 1 title fades.
+- Scouts who join after the Shore get to choose a starting relic from all five, once on flat ground ("Later" waits for the next biome).
+- Cards for items today's sun weakens say so in bold red.
+
 ## 0.12.30
 - Starting relics stay where they lie until every scout has bound one (or the Shore is behind you) - nobody can pocket a relic a teammate still needs.
 

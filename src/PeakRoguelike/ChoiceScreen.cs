@@ -113,6 +113,11 @@ public class ChoiceScreen : MonoBehaviour
     public static bool Show(ScreenSpec spec)
     {
         if (instance != null || spec.Cards.Count == 0) return false;
+        foreach (var card in spec.Cards)
+        {
+            try { SunMarks.MarkCard(card); }
+            catch (Exception e) { Plugin.Log.LogWarning($"Sun card mark: {e.Message}"); }
+        }
         var go = new GameObject($"PEAK Roguelike - {spec.Title}");
         instance = go.AddComponent<ChoiceScreen>();
         instance.Build(spec);
