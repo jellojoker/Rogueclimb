@@ -53,9 +53,9 @@ internal static class FindCards
             var curio = CurioRelics.KindOf(__instance);
             if (curio != Curio.None && ModConfig.CurioRelics.Value)
             {
-                // Unbound: the relic card every time (Back leaves it). Bound: one look at each other curio, then it's just an item.
-                var mine = CurioRelics.Mine;
-                if (mine == curio || (mine != Curio.None && !seen.Add("relic:" + curio))) return true;
+                // The relic card every time (Back leaves it) until every scout has bound one or the Shore is behind
+                // you - nobody pockets a curio another scout still needs. Then it's just an item.
+                if (CurioRelics.Mine != Curio.None && !CurioRelics.StillChoosing) return true;
                 CurioRelics.ShowCard(__instance, interactor, curio);
                 return false;
             }

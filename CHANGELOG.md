@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.30
+- Starting relics stay where they lie until every scout has bound one (or the Shore is behind you) - nobody can pocket a relic a teammate still needs.
+
+## 0.12.29
+- The crash-site notice now waits until you first move, so it can't play behind the black wake-up screen.
+
 ## 0.12.28
 - Waking at the crash site: "Something survived the crash. It's waiting for you."
 

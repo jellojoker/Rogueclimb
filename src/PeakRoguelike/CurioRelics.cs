@@ -95,6 +95,19 @@ internal class CurioRelics : MonoBehaviour
         return owner != null && owner.CustomProperties.TryGetValue(PropKey, out object raw) && raw is int v && v == (int)kind;
     }
 
+    /// <summary>On the Shore, while some scout with the mod has yet to bind a starting relic.</summary>
+    internal static bool StillChoosing
+    {
+        get
+        {
+            if (!MapHandler.Exists || Singleton<MapHandler>.Instance.currentSegment != 0) return false;
+            if (Mine == Curio.None) return true;
+            if (!PhotonNetwork.InRoom) return false;
+            return PhotonNetwork.PlayerList.Any(p => !p.IsLocal && Modless.HasMod(p)
+                && !(p.CustomProperties.TryGetValue(PropKey, out object raw) && raw is int v && v != (int)Curio.None));
+        }
+    }
+
     private static void Publish()
     {
         if (!PhotonNetwork.InRoom || PhotonNetwork.LocalPlayer == null) return;
@@ -166,7 +179,8 @@ internal class CurioRelics : MonoBehaviour
     private static float awakeSince = -1f;
 
     /// <summary>
-    /// Once per run, two seconds after you come to at the crash site: the curios are out there.
+    /// Once per run, the moment you first move at the crash site: the curios are out there.
+    /// (The game calls you conscious while the screen is still black, so we wait for your feet.)
     /// Announced, never explained. Not for scouts who already carry one, wake elsewhere, or join
     /// after the Shore.
     /// </summary>
@@ -175,9 +189,10 @@ internal class CurioRelics : MonoBehaviour
         if (wakeNoticed || !ModConfig.CurioRelics.Value || !ModConfig.CurioWakeNotice.Value) return;
         if (me == null || me.data.dead || !MapHandler.Exists) { awakeSince = -1f; return; }
         if (Mine != Curio.None || Singleton<MapHandler>.Instance.currentSegment != 0) { wakeNoticed = true; return; }
-        if (!me.data.fullyConscious) { awakeSince = -1f; return; }
-        if (awakeSince < 0f) awakeSince = Time.time;
-        if (Time.time - awakeSince < 2f) return;
+        if (!me.data.fullyConscious || me.data.passedOut || LoadingScreenHandler.loading) { awakeSince = -1f; return; }
+        var input = me.input;
+        if (awakeSince < 0f && (input.movementInput.magnitude > 0.1f || input.jumpWasPressed)) awakeSince = Time.time;
+        if (awakeSince < 0f || Time.time - awakeSince < 0.3f) return;
         wakeNoticed = true;
         if (!Sanctuary.AtCrash(me.Center)) return;
         Hud.Banner("", "Something survived the crash", ChoiceScreen.LevelGold, "It's waiting for you.");
