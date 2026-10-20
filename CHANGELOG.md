@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.28
+- Waking at the crash site: "Something survived the crash. It's waiting for you."
+
 ## 0.12.27
 - Each sun's banner carries a hint: "You feel fragile / heavier / drained / wasteful."
 

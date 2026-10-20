@@ -51,6 +51,14 @@ internal static class Sanctuary
         return summit != null && Vector3.Distance(summit.position, pos) <= ModConfig.SummitRadius.Value * Squad.M;
     }
 
+    /// <summary>Within the crash site's safe radius (whether or not safe zones are on).</summary>
+    internal static bool AtCrash(Vector3 pos)
+    {
+        if (!MapHandler.Exists) return false;
+        Rescan();
+        return crash != null && Vector3.Distance(crash.position, pos) <= ModConfig.SpawnRadius.Value * Squad.M;
+    }
+
     /// <summary>The nearest lit safe spot and its radius (for pushing the tornado back out).</summary>
     internal static bool Nearest(Vector3 pos, out Vector3 centre, out float radius)
     {

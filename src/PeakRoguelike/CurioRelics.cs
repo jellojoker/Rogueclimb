@@ -41,6 +41,8 @@ internal class CurioRelics : MonoBehaviour
     internal static void Reset()
     {
         Mine = Curio.None;
+        wakeNoticed = false;
+        awakeSince = -1f;
         BingBongPranks.Reset();
         LightsOut.End();
         Publish();
@@ -158,8 +160,34 @@ internal class CurioRelics : MonoBehaviour
     private static Item? markedItem;
     private static string markedName = "";
 
+    // --- waking at the crash ---------------------------------------------------------------------
+
+    private static bool wakeNoticed;
+    private static float awakeSince = -1f;
+
+    /// <summary>
+    /// Once per run, two seconds after you come to at the crash site: the curios are out there.
+    /// Announced, never explained. Not for scouts who already carry one, wake elsewhere, or join
+    /// after the Shore.
+    /// </summary>
+    private static void WakeNotice(Character? me)
+    {
+        if (wakeNoticed || !ModConfig.CurioRelics.Value || !ModConfig.CurioWakeNotice.Value) return;
+        if (me == null || me.data.dead || !MapHandler.Exists) { awakeSince = -1f; return; }
+        if (Mine != Curio.None || Singleton<MapHandler>.Instance.currentSegment != 0) { wakeNoticed = true; return; }
+        if (!me.data.fullyConscious) { awakeSince = -1f; return; }
+        if (awakeSince < 0f) awakeSince = Time.time;
+        if (Time.time - awakeSince < 2f) return;
+        wakeNoticed = true;
+        if (!Sanctuary.AtCrash(me.Center)) return;
+        Hud.Banner("", "Something survived the crash", ChoiceScreen.LevelGold, "It's waiting for you.");
+        Plugin.Log.LogInfo("Curio relic: wake notice shown.");
+    }
+
     private void Update()
     {
+        try { WakeNotice(Character.localCharacter); }
+        catch (System.Exception e) { wakeNoticed = true; Plugin.Log.LogError($"Wake notice failed: {e}"); }
         if (Character.localCharacter is { } self)
         {
             try { BingBongPranks.TickHidden(self); }

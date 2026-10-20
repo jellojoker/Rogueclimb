@@ -47,7 +47,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> Blessings = null!;
     public static ConfigEntry<bool> FlareReroll = null!, FlareSupplyDrop = null!, TimedDrops = null!, EmptyHandedPicks = null!, FindCards = null!;
     public static ConfigEntry<float> FlareAncientChance = null!, DropSeconds = null!;
-    public static ConfigEntry<bool> CurioRelics = null!, FrisbeeHitsScouts = null!;
+    public static ConfigEntry<bool> CurioRelics = null!, CurioWakeNotice = null!, FrisbeeHitsScouts = null!;
     public static ConfigEntry<float> CurioPingSeconds = null!, CurioCrateBoost = null!, FrisbeeForce = null!, BingBongMinSeconds = null!, BingBongMaxSeconds = null!;
     public static ConfigEntry<float> BingBongHideMin = null!, BingBongHideMax = null!, BingBongDarkSeconds = null!, BingBongBlinkRange = null!, BingBongGiftMaxChance = null!;
     public static ConfigEntry<Key> FlashlightKey = null!;
@@ -329,6 +329,7 @@ internal static class ModConfig
         EmptyHandedPicks = cfg.Bind("Supply", "EmptyHandedPicks", true, "Opening a supply crate with empty pockets lets you take two cards.");
         FindCards = cfg.Bind("Systems", "FindCards", true, "Flare and Lantern show a card the first time you pick each up in a run.");
         CurioRelics = cfg.Bind("Curios", "StartingRelics", true, "Bugle, Binoculars, Compass, Frisbee and Bing Bong offer a starting relic (one per scout, never raises a blood moon).");
+        CurioWakeNotice = cfg.Bind("Curios", "WakeNotice", true, "Waking at the crash site shows \"Something survived the crash\" (once per run, only while you have no starting relic).");
         CurioPingSeconds = cfg.Bind("Curios", "PingSeconds", 10f, "Binoculars / Compass relics: seconds between pings.");
         CurioCrateBoost = cfg.Bind("Curios", "CrateBoost", 0.1f, "Bugle / Binoculars / Compass relics: chance each card of a crate you roll becomes healing / food / a tool.");
         FrisbeeHitsScouts = cfg.Bind("Curios", "FrisbeeHitsScouts", true, "Frisbee relic: throws knock back other scouts too (off = enemies only).");
