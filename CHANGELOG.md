@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.12.54
+- Shelf Fungus and cloud fungus fire your tool relics when they sprout after you throw them (a soft drop that doesn't sprout costs nothing). Remedy Fungus fires healing relics when its cloud bursts, not on the throw.
+
 ## 0.12.53
 - Relics cost 5 glass a trigger (was 3) - there are more ways to heal glass now.
 - Food cooked on a Portable Stove heals 5 glass when eaten (burnt too, whoever eats it). [Relics] StoveFoodGlass.

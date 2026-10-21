@@ -874,17 +874,42 @@ internal static class RelicPatches
         if (Badges.Has(BadgeId.LeaveNoTrace)) holder.refs.afflictions.AddPetrify(ModConfig.GlassPerTrigger.Value);
     }
 
-    /// <summary>Throwing a Remedy Fungus fires the thrower's healing relics.</summary>
-    [HarmonyPostfix, HarmonyPatch(typeof(GlobalEvents), nameof(GlobalEvents.TriggerItemThrown))]
-    private static void RemedyThrown(Item item)
+    // Thrown fungi: they fire their thrower's relics when they sprout, not when they leave the hand
+    // (a soft drop that doesn't sprout costs nothing). Break runs on the item's owner - the thrower.
+
+    private static readonly AccessTools.FieldRef<ShelfShroom, bool> ShelfBroke = AccessTools.FieldRefAccess<ShelfShroom, bool>("alreadyBroke");
+    private static readonly AccessTools.FieldRef<CloudFungus, bool> CloudBroke = AccessTools.FieldRefAccess<CloudFungus, bool>("alreadyBroke");
+
+    /// <summary>Shelf Fungus grows a ledge (tool relics); Remedy Fungus bursts into its healing cloud (healing relics).</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(ShelfShroom), nameof(ShelfShroom.Break))]
+    private static void ShelfSprouts(ShelfShroom __instance)
     {
         try
         {
-            if (item == null || item.lastThrownCharacter is not { IsLocal: true } || !Relics.IsRemedy(item)) return;
-            Plugin.Log.LogInfo("Threw a Remedy Fungus: healing relics.");
-            Relics.Trigger(RelicTrigger.Healing, item);
+            if (ShelfBroke(__instance)) return;
+            var item = __instance.GetComponent<Item>();
+            Sprouted(item, item != null && Relics.IsRemedy(item) ? RelicTrigger.Healing : RelicTrigger.Movement);
         }
-        catch (System.Exception e) { Plugin.Log.LogWarning($"Remedy relic hook failed: {e.Message}"); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Shelf fungus relic hook failed: {e.Message}"); }
+    }
+
+    /// <summary>Cloud fungus pops into its cloud: tool relics.</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(CloudFungus), nameof(CloudFungus.Break))]
+    private static void CloudSprouts(CloudFungus __instance)
+    {
+        try
+        {
+            if (!CloudBroke(__instance)) Sprouted(__instance.GetComponent<Item>(), RelicTrigger.Movement);
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Cloud fungus relic hook failed: {e.Message}"); }
+    }
+
+    private static void Sprouted(Item? item, RelicTrigger trigger)
+    {
+        // Ours if we threw it lately (a fungus someone picked up and set down again counts for nobody).
+        if (item == null || item.lastThrownCharacter is not { IsLocal: true } || Time.time - item.lastThrownTime > 30f) return;
+        Plugin.Log.LogInfo($"Our thrown {item.gameObject.name} sprouted: {trigger} relics.");
+        Relics.Trigger(trigger, item);
     }
 
     /// <summary>Lighting a lantern (not snuffing it) fires healing relics; a Faerie Lantern fires food, healing and tool relics.</summary>
