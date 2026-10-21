@@ -8,7 +8,7 @@ using UnityEngine;
 namespace PeakRoguelike;
 
 /// <summary>
-/// Safe ground: inside a campfire's circle, lit or not (the one the game uses for "everyone is resting")
+/// Safe ground: inside a campfire's circle while it waits to be lit and while it burns (not once it's burnt out)
 /// or up on the summit, the suns and blood moons can't touch you. The sky stays coloured and the
 /// moon stays red - only the danger and the music stop.
 /// </summary>
@@ -46,7 +46,7 @@ internal static class Sanctuary
         if (!ModConfig.SafeZones.Value || !MapHandler.Exists) return false;
         Rescan();
         foreach (var f in fires)
-            if (f != null && Vector3.Distance(f.transform.position, pos) <= Radius(f)) return true;
+            if (Guards(f) && Vector3.Distance(f.transform.position, pos) <= Radius(f)) return true;
         if (crash != null && Vector3.Distance(crash.position, pos) <= ModConfig.SpawnRadius.Value * Squad.M) return true;
         return summit != null && Vector3.Distance(summit.position, pos) <= ModConfig.SummitRadius.Value * Squad.M;
     }
@@ -69,7 +69,7 @@ internal static class Sanctuary
         float best = float.MaxValue;
         foreach (var f in fires)
         {
-            if (f == null) continue;
+            if (!Guards(f)) continue;
             float d = Vector3.Distance(f.transform.position, pos) - Radius(f);
             if (d < best) { best = d; centre = f.transform.position; radius = Radius(f); }
         }
@@ -82,7 +82,11 @@ internal static class Sanctuary
         return best < float.MaxValue;
     }
 
-    private static float Radius(Campfire f) => f.moraleBoostRadius > 1f ? f.moraleBoostRadius : 15f * Squad.M;
+    /// <summary>A campfire guards its circle until it's lit, and while it burns - not once it's burnt out.</summary>
+    private static bool Guards(Campfire? f) => f != null && f.state != Campfire.FireState.Spent;
+
+    /// <summary>The game's resting circle, never under 10m (20m across).</summary>
+    private static float Radius(Campfire f) => Mathf.Max(f.moraleBoostRadius > 1f ? f.moraleBoostRadius : 15f * Squad.M, 10f * Squad.M);
 
     private static void Rescan()
     {

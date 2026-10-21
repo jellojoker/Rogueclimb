@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.12.53
+- Relics cost 5 glass a trigger (was 3) - there are more ways to heal glass now.
+- Food cooked on a Portable Stove heals 5 glass when eaten (burnt too, whoever eats it). [Relics] StoveFoodGlass.
+- A flare dealt by a crate or supply drop shows the same card as the one found on the Shore.
+- A thrown Remedy Fungus fires healing relics.
+- Kiln / Citadel blood tornado: the middle of its funnel follows the lowest scout (not its base), it roams most of the room at twice its old pace, and it catches you within 6m of its middle (was 3.5m). [BloodMoon] TornadoKilnCatch.
+- The README explains the mod's mechanics in a spoiler section.
+
+## 0.12.52
+- **Trade-ups** replace the 3-copy stack merge: holding a full stack (3) and getting a 4th copy (a crate card or a pickup) offers "TRADE UP YOUR STACK" - all four become one item two levels higher (a path to pick if it reaches a fork). "Keep them" leaves your items alone. The STACK READY pill is gone; crate cards say when a pick would be your 4th.
+- XP evolutions no longer eat a copy of your item: your stack stays and the new item is extra. (Plain XP level-ups still raise the whole stack.)
+- A fusion you've crafted is never offered for crafting again - from then on it comes from crates.
+
+## 0.12.51
+- Rope cannons start at the game's full range and go further: 30m / 38m / 45m (Rope Cannon, Extended Rope Cannon, Long-Range Rope Cannon). The old short-range levels made cannons look like they'd stopped firing.
+- Item cards show a gold line for each of your badges that changes that item (e.g. "Knot Tying: 25% longer, no relic glass.").
+
+## 0.12.50
+- **Campfire blessing**: at every lit campfire, each scout picks one of four build cards at +1 (Specialize, Partner, Switch lanes, Fusion or Synergy) - the top card sometimes becomes the one ingredient a fusion of yours is missing. Replaces the +100 campfire XP.
+- Safe ground: a campfire guards its circle (20m across at least) until it's lit and while it burns - not once it's burnt out. Blood moon tornadoes can no longer pull or catch anyone on safe ground.
+- Starting relics (the Pirate's Compass, the Bugle, the Scoutmaster's Bugle) no longer come out of crates.
+- Compass + Binoculars together (your own relic plus a badge copy): both markers show, and both crate bonuses apply.
+
+## 0.12.49
+- Ancient Luggage only charges its curse and injury when you take a card - no more paying for a crate someone else is choosing from, or for closing it to decide later.
+- Badge fixes: Bouldering - pitons go in instantly (no longer "never crack"). Esoterica - +5% chance of a finished fusion in every Ancient Luggage. Naturalist - hot dogs and marshmallows count as natural. Disaster Response - the Rescue Claw heals the scout it pulls by up to 25 points of ailments (not curse or hunger), enough to wake someone passed out.
+
 ## 0.12.48
 - **Badge relics.** 26 of the game's scout badges are now relics that last the whole run (the Void included), each shown with its badge picture and a card that says exactly what it does. Every buff is 25% at most.
   - Blessing statues offer three badges - pick one (no more level-ups there).

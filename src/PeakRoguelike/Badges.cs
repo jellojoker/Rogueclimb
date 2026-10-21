@@ -53,6 +53,12 @@ internal class Badges : MonoBehaviour
     }
 
     private static int Pct => Mathf.RoundToInt(Buff * 100f);
+    /// <summary>Esoterica: added to every Ancient Luggage's chance of a finished fusion.</summary>
+    internal const float EsotericaBonus = 0.05f;
+    private static int EsotericaPct => Mathf.RoundToInt(EsotericaBonus * 100f);
+    /// <summary>Disaster Response: ailments the Rescue Claw heals (0-1 of the bar, shared out).</summary>
+    internal const float RescueHeal = 0.25f;
+    private static int RescueHealPct => Mathf.RoundToInt(RescueHeal * 100f);
 
     private static void Define()
     {
@@ -62,15 +68,15 @@ internal class Badges : MonoBehaviour
         string copy(Curio c) => $"The {CurioRelics.Name(c)} starting relic, on top of your own:\n{CurioRelics.Desc(c)}";
 
         D(BadgeId.Cooking, ACHIEVEMENTTYPE.CookingBadge, "Cooking", $"{noGlass("Cooked foods")}\nCooked food feeds and heals {Pct}% more.");
-        D(BadgeId.Bouldering, ACHIEVEMENTTYPE.BoulderingBadge, "Bouldering", $"{noGlass("Pitons")}\nYour pitons never crack.");
+        D(BadgeId.Bouldering, ACHIEVEMENTTYPE.BoulderingBadge, "Bouldering", $"{noGlass("Pitons")}\nYour pitons go in instantly.");
         D(BadgeId.Foraging, ACHIEVEMENTTYPE.ForagingBadge, "Foraging", $"{noGlass("Berries")}\nBerries feed {Pct}% more; bad berries do {Pct}% less harm.");
-        D(BadgeId.Esoterica, ACHIEVEMENTTYPE.EsotericaBadge, "Esoterica", $"Mythical luck: Ancient Luggage jackpots (a fusion or a dark item) come up {Pct}% more often.");
+        D(BadgeId.Esoterica, ACHIEVEMENTTYPE.EsotericaBadge, "Esoterica", $"Mythical luck: every Ancient Luggage you open has a {EsotericaPct}% better chance to hold a finished fusion.");
         D(BadgeId.LoneWolf, ACHIEVEMENTTYPE.LoneWolfBadge, "Lone Wolf", $"Climbing with no scout within 24m costs {Pct}% less stamina.\nClimbing with company costs {Pct}% more.");
         D(BadgeId.Balloon, ACHIEVEMENTTYPE.BalloonBadge, "Balloon", $"{noGlass("Balloons")}\nBalloon flights go {Pct}% higher.");
         D(BadgeId.LeaveNoTrace, ACHIEVEMENTTYPE.LeaveNoTraceBadge, "Leave No Trace", $"You climb {Pct}% faster.\nEvery item you use adds {ModConfig.GlassPerTrigger.Value} glass.");
         D(BadgeId.Hasty, ACHIEVEMENTTYPE.SpeedClimberBadge, "Hasty", $"You move {Pct}% faster on foot.");
         D(BadgeId.BingBong, ACHIEVEMENTTYPE.BingBongBadge, "Bing Bong", copy(Curio.BingBong), Curio.BingBong);
-        D(BadgeId.Naturalist, ACHIEVEMENTTYPE.NaturalistBadge, "Naturalist", "Natural food (berries, mushrooms, fruit, eggs, honey) never adds glass when it fires your relics.\nPackaged food adds double glass.");
+        D(BadgeId.Naturalist, ACHIEVEMENTTYPE.NaturalistBadge, "Naturalist", "Natural food (berries, mushrooms, fruit, eggs, honey, hot dogs, marshmallows) never adds glass when it fires your relics.\nPackaged food adds double glass.");
         D(BadgeId.FirstAid, ACHIEVEMENTTYPE.FirstAidBadge, "First Aid", $"Healing heals you {Pct}% more.\nFalls hurt {Pct}% less with a scout within 24m.");
         D(BadgeId.AnimalSerenading, ACHIEVEMENTTYPE.AnimalSerenadingBadge, "Animal Serenading", copy(Curio.Bugle), Curio.Bugle);
         D(BadgeId.KnotTying, ACHIEVEMENTTYPE.KnotTyingBadge, "Knot Tying", $"{noGlass("Ropes")}\nYour ropes are {Pct}% longer.");
@@ -83,7 +89,7 @@ internal class Badges : MonoBehaviour
         D(BadgeId.Toxicology, ACHIEVEMENTTYPE.ToxicologyBadge, "Toxicology", $"You take {Pct}% less poison.");
         D(BadgeId.TreadLightly, ACHIEVEMENTTYPE.TreadLightlyBadge, "Tread Lightly", $"You take {Pct}% less spores.");
         D(BadgeId.Nomad, ACHIEVEMENTTYPE.NomadBadge, "Nomad", $"You take {Pct}% less heat.");
-        D(BadgeId.DisasterResponse, ACHIEVEMENTTYPE.DisasterResponseBadge, "Disaster Response", "Pulling a passed-out scout with the Rescue Claw revives them.");
+        D(BadgeId.DisasterResponse, ACHIEVEMENTTYPE.DisasterResponseBadge, "Disaster Response", $"Your Rescue Claw heals the scout it pulls: up to {RescueHealPct} points of ailments (not curse or hunger) - enough to wake a passed-out scout.");
         D(BadgeId.CalciumIntake, ACHIEVEMENTTYPE.CalciumIntakeBadge, "Calcium Intake", $"Milk never adds glass when it fires your relics.\nMilk's invincibility lasts {Pct}% longer.");
         D(BadgeId.Wanderer, ACHIEVEMENTTYPE.WandererBadge, "Wanderer", $"You take {Pct}% less drowsiness.");
         D(BadgeId.HangGliding, ACHIEVEMENTTYPE.HangGlidingBadge, "Hang Gliding", $"{noGlass("Gliders")}\nYou glide down {Pct}% slower.");
@@ -198,6 +204,34 @@ internal class Badges : MonoBehaviour
         Icon = Icon(d.Id),
     };
 
+    // --- item cards: a gold line when one of your badges changes that item ------------------------
+
+    private const string GoldLine = "<color=#FFC84F>";
+
+    /// <summary>Adds a gold line per badge of yours that changes the card's item (crate, blessing, fusion cards).</summary>
+    internal static void MarkCard(CardSpec card)
+    {
+        if (owned.Count == 0 || card.Style == CardStyle.Relic || card.Icon == null || card.Body.Contains(GoldLine) || card.Tag == "Badge relic") return;
+        var item = Items.Database.FirstOrDefault(i => i != null && Items.Icon(i) == card.Icon);
+        if (item == null || CurioRelics.KindOf(item) != Curio.None) return;
+        var lines = new List<string>();
+        void If(BadgeId id, bool applies, string what) { if (applies && Has(id)) lines.Add($"{Get(id).Name}: {what}"); }
+        var spool = item.GetComponent<RopeSpool>();
+        If(BadgeId.KnotTying, spool != null && !spool.isAntiRope, $"{Pct}% longer, no relic glass.");
+        If(BadgeId.KnotTying, item.GetComponent<RopeShooter>() != null || spool is { isAntiRope: true }, "no relic glass.");
+        If(BadgeId.Bouldering, item.GetComponent<ClimbingSpikeComponent>() != null, "goes in instantly, no relic glass.");
+        If(BadgeId.HangGliding, item.GetComponentInChildren<Glider>(true) != null, $"falls {Pct}% slower, no relic glass.");
+        If(BadgeId.Balloon, item.GetComponent<Balloon>() != null, $"flies {Pct}% higher, no relic glass.");
+        If(BadgeId.Aeronautics, item.GetComponent<JetpackItem>() != null, $"{Pct}% more fuel, no relic glass.");
+        If(BadgeId.Aeronautics, Items.IsScoutCannon(item), $"launches you {Pct}% harder, no relic glass.");
+        If(BadgeId.CalciumIntake, Items.IsMilk(item), $"invincible {Pct}% longer, no relic glass.");
+        If(BadgeId.Foraging, IsBerry(item), $"feeds {Pct}% more, no relic glass.");
+        If(BadgeId.Naturalist, Relics.IsFood(item), IsPackaged(item) ? "double relic glass." : "no relic glass.");
+        If(BadgeId.FirstAid, Relics.IsHealing(item), $"heals you {Pct}% more.");
+        If(BadgeId.DisasterResponse, Items.IsRescueClaw(item), $"heals the scout it pulls ({RescueHealPct} points).");
+        if (lines.Count > 0) card.Body += "\n" + string.Join("\n", lines.Select(l => $"{GoldLine}{l}</color>"));
+    }
+
     // --- the game's badge pictures ---------------------------------------------------------------
 
     private static Dictionary<ACHIEVEMENTTYPE, Texture>? icons;
@@ -282,7 +316,7 @@ internal class Badges : MonoBehaviour
     internal static bool IsBerry(Item item) => Items.Key(item).Contains("berry");
 
     private static readonly string[] Packaged =
-        { "airline", "granola", "trail mix", "trailmix", "cookie", "lollipop", "energy drink", "sports drink", "hot dog", "hotdog", "marshmallow", "milk", "fortified" };
+        { "airline", "granola", "trail mix", "trailmix", "cookie", "lollipop", "energy drink", "sports drink", "milk", "fortified" };
 
     internal static bool IsPackaged(Item item)
     {
@@ -291,6 +325,32 @@ internal class Badges : MonoBehaviour
     }
 
     // --- helpers for the effects --------------------------------------------------------------------
+
+    private static readonly CharacterAfflictions.STATUSTYPE[] Healable =
+    {
+        CharacterAfflictions.STATUSTYPE.Injury, CharacterAfflictions.STATUSTYPE.Poison, CharacterAfflictions.STATUSTYPE.Cold,
+        CharacterAfflictions.STATUSTYPE.Hot, CharacterAfflictions.STATUSTYPE.Drowsy, CharacterAfflictions.STATUSTYPE.Spores,
+        CharacterAfflictions.STATUSTYPE.Thorns, CharacterAfflictions.STATUSTYPE.Web, CharacterAfflictions.STATUSTYPE.Crab,
+    };
+
+    /// <summary>Disaster Response, on the clawed scout's side: up to 25 points off their ailments, worst first (never curse, hunger, weight or glass).</summary>
+    internal static void ReceiveRescueHeal(int fromActor)
+    {
+        var me = Character.localCharacter;
+        if (me == null || me.data.dead) return;
+        var aff = me.refs.afflictions;
+        float left = RescueHeal, healed = 0f;
+        foreach (var s in Healable.OrderByDescending(aff.GetCurrentStatus))
+        {
+            if (left <= 0f) break;
+            float take = Mathf.Min(left, aff.GetCurrentStatus(s));
+            if (take <= 0f) continue;
+            aff.SubtractStatus(s, take);
+            left -= take;
+            healed += take;
+        }
+        Plugin.Log.LogInfo($"Disaster Response: {Relics.ScoutOf(fromActor)?.characterName ?? "a scout"}'s claw healed {healed * 100f:0} points{(me.data.passedOut ? " (passed out: wakes once under the line)" : "")}.");
+    }
 
     /// <summary>Another living scout within 24m of this one.</summary>
     internal static bool Company(Character me) =>
@@ -451,7 +511,7 @@ internal static class BadgeCannonPatches
 [HarmonyPatch]
 internal static class BadgeRescuePatches
 {
-    /// <summary>Your Rescue Claw pulls a passed-out scout: they get up beside you.</summary>
+    /// <summary>Your Rescue Claw pulls a scout: their game heals them (a passed-out scout wakes once they're under the line).</summary>
     [HarmonyPostfix, HarmonyPatch(typeof(RescueHook), nameof(RescueHook.RPCA_RescueCharacter))]
     private static void Rescue(RescueHook __instance, PhotonView characterView)
     {
@@ -460,11 +520,26 @@ internal static class BadgeRescuePatches
             if (!__instance.photonView.IsMine || !Badges.Has(BadgeId.DisasterResponse)) return;
             var target = characterView != null ? characterView.GetComponent<Character>() : null;
             var me = Character.localCharacter;
-            if (target == null || me == null || target == me || target.data.dead || !target.data.fullyPassedOut) return;
-            Vector3 at = me.Center + me.transform.forward * 1.2f + Vector3.up * 0.5f;
-            target.view.RPC("RPCA_ReviveAtPosition", RpcTarget.All, at, true, -1);
-            Plugin.Log.LogInfo($"Disaster Response: revived {target.characterName} with the Rescue Claw.");
+            if (target == null || me == null || target == me || target.data.dead || target.photonView?.Owner is not { } owner) return;
+            Net.RescueHeal(owner.ActorNumber);
+            Plugin.Log.LogInfo($"Disaster Response: healing {target.characterName} with the Rescue Claw.");
         }
         catch (Exception e) { Plugin.Log.LogWarning($"Disaster Response failed: {e.Message}"); }
+    }
+}
+
+[HarmonyPatch]
+internal static class BadgePitonPatches
+{
+    private static readonly AccessTools.FieldRef<CharacterItems, float> Tick = AccessTools.FieldRefAccess<CharacterItems, float>("climbingSpikeTick");
+    private static readonly AccessTools.FieldRef<CharacterItems, ItemSlot> Slot = AccessTools.FieldRefAccess<CharacterItems, ItemSlot>("currentClimbingSpikeItemSlot");
+
+    /// <summary>Bouldering: once you start hammering, the piton is in.</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(CharacterItems), "UpdateClimbingSpikeUse")]
+    private static void Instant(CharacterItems __instance)
+    {
+        if (!Badges.Has(BadgeId.Bouldering) || !BadgeFoodPatches.Local(__instance.character)) return;
+        ref float t = ref Tick(__instance);
+        if (t > 0f && Slot(__instance)?.prefab is { } p) t = Mathf.Max(t, p.usingTimePrimary);
     }
 }

@@ -483,19 +483,52 @@ internal class BloodTornado : MonoBehaviour
     /// <summary>Kiln / Citadel (everyone's copy): no hunting - it drifts around the tower's middle.</summary>
     private bool kiln;
     /// <summary>Its drifting pace in a tower, as a share of the game's tornado speed.</summary>
-    private const float TowerDrift = 0.25f;
+    private const float TowerDrift = 0.5f;
+    /// <summary>How far from the tower's middle it roams, as a share of the tower's radius.</summary>
+    private const float TowerRoam = 0.75f;
     private Vector3? towerCentre;
-    private float towerRadius, nextScan;
+    private float towerRadius, nextScan, nextRoam;
+    private Vector2 roam;
+    private bool roaming;
 
     /// <summary>
-    /// Host, in a tower: every few seconds it measures the tower around itself at the lowest scout's
-    /// height and heads for a spot near the middle (within a quarter of its width), at that height.
-    /// Starting off-centre, each scan brings it closer to the real middle.
+    /// Kiln / Citadel (everyone's copy): its funnel's middle sits at the lowest scout, so the base is
+    /// lowered by half its height - measured from its renderers. The game's pull and catch are
+    /// measured from the middle too (Patches.RaiseCore).
+    /// </summary>
+    private float height, lift, nextMeasure;
+    private const float FallbackHeight = 40f;
+
+    private void Measure()
+    {
+        if (Time.time < nextMeasure) return;
+        nextMeasure = Time.time + 1f;
+        float top = float.MinValue;
+        foreach (var r in GetComponentsInChildren<Renderer>())
+            if (r != null && r.enabled && r.gameObject.activeInHierarchy) top = Mathf.Max(top, r.bounds.max.y);
+        float scale = transform.localScale.y;
+        if (top > float.MinValue && scale > 0.5f)
+        {
+            float h = (top - transform.position.y) / scale;
+            if (h > 5f && h < 400f && h > height + 1f)
+            {
+                height = h;
+                Plugin.Log.LogInfo($"Blood tornado (tower): {height:0}m tall - its middle follows the lowest scout.");
+            }
+        }
+        lift = (height > 0f ? height : FallbackHeight) * Mathf.Clamp01(scale) * 0.5f;
+    }
+
+    /// <summary>
+    /// Host, in a tower: every couple of seconds it measures the tower around itself at the lowest
+    /// scout's height and roams across most of it (up to three quarters of its radius from the
+    /// middle), a new spot when it gets there. It sends the lowest scout's height; each copy sinks
+    /// its own base below that (Move).
     /// </summary>
     private void Circle()
     {
         if (Time.time < nextScan) return;
-        nextScan = Time.time + 3f;
+        nextScan = Time.time + 2f;
         var alive = Squad.Alive();
         if (alive.Count == 0) return;
         var low = alive.OrderBy(c => c.Center.y).First().Center;
@@ -507,8 +540,14 @@ internal class BloodTornado : MonoBehaviour
             towerRadius = scan.radius;
         }
         Vector3 mid = towerCentre ?? from;
-        Vector2 off = Random.insideUnitCircle * (towerRadius * 0.5f);
-        Net.TornadoTarget(tornado.view.ViewID, new Vector3(mid.x + off.x, low.y - 3f, mid.z + off.y));
+        Vector2 here = new(transform.position.x, transform.position.z);
+        if (!roaming || Time.time >= nextRoam || Vector2.Distance(here, roam) < 3f * Squad.M)
+        {
+            roam = new Vector2(mid.x, mid.z) + Random.insideUnitCircle * (towerRadius * TowerRoam);
+            roaming = true;
+            nextRoam = Time.time + 12f;
+        }
+        Net.TornadoTarget(tornado.view.ViewID, new Vector3(roam.x, low.y, roam.y));
     }
 
     /// <summary>Rays out to the walls in a full circle: the middle of what they hit and its radius. Null when too few hit (not inside a tower).</summary>
@@ -539,6 +578,8 @@ internal class BloodTornado : MonoBehaviour
         tornado.lifeTime = seconds;
         size = new Vector3(width, 1f, width);
         tornado.force *= pull;
+        // In a tower: catchable a little further from its middle than its small width allows.
+        if (kiln) tornado.captureDistance = Mathf.Max(1f, ModConfig.BmTornadoKilnCatch.Value) / Mathf.Max(0.05f, width);
         live[t.view.ViewID] = this;
         switch (look)
         {
@@ -620,6 +661,7 @@ internal class BloodTornado : MonoBehaviour
     private void CheckPinned()
     {
         float pullAt = transform.localScale.x * tornado.range;
+        Vector3 core = transform.position + Vector3.up * (kiln ? lift : 0f);
         float heldMax = Mathf.Max(1f, ModConfig.BmTornadoHeldMax.Value);
         float pinnedMax = Mathf.Max(0.5f, ModConfig.BmTornadoPinned.Value);
         float nearMax = Mathf.Max(heldMax, ModConfig.BmTornadoNearMax.Value);
@@ -627,8 +669,8 @@ internal class BloodTornado : MonoBehaviour
         float dt = Time.deltaTime;
         foreach (var c in Squad.Alive())
         {
-            float h = c.Center.y - transform.position.y;
-            bool inPull = !Spared(c) && h > -10f && h < 50f && HelperFunctions.FlatDistance(transform.position, c.Center) < pullAt;
+            float h = c.Center.y - core.y;
+            bool inPull = !Spared(c) && !Sanctuary.Safe(c) && h > -10f && h < 50f && HelperFunctions.FlatDistance(core, c.Center) < pullAt;
             if (!inPull) { held.Remove(c); still.Remove(c); continue; }
             bool caught = tornado.caughtCharacters.Contains(c);
             float heldFor = caught ? Add(held, c, dt) : Drop(held, c);
@@ -776,7 +818,8 @@ internal class BloodTornado : MonoBehaviour
         if (kiln)
         {
             // In a tower it floats up (and down) with the squad, wherever the floor is.
-            pos.y = Mathf.MoveTowards(pos.y, target.position.y, Time.deltaTime * 20f);
+            // Its target is the lowest scout's height: the base sinks below it so the funnel's middle is there.
+            pos.y = Mathf.MoveTowards(pos.y, target.position.y - lift, Time.deltaTime * 20f);
         }
         else
         {
@@ -824,6 +867,27 @@ internal class BloodTornado : MonoBehaviour
             __instance.transform.localScale = Vector3.Lerp(grownFrom, bt.size, Time.deltaTime * 0.25f);
         }
 
+        /// <summary>
+        /// In a tower the base sits half a funnel below the lowest scout: for the game's pull, catch
+        /// and spin (FixedUpdate) it stands at its middle instead, then goes back before anything draws.
+        /// </summary>
+        [HarmonyPrefix, HarmonyPatch(typeof(Tornado), "FixedUpdate")]
+        private static void RaiseCore(Tornado __instance, out float __state)
+        {
+            __state = 0f;
+            var bt = __instance.GetComponent<BloodTornado>();
+            if (bt == null || !bt.kiln) return;
+            bt.Measure();
+            __state = bt.lift;
+            __instance.transform.position += Vector3.up * __state;
+        }
+
+        [HarmonyFinalizer, HarmonyPatch(typeof(Tornado), "FixedUpdate")]
+        private static void LowerCore(Tornado __instance, float __state)
+        {
+            if (__state != 0f && __instance != null) __instance.transform.position -= Vector3.up * __state;
+        }
+
         /// <summary>Every throw (its own, a stuck release, a relic) starts the thrown scout's breather.</summary>
         [HarmonyPostfix, HarmonyPatch(typeof(Tornado), "RPCA_ThrowPlayer")]
         private static void Threw(Tornado __instance, int targetView)
@@ -836,17 +900,21 @@ internal class BloodTornado : MonoBehaviour
 
         private static readonly List<Character> spareAdded = new();
 
-        /// <summary>Scouts catching their breath are neither pulled nor caught (the game's own ignore list, for longer).</summary>
+        /// <summary>
+        /// Scouts catching their breath, and scouts on safe ground (a campfire's circle), are neither
+        /// pulled nor caught (the game's own ignore list, for longer).
+        /// </summary>
         [HarmonyPrefix, HarmonyPatch(typeof(Tornado), "AttractCharacters")]
         private static void Spare(Tornado __instance)
         {
             spareAdded.Clear();
-            if (spared.Count == 0 || __instance.GetComponent<BloodTornado>() == null) return;
-            foreach (var kv in spared)
-                if (kv.Key != null && kv.Value > Time.time && !__instance.ignoredCharacters.Contains(kv.Key))
+            if (__instance.GetComponent<BloodTornado>() == null) return;
+            foreach (var c in Character.AllCharacters)
+                if (c != null && !__instance.ignoredCharacters.Contains(c)
+                    && ((spared.TryGetValue(c, out float until) && until > Time.time) || Sanctuary.Safe(c)))
                 {
-                    __instance.ignoredCharacters.Add(kv.Key);
-                    spareAdded.Add(kv.Key);
+                    __instance.ignoredCharacters.Add(c);
+                    spareAdded.Add(c);
                 }
         }
 

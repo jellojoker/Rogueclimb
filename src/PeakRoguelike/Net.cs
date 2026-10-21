@@ -20,6 +20,7 @@ public enum AuraKind : byte
 /// </summary>
 internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
 {
+    private const byte RescueHealEvent = 168;
     private const byte BingBongEvent = 169;
     private const byte SupplyDropEvent = 170;
     private const byte AuraEvent = 171;
@@ -175,6 +176,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     /// <summary>We let go of a tool this scout placed: their movement relics fire on us.</summary>
     public static void ToolUsed(int placerActor) => SendTo(placerActor, ToolUsedEvent, new object[] { Me });
 
+    /// <summary>Disaster Response: our Rescue Claw pulled this scout - their game heals them.</summary>
+    public static void RescueHeal(int targetActor) => SendTo(targetActor, RescueHealEvent, new object[] { Me });
+
     /// <summary>A piton or beanstalk was placed here by this scout (pitons and vines are room objects - no creator of their own).</summary>
     public static void Placed(Vector3 pos, int actor)
     {
@@ -270,6 +274,9 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     break;
                 case RelicShareEvent when e.CustomData is object[] a:
                     Relics.ReceiveShare((int)a[0], (RelicGem)(int)a[1]);
+                    break;
+                case RescueHealEvent when e.CustomData is object[] a:
+                    Badges.ReceiveRescueHeal((int)a[0]);
                     break;
                 case ToolUsedEvent when e.CustomData is object[] a:
                     Relics.ReceiveToolUsed((int)a[0]);

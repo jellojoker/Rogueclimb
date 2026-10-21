@@ -117,6 +117,8 @@ public class ChoiceScreen : MonoBehaviour
         {
             try { SunMarks.MarkCard(card); }
             catch (Exception e) { Plugin.Log.LogWarning($"Sun card mark: {e.Message}"); }
+            try { Badges.MarkCard(card); }
+            catch (Exception e) { Plugin.Log.LogWarning($"Badge card mark: {e.Message}"); }
         }
         var go = new GameObject($"PEAK Roguelike - {spec.Title}");
         instance = go.AddComponent<ChoiceScreen>();

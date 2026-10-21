@@ -226,7 +226,8 @@ internal class Fusion : MonoBehaviour
         var pockets = p.itemSlots.Where(s => s != null && !s.IsEmpty() && s.prefab != null && !SugarRush.IsMarked(s.data)).ToList();
         foreach (var recipe in Recipes)
         {
-            if (!recipe.Unlocked()) continue;
+            // Made once this run: from now on it comes from crates, never from crafting again.
+            if (!recipe.Unlocked() || RunState.Fused.Contains(recipe.Id)) continue;
             var used = new List<byte>();
             bool ok = true;
             foreach (var ing in recipe.Ingredients)

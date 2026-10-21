@@ -442,6 +442,7 @@ internal class Relics : MonoBehaviour
         }
         finally { SunCaps.Pop(); }
 
+        Stove.Eaten(item, character);
         DarkRite(item);
 
         try { Xp.Used(item, character); }
@@ -608,7 +609,11 @@ internal class Relics : MonoBehaviour
         || item.GetComponent<Action_ClearAllStatus>()
         || item.GetComponents<Action_ApplyAffliction>().Any(a => a.affliction is Affliction_HealAll or Affliction_AdjustStatusOverTime)
         || Trees.Classify(item) == TreeId.Bandage
-        || IsLantern(item);
+        || IsLantern(item)
+        || IsRemedy(item);
+
+    /// <summary>Remedy Fungus: thrown, it bursts into a healing cloud (the game builds it on the Shelf Fungus's parts).</summary>
+    internal static bool IsRemedy(Item item) => item.gameObject.name.StartsWith("HealingPuffShroom");
 
     /// <summary>
     /// Food = anything you eat or drink that isn't healing: real food, drinks (sports / energy
@@ -632,6 +637,7 @@ internal class Relics : MonoBehaviour
 
     internal static bool IsMovementItem(Item item)
     {
+        if (IsRemedy(item)) return false;
         var tree = Trees.Classify(item);
         // The Tools class: anti-ropes, the Chain Launcher and Rescue Claw are tools too, tree or not.
         return tree is TreeId.Rope or TreeId.Piton or TreeId.Glider or TreeId.Balloons
@@ -868,6 +874,19 @@ internal static class RelicPatches
         if (Badges.Has(BadgeId.LeaveNoTrace)) holder.refs.afflictions.AddPetrify(ModConfig.GlassPerTrigger.Value);
     }
 
+    /// <summary>Throwing a Remedy Fungus fires the thrower's healing relics.</summary>
+    [HarmonyPostfix, HarmonyPatch(typeof(GlobalEvents), nameof(GlobalEvents.TriggerItemThrown))]
+    private static void RemedyThrown(Item item)
+    {
+        try
+        {
+            if (item == null || item.lastThrownCharacter is not { IsLocal: true } || !Relics.IsRemedy(item)) return;
+            Plugin.Log.LogInfo("Threw a Remedy Fungus: healing relics.");
+            Relics.Trigger(RelicTrigger.Healing, item);
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Remedy relic hook failed: {e.Message}"); }
+    }
+
     /// <summary>Lighting a lantern (not snuffing it) fires healing relics; a Faerie Lantern fires food, healing and tool relics.</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(Action_LightLantern), nameof(Action_LightLantern.RunAction))]
     private static void LanternUsed(Action_LightLantern __instance)
@@ -898,6 +917,7 @@ internal static class RelicPatches
             if (item == null || holder == null || !holder.IsLocal) return;
             var uses = item.GetData<OptionableIntItemData>(DataEntryKey.ItemUses);
             if (__instance.consumeOnFullyUsed && uses.HasData && uses.Value == 0) return;
+            Stove.Eaten(item, holder);
             Relics.OnUsedOnce(item);
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Multi-use relic hook failed: {e.Message}"); }

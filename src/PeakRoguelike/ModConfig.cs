@@ -69,7 +69,8 @@ internal static class ModConfig
     public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmZombiesSoloCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
-    public static ConfigEntry<float> BmTornadoKilnWidth = null!, BmTornadoKilnPull = null!;
+    public static ConfigEntry<float> BmTornadoKilnWidth = null!, BmTornadoKilnPull = null!, BmTornadoKilnCatch = null!;
+    public static ConfigEntry<int> StoveGlass = null!;
     public static ConfigEntry<float> BmMeteorAimedEvery = null!, BmMeteorAimedEveryShared = null!, BmMeteorNearShare = null!, BmMeteorNearShareShared = null!;
     public static ConfigEntry<int> BmSurviveGlassHeal = null!;
     public static ConfigEntry<bool> VoidMoons = null!, BadgeRelics = null!;
@@ -182,7 +183,7 @@ internal static class ModConfig
         XpLandingFloor = cfg.Bind("Xp", "LandingFloor", 2f, "...and reaching the campfire tops it up to at least this many.");
         XpFastClearLevels = cfg.Bind("Xp", "FastClearLevels", 1f, "Levels the fast-clear bonus is worth with the full time left.");
         XpMinClimb = cfg.Bind("Xp", "MinClimb", 50f, "A biome whose campfire is less than this many metres above its start pays its climb on arrival instead.");
-        XpCampfire = cfg.Bind("Xp", "CampfireXp", 100, "XP for reaching each campfire (and the summit), on top of the fast-clear bonus.");
+        XpCampfire = cfg.Bind("Xp", "CampfireXp", 0, "XP for reaching each campfire (and the summit), on top of the fast-clear bonus. 0 since 0.12.49: the lit campfire offers a +1 blessing instead.");
         XpPerCrate = cfg.Bind("Xp", "PerCrate", 100, "XP for each crate you claim from...");
         XpCrateLevels = cfg.Bind("Xp", "CrateLevels", 1f, "...up to this many levels per biome.");
         XpHealingUse = cfg.Bind("Xp", "HealingUse", 200, "XP for using up a healing item that came from a card pick (crate, level-up, statue)...");
@@ -210,6 +211,7 @@ internal static class ModConfig
         BmTornadoSharedPull = cfg.Bind("BloodMoon", "TornadoSharedPull", 0.75f, "Moon tier 2+: its pull and spin strength as a share of vanilla (the upward lift stays vanilla).");
         BmTornadoKilnWidth = cfg.Bind("BloodMoon", "TornadoKilnWidth", 0.35f, "In the Kiln / Citadel (any tier) the tornado rises in the middle of the room at this share of the game's width.");
         BmTornadoKilnPull = cfg.Bind("BloodMoon", "TornadoKilnPull", 0.3f, "In the Kiln / Citadel: its pull and spin strength as a share of vanilla.");
+        BmTornadoKilnCatch = cfg.Bind("BloodMoon", "TornadoKilnCatch", 6f, "In the Kiln / Citadel: how close (m) to its middle you must get to be caught (the game's is 10m at full width, 3.5m at the Kiln's).");
         BmMeteorAimedEvery = cfg.Bind("BloodMoon", "MeteorAimedSeconds", 2.5f, "Meteors at moon tier 1: one rock aimed at where each scout stands, about every this many seconds (it takes 4s to land - keep moving).");
         BmMeteorAimedEveryShared = cfg.Bind("BloodMoon", "MeteorAimedSecondsShared", 4.5f, "Meteors at moon tier 2+ (sharing the moon): seconds between rocks aimed at each scout.");
         BmMeteorNearShare = cfg.Bind("BloodMoon", "MeteorNearShare", 0.4f, "Meteors at tier 1: share of the other rocks that land 4-10m around a scout (never on them).");
@@ -337,7 +339,8 @@ internal static class ModConfig
         ShoreOtherItems = cfg.Bind("Loot", "ShoreOtherItems", 0.1f, "On the Shore, crate items outside the trees are this much as likely (1 = no change).");
         CursedCopies = cfg.Bind("Relics", "CursedCopies", true, "Cursed Skull: everyone else gets cursed copies of the user's relics. Ritual Dagger: the killer copies or stacks one relic. Copies shatter on death and don't raise the blood moon.");
         DaggerStackCooldown = cfg.Bind("Relics", "DaggerStackCooldown", 0.6f, "Each dagger stack multiplies that relic's cooldown by this (0.6 = 40% shorter per stack).");
-        GlassPerTrigger = cfg.Bind("Relics", "GlassPerTrigger", 3, "Petrification ('glass', 0-100) added every time a relic triggers. Half the rate of a vanilla amulet in use.");
+        GlassPerTrigger = cfg.Bind("Relics", "GlassPerTrigger", 5, "Petrification ('glass', 0-100) added every time a relic triggers.");
+        StoveGlass = cfg.Bind("Relics", "StoveFoodGlass", 5, "Glass (0-100) healed by eating food cooked on a Portable Stove (split across its bites; 0 = off).");
         RelicCooldown = cfg.Bind("Relics", "TriggerCooldown", 2f, "Seconds before the same relic can fire on the same scout again (each dagger stack shortens it, down to 0.5s).");
         SunscreenWeight = cfg.Bind("Loot", "SunscreenWeight", 0.25f, "Crates outside the Mesa: Sunscreen's weight as a share of one tree item's (then scaled by the rarity curve - rarer early, less rare late).");
         MaxedTreeWeight = cfg.Bind("Loot", "MaxedTreeWeight", 0.25f, "Crates: a tree the rolling scout has maxed comes up this much as often (1 = no change).");
@@ -450,6 +453,18 @@ internal static class ModConfig
             BalloonFlightSeconds.Value = "0, 2.5, 4, 6, 8, 10";
             defaults.Value = 9;
             Plugin.Log.LogInfo("Config: balloon flights nerfed - 2 m/s, 20m at most (new default).");
+        }
+        if (defaults.Value < 10)
+        {
+            XpCampfire.Value = 0;
+            defaults.Value = 10;
+            Plugin.Log.LogInfo("Config: no campfire XP - the lit campfire blesses you instead (new default).");
+        }
+        if (defaults.Value < 11)
+        {
+            if (GlassPerTrigger.Value == 3) GlassPerTrigger.Value = 5;
+            defaults.Value = 11;
+            Plugin.Log.LogInfo("Config: relics cost 5 glass a trigger (new default).");
         }
     }
 }

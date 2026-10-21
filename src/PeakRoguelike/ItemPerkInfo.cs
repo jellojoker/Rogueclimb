@@ -207,6 +207,8 @@ internal class Offer
     public bool Merge;
     /// <summary>The pocket it works on (the stack that merges / the item a level-up levels) and what was in it.</summary>
     public byte Slot;
+    /// <summary>Trade-up: the pocket holding the 4th copy (null when the stack itself holds it).</summary>
+    public byte? ExtraSlot;
     public ushort Carried;
     /// <summary>Crates: copies of this spare already in one pocket.</summary>
     public int Have;
@@ -280,24 +282,43 @@ internal static class Offers
         return (have, slot);
     }
 
-    /// <summary>A pocket holding a full stack (3) of a tree's current item, with the tree still able to level: the merge it offers.</summary>
+    /// <summary>Levels a trade-up adds (a full stack and one more copy).</summary>
+    public const int TradeLevels = 2;
+
+    /// <summary>
+    /// A trade-up: a full stack (3) of a tree's current item plus a 4th copy somewhere in your
+    /// pockets (a crate card or a pickup just brought it in). All four go for one item two levels
+    /// higher (one, if the tree tops out sooner); a path to choose if the jump reaches a fork.
+    /// </summary>
     public static Offer? ForStack()
     {
-        if (!Stacks.On || Stacks.GreenBlocks(Player.localPlayer)) return null;
+        if (!Stacks.On || Stacks.GreenBlocks(Player.localPlayer) || Player.localPlayer is not { } p) return null;
         foreach (var tree in Trees.All.Values)
         {
             int cur = RunState.Level(tree.Id), br = RunState.Branch(tree.Id);
-            if (cur < 1 || Items.Find(Trees.BaseRole(tree.Id)) is not { } baseItem) continue;
-            var o = Resolve(baseItem);
-            if (o.Tree == null || o.Kind is not (OfferKind.TreeLevel or OfferKind.Fork)) continue;
+            if (cur < 1 || cur >= tree.MaxFor(br) || Items.Find(Trees.BaseRole(tree.Id)) is not { } baseItem) continue;
             var spare = Grant(tree.At(cur, br), baseItem);
             var (have, slot) = Stack(spare.itemID, br);
             if (have < Stacks.Limit) continue;
-            o.CrateItem = spare;
-            o.Merge = true;
-            o.Slot = slot;
-            o.Carried = spare.itemID;
-            o.Have = have;
+            // The 4th copy: in any other pocket, or the hand slot a full pocket row puts it in.
+            byte? extra = null;
+            foreach (var s in p.itemSlots.Append(p.tempFullSlot))
+            {
+                if (s == null || s.itemSlotID == slot || s.IsEmpty() || s.prefab == null || s.prefab.itemID != spare.itemID || SugarRush.IsMarked(s.data)) continue;
+                if (ItemLevels.KindOf(s.prefab) is { BothPaths: true } && ItemLevels.IsSecondPath(s.data) != (br == 2)) continue;
+                extra = s.itemSlotID;
+                break;
+            }
+            if (extra == null && have <= Stacks.Limit) continue;
+            int level = Mathf.Min(cur + TradeLevels, br == 0 ? tree.Levels.Length : tree.MaxFor(br));
+            var o = new Offer
+            {
+                Tree = tree, Level = level, Branch = br, CrateItem = spare, Merge = true,
+                Slot = slot, ExtraSlot = extra, Carried = spare.itemID, Have = have,
+                // No path yet and the jump lands on a fork level: choose the path.
+                Kind = br == 0 && tree.Levels[level - 1].Length > 1 ? OfferKind.Fork : OfferKind.TreeLevel,
+            };
+            if (o.Kind == OfferKind.TreeLevel) o.Grant = Grant(tree.At(level, br), baseItem);
             return o;
         }
         return null;
@@ -317,11 +338,22 @@ internal static class Offers
         }
         int n = Stacks.Count(s.data);
         string name = s.prefab.gameObject.name; // the slot forgets its prefab once emptied
+        // The 4th copy goes too (a trade-up is the whole stack and one more).
+        if (o.ExtraSlot is { } x && p.GetItemSlot(x) is { } es && !es.IsEmpty() && es.prefab != null && es.prefab.itemID == o.Carried)
+        {
+            if (!Stacks.TakeOne(p, x))
+            {
+                bool heldExtra = me.refs.items.currentSelectedSlot.IsSome && me.refs.items.currentSelectedSlot.Value == x;
+                p.EmptySlot(Zorro.Core.Optionable<byte>.Some(x));
+                if (heldExtra) me.refs.items.EquipSlot(Zorro.Core.Optionable<byte>.None);
+            }
+            n++;
+        }
         bool held = me.refs.items.currentSelectedSlot.IsSome && me.refs.items.currentSelectedSlot.Value == o.Slot;
         p.EmptySlot(Zorro.Core.Optionable<byte>.Some(o.Slot));
         if (held) me.refs.items.EquipSlot(Zorro.Core.Optionable<byte>.None);
         Xp.Merged();
-        Plugin.Log.LogInfo($"Merge: {name} x{n} -> {o.Tree?.Name} level {o.Level}.");
+        Plugin.Log.LogInfo($"Trade-up: {name} x{n} -> {o.Tree?.Name} level {o.Level}.");
         return true;
     }
 
@@ -364,8 +396,8 @@ internal static class Offers
 
     /// <summary>
     /// An XP level-up on a carried item. Its tree goes up (raising that tree's items in your pockets);
-    /// if the new level is a different item (Sports Drink -> Energy Drink, Bandage -> Medkit), one copy
-    /// of the carried item evolves into it.
+    /// if the new level is a different item (Sports Drink -> Energy Drink, Bandage -> Medkit), you also get
+    /// one of it - the carried item (or stack) stays.
     /// </summary>
     public static void ApplyCarried(Offer o, int branch)
     {
@@ -389,16 +421,10 @@ internal static class Offers
             return;
         }
         if (!evolves || p == null || me == null) return;
-        var s = p.GetItemSlot(o.Slot);
-        if (s != null && !s.IsEmpty() && s.prefab != null && s.prefab.itemID == o.Carried && !Stacks.TakeOne(p, o.Slot))
-        {
-            bool held = me.refs.items.currentSelectedSlot.IsSome && me.refs.items.currentSelectedSlot.Value == o.Slot;
-            p.EmptySlot(Zorro.Core.Optionable<byte>.Some(o.Slot));
-            if (held) me.refs.items.EquipSlot(Zorro.Core.Optionable<byte>.None);
-        }
+        // An evolution never takes anything: your stack stays as it is, and the new item is extra.
         Xp.ExpectCrateItem(next);
         GameUtils.instance.InstantiateAndGrab(next, me);
-        Plugin.Log.LogInfo($"Level-up: {carried!.gameObject.name} evolved into {next!.gameObject.name} ({tree.Name} {o.Level}).");
+        Plugin.Log.LogInfo($"Level-up: {tree.Name} {o.Level} evolved - a new {next!.gameObject.name} (your {carried!.gameObject.name} stays).");
     }
 
     /// <summary>The paths open at a fork (both, always).</summary>
@@ -424,6 +450,7 @@ internal static class CrateCards
 
     public static CardSpec ForItem(Item item)
     {
+        if (item.GetComponent<Flare>() != null) return FindCards.FlareCard(item);
         var card = ItemPerkInfo.From(item).ToCard();
         var o = Offers.ForCrate(item);
         var tree = o.Tree;
@@ -438,7 +465,8 @@ internal static class CrateCards
                 card.TagColor = Trees.LevelColor(tree.Id, o.Level, o.Branch);
                 card.Body = CardStats.Tree(tree, def, o.Level, o.Branch);
                 card.Footer = Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) && o.Have < Stacks.Limit
-                    ? $"{tree.Name}{Dot}x{o.Have + 1} / {Stacks.Limit}" : $"{tree.Name}{Dot}level {o.Level}";
+                    ? $"{tree.Name}{Dot}x{o.Have + 1} / {Stacks.Limit}"
+                    : Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) && o.Have >= Stacks.Limit ? $"{tree.Name}{Dot}a 4th copy: trade up +{Offers.TradeLevels}" : $"{tree.Name}{Dot}level {o.Level}";
                 card.Icon = Items.Icon(o.Grant);
                 return card;
             }
@@ -469,11 +497,12 @@ internal static class CrateCards
         }
     }
 
-    /// <summary>The stack level-up pop-up's card: three copies become one item a level up.</summary>
+    /// <summary>The trade-up pop-up's card: the stack and a 4th copy become one item two levels up.</summary>
     public static CardSpec ForStack(Offer o)
     {
         var card = Level(ItemPerkInfo.From(o.CrateItem).ToCard(), o);
-        card.Footer = $"{o.Tree!.Name}{Dot}x{Stacks.Limit}{Arrow}level {o.Level}";
+        if (card.Tag != "NEW ITEM") card.Tag = $"Lv {RunState.Level(o.Tree!.Id)}{Arrow}{o.Level}";
+        card.Footer = $"{o.Tree!.Name}{Dot}x{Stacks.Limit + 1}{Arrow}level {o.Level}";
         return card;
     }
 

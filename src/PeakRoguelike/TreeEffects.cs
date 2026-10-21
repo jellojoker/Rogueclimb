@@ -76,14 +76,15 @@ internal static class Stats
         return Units(m) / spacing;
     }
 
+    /// <summary>A cannon's reach per step: vanilla at its first level, then 125% and 150% (floating cannons stay vanilla).</summary>
     public static float RopeShooterRange(Item shooter, int lv, int br) =>
-        Items.IsAntiRopeShooter(shooter) ? 1f : Third(Evolved(lv, br));
+        Items.IsAntiRopeShooter(shooter) ? 1f : Evolved(lv, br) switch { <= 1 => 1f, 2 => 1.25f, _ => 1.5f };
 
     /// <summary>A cannon's range multiplier, snapped to whole metres.</summary>
     public static float ShooterScale(Item shooter, int lv, int br, float baseUnits)
     {
         float m = RopeShooterRange(shooter, lv, br);
-        if (m >= 0.999f || baseUnits <= 0f) return 1f;
+        if (Mathf.Abs(m - 1f) < 0.001f || baseUnits <= 0f) return 1f;
         return Units(Mathf.Max(1f, Mathf.Round(Metres(baseUnits * m)))) / baseUnits;
     }
 
@@ -435,7 +436,7 @@ internal static class TreePatches
     [HarmonyPostfix, HarmonyPatch(typeof(CharacterItems), "HammerClimbingSpike")]
     private static void MarkBrittle(CharacterItems __instance, RaycastHit hit, int __state)
     {
-        if (!Stats.On || !__instance.character.IsLocal || Badges.Has(BadgeId.Bouldering)) return;
+        if (!Stats.On || !__instance.character.IsLocal) return;
         if (Stats.PitonHoldSeconds(__state) is { } seconds)
             Net.MarkBrittlePiton(hit.point, seconds);
     }

@@ -5,9 +5,9 @@ using UnityEngine.InputSystem;
 namespace PeakRoguelike;
 
 /// <summary>
-/// Three copies of a tree item in one pocket level up together: once you're on flat ground a
-/// pop-up asks to turn the stack into one item a level higher. "Later" leaves a STACK READY
-/// pill (and the stack key) until the pocket changes.
+/// Trade-ups: a full stack (3) of a tree item and a 4th copy in your pockets trade for one item two
+/// levels higher. The offer pops up on flat ground; "Keep them" leaves it be until your pockets change.
+/// (XP level-ups raise the whole stack instead.)
 /// </summary>
 internal class StackMerge : MonoBehaviour
 {
@@ -17,7 +17,7 @@ internal class StackMerge : MonoBehaviour
     private Offer? ready;
 
     /// <summary>A full stack is waiting to level up (the HUD pill).</summary>
-    public static bool Ready => instance != null && instance.ready != null;
+    public static bool Ready => false; // no pill: the trade is offered when the 4th copy arrives, "Keep them" lets it be
 
     internal static void Install()
     {
@@ -56,15 +56,15 @@ internal class StackMerge : MonoBehaviour
         var tree = o.Tree!;
         string key = Key(o);
         string name = Player.localPlayer?.GetItemSlot(o.Slot)?.prefab is { } prefab ? Items.DisplayName(prefab) : tree.Name;
-        string later = $"Later ({ModConfig.StackKey.Value} to reopen)";
+        string later = "Keep them";
         if (o.Kind == OfferKind.Fork)
         {
             var options = Offers.Paths(tree, o.Level);
             ChoiceScreen.Show(new ScreenSpec
             {
-                Title = "LEVEL UP YOUR STACK",
-                Subtitle = $"{Stacks.Limit}× {name} → Lv {o.Level} · choose your path",
-                Confirm = "LEVEL UP",
+                Title = "TRADE UP YOUR STACK",
+                Subtitle = $"{Stacks.Limit + 1}× {name} → Lv {o.Level} · choose your path",
+                Confirm = "TRADE UP",
                 BackHint = later,
                 Cards = options.Select(x => CrateCards.ForPath(tree, o.Level, x, o.CrateItem)).ToList(),
                 OnConfirm = i => Merge(o, options[i].Branch, Offers.Grant(options[i], o.CrateItem)),
@@ -75,9 +75,9 @@ internal class StackMerge : MonoBehaviour
         }
         ChoiceScreen.Show(new ScreenSpec
         {
-            Title = "LEVEL UP YOUR STACK",
-            Subtitle = $"{Stacks.Limit}× {name} → Lv {o.Level}",
-            Confirm = "LEVEL UP",
+            Title = "TRADE UP YOUR STACK",
+            Subtitle = $"{Stacks.Limit + 1}× {name} → Lv {o.Level}",
+            Confirm = "TRADE UP",
             BackHint = later,
             Cards = new() { CrateCards.ForStack(o) },
             OnConfirm = _ => Merge(o, o.Branch, o.Grant),

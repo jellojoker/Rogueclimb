@@ -72,6 +72,19 @@ internal static class FindCards
         }
     }
 
+    /// <summary>The flare's card - found on the Shore or dealt by a crate, it says the same thing.</summary>
+    internal static CardSpec FlareCard(Item item, string? name = null) => new()
+    {
+        Style = CardStyle.Perk,
+        Theme = PerkTheme.Explorer,
+        Title = string.IsNullOrEmpty(name) ? item.GetItemName() : name!,
+        Tag = "Flare",
+        TagColor = ChoiceScreen.ThemeGlow(PerkTheme.Explorer),
+        Body = "Good for one reroll\nor one emergency drop.",
+        Footer = "Flare",
+        Icon = Items.Icon(item),
+    };
+
     private static void Show(Item item, Character who, string kind)
     {
         string name = item.GetItemName();
@@ -86,17 +99,7 @@ internal static class FindCards
             BackHint = "Leave it",
             Cards = new List<CardSpec>
             {
-                offer != null ? CrateCards.ForItem(item) : new()
-                {
-                    Style = CardStyle.Perk,
-                    Theme = PerkTheme.Explorer,
-                    Title = name,
-                    Tag = "Flare",
-                    TagColor = ChoiceScreen.ThemeGlow(PerkTheme.Explorer),
-                    Body = "Good for one reroll\nor one emergency drop.",
-                    Footer = "Flare",
-                    Icon = Items.Icon(item),
-                },
+                offer != null ? CrateCards.ForItem(item) : FlareCard(item, name),
             },
             StillValid = () => item != null && item.itemState == ItemState.Ground && Vector3.Distance(who.Center, item.Center()) < 6f * Squad.M,
             OnConfirm = _ =>

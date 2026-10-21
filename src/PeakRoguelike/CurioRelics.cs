@@ -115,14 +115,10 @@ internal class CurioRelics : MonoBehaviour
     /// <summary>Any starting-relic effect at all (own or from a badge).</summary>
     private static bool AnyActive => Mine != Curio.None || Kinds.Any(Has);
 
-    /// <summary>The one HUD marker: your own relic's if it marks things, else a badge's (the Compass before the Binoculars).</summary>
-    private static Curio MarkerKind =>
-        Mine is Curio.Compass or Curio.Binoculars ? Mine : Has(Curio.Compass) ? Curio.Compass : Has(Curio.Binoculars) ? Curio.Binoculars : Curio.None;
-
     /// <summary>A badge relic just gave you a starting relic's effects: its clocks start now.</summary>
     internal static void BadgeBound(Curio c)
     {
-        nextPing = Time.time + 1f;
+        nextCratePing = nextItemPing = Time.time + 1f;
         if (c == Curio.BingBong) nextPrank = Time.time + Random.Range(ModConfig.BingBongMinSeconds.Value, ModConfig.BingBongMaxSeconds.Value);
     }
 
@@ -161,7 +157,7 @@ internal class CurioRelics : MonoBehaviour
         Mine = c;
         Publish();
         RunState.Touch();
-        nextPing = Time.time + 1f;
+        nextCratePing = nextItemPing = Time.time + 1f;
         nextPrank = Time.time + Random.Range(ModConfig.BingBongMinSeconds.Value, ModConfig.BingBongMaxSeconds.Value);
         Hud.Banner("STARTING RELIC", Name(c), ChoiceScreen.Cream);
         Plugin.Log.LogInfo($"Curio relic: bound the {Name(c)}.");
@@ -209,7 +205,7 @@ internal class CurioRelics : MonoBehaviour
 
     // --- per-frame: the marker and pranks -------------------------------------------------------
 
-    private static float nextPing, nextPrank;
+    private static float nextCratePing, nextItemPing, nextPrank;
     private static Luggage? markedCrate;
     private static Item? markedItem;
     private static string markedName = "";
@@ -304,21 +300,14 @@ internal class CurioRelics : MonoBehaviour
         if (!ModConfig.CurioRelics.Value || !AnyActive || Character.localCharacter is not { } me || me.data.dead) { Marker.Hide(); return; }
         try
         {
-            if (MarkerKind != Curio.None)
-            {
-                if (Time.time >= nextPing || !StillMarked())
-                {
-                    nextPing = Time.time + Mathf.Max(2f, ModConfig.CurioPingSeconds.Value);
-                    FindTarget(me);
-                }
-                ShowMarker(me);
-            }
-            else Marker.Hide();
+            // The Compass and the Binoculars each keep their own marker - both show if you have both.
+            TickCompass(me);
+            TickBinoculars(me);
             if (Has(Curio.BingBong) && Time.time >= nextPrank) BingBongPranks.Tick(me, ref nextPrank);
         }
         catch (System.Exception e)
         {
-            nextPing = nextPrank = Time.time + 30f;
+            nextCratePing = nextItemPing = nextPrank = Time.time + 30f;
             Marker.Hide();
             Plugin.Log.LogError($"Curio relic failed: {e}");
         }
@@ -329,7 +318,7 @@ internal class CurioRelics : MonoBehaviour
     private static float MetresTo(Character me, Vector3 p) => Vector3.Distance(me.Center, p) / M;
 
     /// <summary>The Compass looks out to FarM; the Binoculars see everywhere.</summary>
-    private static bool InRange(Character me, Vector3 p) => MetresTo(me, p) is var d && d >= NearM && (MarkerKind == Curio.Binoculars || d <= FarM);
+    private static bool InRange(Character me, Vector3 p, Curio kind) => MetresTo(me, p) is var d && d >= NearM && (kind == Curio.Binoculars || d <= FarM);
 
     /// <summary>The Binoculars only find helpful things: food, healing, beans and fungi - never explosives.</summary>
     internal static bool Helpful(Item i)
@@ -341,71 +330,76 @@ internal class CurioRelics : MonoBehaviour
             || i.GetComponent<MagicBean>() != null || i.GetComponentInChildren<CloudFungus>(true) != null || i.GetComponentInChildren<ShelfShroom>(true) != null;
     }
 
-    private static bool StillMarked() =>
-        MarkerKind == Curio.Compass
-            ? markedCrate != null && markedCrate.state == Luggage.LuggageState.Closed
-            : markedItem != null && markedItem.itemState == ItemState.Ground && markedItem.gameObject.activeInHierarchy;
-
-    private static void FindTarget(Character me)
+    /// <summary>The Compass (own or a badge's): the nearest unopened crate, on its own marker.</summary>
+    private static void TickCompass(Character me)
     {
-        var before = markedItem;
-        markedCrate = null;
-        markedItem = null;
-        if (MarkerKind == Curio.Compass)
+        if (!Has(Curio.Compass)) { Marker.Hide(Marker.CrateMark); return; }
+        bool still = markedCrate != null && markedCrate.state == Luggage.LuggageState.Closed;
+        if (Time.time >= nextCratePing || !still)
         {
+            nextCratePing = Time.time + Mathf.Max(2f, ModConfig.CurioPingSeconds.Value);
             markedCrate = Luggage.ALL_LUGGAGE
-                .Where(l => l != null && l is not RespawnChest && l.state == Luggage.LuggageState.Closed && !SkyDrop.Falling(l) && InRange(me, l.Center()))
+                .Where(l => l != null && l is not RespawnChest && l.state == Luggage.LuggageState.Closed && !SkyDrop.Falling(l) && InRange(me, l.Center(), Curio.Compass))
                 .OrderBy(l => Vector3.Distance(l.Center(), me.Center))
                 .FirstOrDefault();
-            markedName = "Crate";
-            return;
         }
-        // Every item in the level: Item.ALL_ACTIVE_ITEMS only holds held / moving ones, so the
-        // berries on bushes, coconuts in trees and food the map placed were never in it.
-        var helpful = FindObjectsByType<Item>(FindObjectsSortMode.None)
-            .Where(i => i != null && i.itemState == ItemState.Ground && i.gameObject.activeInHierarchy && i.holderCharacter == null && InRange(me, i.Center()) && Helpful(i))
-            .ToList();
-        markedItem = helpful.OrderBy(i => Vector3.Distance(i.Center(), me.Center)).FirstOrDefault();
-        markedName = markedItem != null ? markedItem.GetItemName() : "";
-        if (markedItem != before) // a new mark (or none) - not every 10s ping
-            Plugin.Log.LogInfo(markedItem != null
-            ? $"Binoculars: {helpful.Count} helpful item(s), marked {markedItem.gameObject.name.Replace("(Clone)", "").Trim()} at {MetresTo(me, markedItem.Center()):0}m."
-            : "Binoculars: nothing helpful out there.");
+        Show(me, Marker.CrateMark, markedCrate != null && markedCrate.state == Luggage.LuggageState.Closed ? markedCrate.Center() : null,
+            "Crate", Curio.Compass, new Color(0.92f, 0.78f, 0.55f));
     }
 
-    private static void ShowMarker(Character me)
+    /// <summary>The Binoculars (own or a badge's): the nearest helpful item, on its own marker.</summary>
+    private static void TickBinoculars(Character me)
     {
-        Vector3? at = MarkerKind == Curio.Compass ? markedCrate?.Center() : markedItem?.Center();
-        if (at == null || !StillMarked() || ChoiceScreen.IsOpen || !InRange(me, at.Value)) { Marker.Hide(); return; }
-        var colour = MarkerKind == Curio.Compass ? new Color(0.92f, 0.78f, 0.55f) : new Color(0.6f, 0.95f, 0.55f);
-        Marker.Show(at.Value + Vector3.up * 1.2f * M, $"{markedName} {MetresTo(me, at.Value):0}m", colour);
+        if (!Has(Curio.Binoculars)) { Marker.Hide(Marker.FindMark); return; }
+        bool still = markedItem != null && markedItem.itemState == ItemState.Ground && markedItem.gameObject.activeInHierarchy;
+        if (Time.time >= nextItemPing || !still)
+        {
+            nextItemPing = Time.time + Mathf.Max(2f, ModConfig.CurioPingSeconds.Value);
+            var before = markedItem;
+            // Every item in the level: Item.ALL_ACTIVE_ITEMS only holds held / moving ones, so the
+            // berries on bushes, coconuts in trees and food the map placed were never in it.
+            var helpful = FindObjectsByType<Item>(FindObjectsSortMode.None)
+                .Where(i => i != null && i.itemState == ItemState.Ground && i.gameObject.activeInHierarchy && i.holderCharacter == null && InRange(me, i.Center(), Curio.Binoculars) && Helpful(i))
+                .ToList();
+            markedItem = helpful.OrderBy(i => Vector3.Distance(i.Center(), me.Center)).FirstOrDefault();
+            markedName = markedItem != null ? markedItem.GetItemName() : "";
+            if (markedItem != before) // a new mark (or none) - not every 10s ping
+                Plugin.Log.LogInfo(markedItem != null
+                ? $"Binoculars: {helpful.Count} helpful item(s), marked {markedItem.gameObject.name.Replace("(Clone)", "").Trim()} at {MetresTo(me, markedItem.Center()):0}m."
+                : "Binoculars: nothing helpful out there.");
+        }
+        bool ok = markedItem != null && markedItem.itemState == ItemState.Ground && markedItem.gameObject.activeInHierarchy;
+        Show(me, Marker.FindMark, ok ? markedItem!.Center() : null, markedName, Curio.Binoculars, new Color(0.6f, 0.95f, 0.55f));
+    }
+
+    private static void Show(Character me, int slot, Vector3? at, string name, Curio kind, Color colour)
+    {
+        if (at == null || ChoiceScreen.IsOpen || !InRange(me, at.Value, kind)) { Marker.Hide(slot); return; }
+        Marker.Show(slot, at.Value + Vector3.up * 1.2f * M, $"{name} {MetresTo(me, at.Value):0}m", colour);
     }
 
     // --- crates: more of your relic's kind ------------------------------------------------------
 
-    /// <summary>Whoever rolls a crate: each card has a chance to become their relic's kind, from the same crate's pool.</summary>
+    /// <summary>Whoever rolls a crate: each card has a chance to become each of their relics' kinds, from the same crate's pool.</summary>
     internal static void Boost(Luggage luggage, List<Item> cards)
     {
-        Curio boost = Mine is Curio.Bugle or Curio.Binoculars or Curio.Compass ? Mine
-            : new[] { Curio.Bugle, Curio.Binoculars, Curio.Compass }.FirstOrDefault(Has);
-        System.Func<Item, bool>? kind = boost switch
+        if (!ModConfig.CurioRelics.Value) return;
+        // Every crate-boosting relic you have gets its own chance on each card (own relic and badge copies alike).
+        foreach (var (relic, kind) in new (Curio, System.Func<Item, bool>)[]
+                 { (Curio.Bugle, Relics.IsHealing), (Curio.Binoculars, Relics.IsFood), (Curio.Compass, Relics.IsMovementItem) })
         {
-            Curio.Bugle => Relics.IsHealing,
-            Curio.Binoculars => Relics.IsFood,
-            Curio.Compass => Relics.IsMovementItem,
-            _ => null,
-        };
-        if (!ModConfig.CurioRelics.Value || kind == null) return;
-        for (int i = 0; i < cards.Count; i++)
-        {
-            if (kind(cards[i]) || Random.value >= ModConfig.CurioCrateBoost.Value) continue;
-            for (int attempt = 0; attempt < 12; attempt++)
+            if (!Has(relic)) continue;
+            for (int i = 0; i < cards.Count; i++)
             {
-                var pick = luggage.GetObjectsToSpawn(1, true)?.Where(o => o != null).Select(o => o.GetComponent<Item>()).FirstOrDefault(x => x != null);
-                if (pick == null || !kind(pick) || (ModConfig.Leveling.Value && Items.IsEarnedOnly(pick)) || cards.Any(c => c.itemID == pick.itemID)) continue;
-                Plugin.Log.LogInfo($"{Name(boost)} relic: card {cards[i].gameObject.name} -> {pick.gameObject.name}.");
-                cards[i] = pick;
-                break;
+                if (kind(cards[i]) || Random.value >= ModConfig.CurioCrateBoost.Value) continue;
+                for (int attempt = 0; attempt < 12; attempt++)
+                {
+                    var pick = luggage.GetObjectsToSpawn(1, true)?.Where(o => o != null).Select(o => o.GetComponent<Item>()).FirstOrDefault(x => x != null);
+                    if (pick == null || !kind(pick) || (ModConfig.Leveling.Value && Items.IsEarnedOnly(pick)) || cards.Any(c => c.itemID == pick.itemID)) continue;
+                    Plugin.Log.LogInfo($"{Name(relic)} relic: card {cards[i].gameObject.name} -> {pick.gameObject.name}.");
+                    cards[i] = pick;
+                    break;
+                }
             }
         }
     }
@@ -530,21 +524,23 @@ internal class CurioRelics : MonoBehaviour
 /// </summary>
 internal class Marker : MonoBehaviour
 {
-    private static Marker? instance;
+    /// <summary>Marker slots: the Compass's crate and the Binoculars' find can both show at once.</summary>
+    internal const int CrateMark = 0, FindMark = 1;
+    private static readonly Marker?[] instances = new Marker?[2];
     private RectTransform root = null!, box = null!;
     private TextMeshProUGUI label = null!;
     private Image dot = null!;
     private CanvasGroup group = null!;
     private float alpha, want;
 
-    private static Marker Get()
+    private static Marker Get(int slot)
     {
-        if (instance != null) return instance;
-        var go = new GameObject("PEAK Roguelike - Relic marker");
+        if (instances[slot] is { } m) return m;
+        var go = new GameObject($"PEAK Roguelike - Relic marker {slot}");
         DontDestroyOnLoad(go);
-        instance = go.AddComponent<Marker>();
-        instance.Build();
-        return instance;
+        m = go.AddComponent<Marker>();
+        m.Build();
+        return instances[slot] = m;
     }
 
     private void Build()
@@ -579,12 +575,17 @@ internal class Marker : MonoBehaviour
 
     internal static void Hide()
     {
-        if (instance != null) instance.want = 0f;
+        foreach (var m in instances) if (m != null) m.want = 0f;
     }
 
-    internal static void Show(Vector3 world, string text, Color colour)
+    internal static void Hide(int slot)
     {
-        var m = Get();
+        if (instances[slot] is { } m) m.want = 0f;
+    }
+
+    internal static void Show(int slot, Vector3 world, string text, Color colour)
+    {
+        var m = Get(slot);
         var cam = Camera.main;
         if (cam == null) { m.want = 0f; return; }
         m.want = 1f;

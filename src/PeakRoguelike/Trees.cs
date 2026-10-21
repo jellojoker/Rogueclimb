@@ -89,9 +89,9 @@ public static class Trees
             new[] { L("Frayed Cord", "A short length of rope.\nSnaps after 2s of climbing.", "RopeSpool") },
             new[] { L("Knotted Line", "A longer length of rope.\nSnaps after 4s of climbing.", "RopeSpool") },
             new[] { L("Rope Spool", "A full spool.\nHolds for good. Fusion-ready.", "RopeSpool") },
-            new[] { L("Jammed Rope Cannon", "Evolves! Fires an anchored\nrope a short way.", "RopeShooter") },
-            new[] { L("Patched Rope Cannon", "Fires an anchored rope\nfurther.", "RopeShooter") },
-            new[] { L("Rope Cannon", "Full range.\nFusion-ready.", "RopeShooter") });
+            new[] { L("Rope Cannon", "Evolves! Fires an anchored\nrope at full range.", "RopeShooter") },
+            new[] { L("Extended Rope Cannon", "Fires an anchored rope\nfurther.", "RopeShooter") },
+            new[] { L("Long-Range Rope Cannon", "Fires the furthest.\nFusion-ready.", "RopeShooter") });
 
         Add(TreeId.Piton, "Piton", PerkTheme.Climber,
             new[] { L("Brittle Piton", "Cracks after 2s\nof hanging.", "Piton") },

@@ -44,6 +44,7 @@ internal class Blessing : MonoBehaviour
     {
         blessedStatues.Clear();
         revivedStatues.Clear();
+        firesBlessed.Clear();
         pending = false;
         darkTaken = darkLater = false;
         darkFlat = -1f;
@@ -88,10 +89,55 @@ internal class Blessing : MonoBehaviour
         pendingAt = Time.time + 1.5f;
     }
 
+    // --- the campfire: the old build blessing, +1 ------------------------------------------------
+
+    /// <summary>Levels a blessing card adds: +2, or +1 at a campfire.</summary>
+    private static int Step => building == Source.Campfire ? 1 : 2;
+    private static readonly HashSet<int> firesBlessed = new();
+    private static float fireFlat = -1f, fireRetry, fireScan;
+    private static Campfire? litNear;
+
+    private static int FireId(Campfire f) => f.GetComponent<PhotonView>() is { ViewID: > 0 } v ? v.ViewID : f.GetInstanceID();
+
+    /// <summary>
+    /// Each scout, at each lit campfire: once on flat ground beside it for a second, the four build
+    /// cards at +1 (the top one sometimes the missing fusion ingredient). Lighting the fire is the
+    /// moment for everyone resting there; a scout arriving later gets it when they reach it.
+    /// "Decide later" brings it back while the fire still burns.
+    /// </summary>
+    private static void CampfireTick()
+    {
+        if (!On || VoidRun.Active || ChoiceScreen.IsOpen || Time.time < fireRetry) return;
+        var me = Character.localCharacter;
+        if (me == null || me.data.dead || me.data.passedOut) { fireFlat = -1f; return; }
+        if (Time.time >= fireScan)
+        {
+            fireScan = Time.time + 1f;
+            litNear = FindObjectsByType<Campfire>(FindObjectsSortMode.None)
+                .FirstOrDefault(f => f != null && f.state == Campfire.FireState.Lit && !firesBlessed.Contains(FireId(f))
+                    && Vector3.Distance(f.transform.position, me.Center) <= 10f * Squad.M);
+        }
+        if (litNear == null || !Xp.OnFlatGround(me)) { fireFlat = -1f; return; }
+        if (fireFlat < 0f) fireFlat = Time.time;
+        if (Time.time - fireFlat < 1f) return;
+        fireFlat = -1f;
+        var fire = litNear;
+        int id = FireId(fire);
+        bool shown = Show("Campfire", unchecked(id + 2000003),
+            onTaken: () => firesBlessed.Add(id),
+            onBack: () => fireRetry = Time.time + 8f,
+            stillValid: () => fire != null && fire.state == Campfire.FireState.Lit,
+            from: Source.Campfire);
+        if (!shown) fireRetry = Time.time + 2f;
+        else Plugin.Log.LogInfo("Campfire blessing shown.");
+    }
+
     private void Update()
     {
         try { DarkTick(); }
         catch (Exception e) { darkTaken = true; Plugin.Log.LogError($"Revive dark offer failed: {e}"); }
+        try { CampfireTick(); }
+        catch (Exception e) { fireRetry = Time.time + 30f; Plugin.Log.LogError($"Campfire blessing failed: {e}"); }
         if (!pending || Time.time < pendingAt || ChoiceScreen.IsOpen) return;
         Character me = Character.localCharacter;
         if (me == null || me.data.dead || me.data.passedOut) return;
@@ -131,6 +177,7 @@ internal class Blessing : MonoBehaviour
         bool shown = Show(name, luggage.photonView != null ? luggage.photonView.ViewID : luggage.GetInstanceID(),
             onTaken: () =>
             {
+                LuggagePatches.TakeCurse(luggage, interactor);
                 luggage.photonView.RPC(nameof(PerkLuggage.RPC_PerkOpen), RpcTarget.All);
                 perk.ReleaseLock();
                 GlobalEvents.TriggerLuggageOpened(luggage, interactor);
@@ -146,7 +193,7 @@ internal class Blessing : MonoBehaviour
 
     // --- the cards --------------------------------------------------------------------------
 
-    private enum Source { Statue, Ancient }
+    private enum Source { Statue, Ancient, Campfire }
 
     /// <summary>Whose blessing BuildOptions is dealing (their jackpots differ).</summary>
     private static Source building;
@@ -162,7 +209,7 @@ internal class Blessing : MonoBehaviour
         finally { DevJackpot = null; }
         if (options.Count == 0)
         {
-            Hud.Toast("The statue is silent", Trees.Gold);
+            Hud.Toast(from == Source.Campfire ? "The fire is quiet" : "The statue is silent", Trees.Gold);
             onTaken();
             return true;
         }
@@ -191,10 +238,10 @@ internal class Blessing : MonoBehaviour
         public string Key => "t" + Tree.Id;
         public RelicTrigger Class => ClassOf(Tree.Id);
 
-        /// <summary>Up to +2, never past max (null when it's already maxed).</summary>
+        /// <summary>Up to +2 (+1 at a campfire), never past max (null when it's already maxed).</summary>
         public Option? Option(string role)
         {
-            int br = RunState.Branch(Tree.Id), add = Mathf.Min(2, Tree.MaxFor(br) - Level);
+            int br = RunState.Branch(Tree.Id), add = Mathf.Min(Step, Tree.MaxFor(br) - Level);
             return add >= 1 ? new TreeOption(Tree, Level, br, add, role) : null;
         }
     }
@@ -248,7 +295,8 @@ internal class Blessing : MonoBehaviour
         if (ModConfig.Fusion.Value && list.Count > 0)
         {
             int at = Mathf.Max(0, list.FindIndex(o => o is TreeOption { Role: "Specialize" }));
-            float jackpotChance = Mathf.Clamp01(building == Source.Ancient ? ModConfig.AncientJackpotChance.Value : ModConfig.StatueJackpotChance.Value);
+            // The campfire never hits a jackpot - steady growth only (the ingredient still can).
+            float jackpotChance = building == Source.Campfire ? 0f : Mathf.Clamp01(building == Source.Ancient ? ModConfig.AncientJackpotChance.Value : ModConfig.StatueJackpotChance.Value);
             float roll = UnityEngine.Random.value;
             Option? jackpot = null;
             if (roll < jackpotChance || DevJackpot != null)
@@ -469,7 +517,7 @@ internal class Blessing : MonoBehaviour
     /// <summary>The other jackpot: a dark item, found like any other (using it later raises the moon as always).</summary>
     /// <summary>
     /// Ancient Luggage: +2 on your top item (a new path if you have none), a badge relic, and -
-    /// when the luggage's luck hits (Esoterica raises it) - a mythical gift: a fusion or a dark item.
+    /// when the luggage's luck hits - a mythical gift: a fusion or a dark item (Esoterica adds 5% more, always a fusion).
     /// </summary>
     private static List<Option> AncientOptions()
     {
@@ -479,17 +527,20 @@ internal class Blessing : MonoBehaviour
         if (Badges.RandomPick() is { } badge) list.Add(new BadgeOption(badge));
         if (ModConfig.Fusion.Value)
         {
-            float chance = Mathf.Clamp01(ModConfig.AncientJackpotChance.Value * (Badges.Has(BadgeId.Esoterica) ? 1f + Badges.Buff : 1f));
-            if (DevJackpot != null || UnityEngine.Random.value < chance)
+            float chance = Mathf.Clamp01(ModConfig.AncientJackpotChance.Value);
+            // Esoterica: a further 5% that's always a finished fusion.
+            float bonus = Badges.Has(BadgeId.Esoterica) ? Badges.EsotericaBonus : 0f;
+            float roll = UnityEngine.Random.value;
+            if (DevJackpot != null || roll < chance + bonus)
             {
-                bool dark = DevJackpot ?? (UnityEngine.Random.value < Mathf.Clamp01(ModConfig.JackpotDarkShare.Value));
+                bool dark = DevJackpot ?? (roll < chance && UnityEngine.Random.value < Mathf.Clamp01(ModConfig.JackpotDarkShare.Value));
                 var fusion = Fusion.Recipes.Where(r => r.Result != null && Items.Find(r.Result) != null).OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
                 var darkItem = DarkItems().OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
                 Option? jackpot = dark && darkItem != null ? new DarkOption(darkItem) : fusion != null ? new GiftOption(fusion) : null;
                 if (jackpot != null)
                 {
                     list.Add(jackpot);
-                    Plugin.Log.LogInfo($"Ancient Luggage: jackpot - {jackpot.Card().Title} (chance {chance:P0}).");
+                    Plugin.Log.LogInfo($"Ancient Luggage: jackpot - {jackpot.Card().Title} (roll {roll:0.00} under {chance + bonus:0.00}{(bonus > 0f && roll >= chance ? ", Esoterica" : "")}).");
                 }
             }
         }

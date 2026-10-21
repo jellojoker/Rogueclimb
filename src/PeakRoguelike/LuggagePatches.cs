@@ -51,6 +51,31 @@ internal static class LuggagePatches
         return false;
     }
 
+    /// <summary>
+    /// Ancient Luggage (the game's cursed luggage) charges curse and injury the moment you open it -
+    /// before we know whether you get anything (someone else choosing, "Decide later", a screen open).
+    /// With a blessing to give, nothing is charged on opening: TakeCurse charges it when a card is taken.
+    /// </summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(LuggageCursed), nameof(LuggageCursed.Interact_CastFinished))]
+    private static bool CursedOpen(LuggageCursed __instance, Character interactor)
+    {
+        if (openVanilla || !Handles(__instance) || __instance.state != Luggage.LuggageState.Closed) return true;
+        if (interactor == null || !interactor.IsLocal || !Blessing.On || !Blessing.IsAncient(__instance) || VoidRun.Active) return true;
+        OpenPerkScreen(__instance, interactor);
+        return false;
+    }
+
+    /// <summary>The cursed luggage's price, as the game charges it - paid once a blessing card is taken.</summary>
+    internal static void TakeCurse(Luggage luggage, Character? who)
+    {
+        if (luggage is not LuggageCursed cursed || who == null || !who.IsLocal) return;
+        var aff = who.refs.afflictions;
+        float curse = Random.Range(cursed.minCurse, cursed.maxCurse + 1) * 0.025f;
+        if (curse > 0f) aff.AddStatus(CharacterAfflictions.STATUSTYPE.Curse, curse);
+        aff.AddStatus(CharacterAfflictions.STATUSTYPE.Injury, who.data.isSkeleton ? cursed.injuryAmt * 0.125f : cursed.injuryAmt);
+        Plugin.Log.LogInfo($"{luggage.displayName}: paid its price on taking a card (curse {curse:0.00}, injury {cursed.injuryAmt:0.00}).");
+    }
+
     private static void Open(Luggage luggage, PerkLuggage perk, Character interactor)
     {
         if (luggage == null || luggage.IsOpen || ChoiceScreen.IsOpen || !perk.CanPick) { perk.ReleaseLock(); return; }
@@ -401,11 +426,19 @@ internal static class LuggagePatches
     [HarmonyPostfix, HarmonyPatch(typeof(Spawner), "GetObjectsToSpawn")]
     private static void SwapEarned(Spawner __instance, List<GameObject> __result)
     {
-        if (!ModConfig.Leveling.Value || __result == null) return;
+        if (__result == null) return;
         for (int i = 0; i < __result.Count; i++)
         {
             var item = __result[i] != null ? __result[i].GetComponent<Item>() : null;
             if (item == null) continue;
+            if (__instance is Luggage && CurioRelics.KindOf(item) != Curio.None)
+            {
+                // Starting relics live at the crash site, never in crates (the Pirate's Compass, the clown crate's Bugle...).
+                Plugin.Log.LogInfo($"Spawn: {item.gameObject.name} is a starting relic -> nothing from a crate.");
+                __result[i] = null!;
+                continue;
+            }
+            if (!ModConfig.Leveling.Value) continue;
             if (__instance is not Luggage && Items.IsCrateOnly(item))
             {
                 // Food-tree snacks only come out of crates; the spot stays empty instead.
