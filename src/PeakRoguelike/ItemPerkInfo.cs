@@ -132,10 +132,10 @@ public class ItemPerkInfo
 
         // The mod's own extras go in before the cut to three lines.
         if (ModConfig.ItemTrees.Value && Cookies.Is(item) && ModConfig.CookieGlass.Value > 0)
-            lines.Insert(Mathf.Min(1, lines.Count), $"Each bite melts {Amount.Of(ModConfig.CookieGlass.Value * 0.01f, "your glass")}"
+            lines.Insert(Mathf.Min(1, lines.Count), $"Each bite removes {Amount.Of(ModConfig.CookieGlass.Value * 0.01f, "your glass")}"
                 + (ModConfig.CookieInjury.Value > 0f ? $"\nand heals {Amount.Of(ModConfig.CookieInjury.Value * 0.01f, "your injury")}" : ""));
         if (Stove.IsStoveItem(item) && ModConfig.StoveGlass.Value > 0)
-            lines.Insert(0, $"Food cooked on it melts\n{Amount.Of(ModConfig.StoveGlass.Value * 0.01f, "your glass")}");
+            lines.Insert(0, $"Food cooked on it removes\n{Amount.Of(ModConfig.StoveGlass.Value * 0.01f, "your glass")}");
         if (lines.Count == 0) lines.Add("Trusty expedition gear");
         var shown = lines.Take(3).ToList();
         // Milk, Antidote, Candle, skull, dagger... anything that goes into a fusion says so.

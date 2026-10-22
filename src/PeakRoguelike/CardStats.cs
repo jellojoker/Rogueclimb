@@ -8,13 +8,13 @@ namespace PeakRoguelike;
 
 /// <summary>
 /// How much of a status bar, in words a scout reads at a glance: easy fractions (¼ ⅓ ½ ⅔ ¾),
-/// "a sliver" for tiny amounts, halves past a full bar. Levelled values are snapped to these
+/// an exact percentage for small amounts, halves past a full bar. Levelled values are snapped to these
 /// (Snap) so a card is exactly true; vanilla values that sit between them say "almost" / "over".
 /// </summary>
 internal static class Amount
 {
     private static readonly float[] Easy = { 0.25f, 1f / 3f, 0.5f, 2f / 3f, 0.75f, 1f };
-    /// <summary>Below this a share is "a sliver" (and isn't snapped).</summary>
+    /// <summary>Below this a share is shown as an exact percentage (and isn't snapped).</summary>
     public const float Sliver = 0.19f;
     private const float Close = 0.02f;
 
@@ -66,20 +66,23 @@ internal static class Amount
         return (a < shown ? "almost " : "over ") + Frac(shown);
     }
 
-    /// <summary>"⅓ of your injury" / "a sliver of your hunger" / "all of your heat".</summary>
+    /// <summary>A small share as an exact percentage ("10%", "2.5%") - too small for an easy fraction.</summary>
+    public static string Percent(float a) => $"{a * 100f:0.#}%";
+
+    /// <summary>"⅓ of your injury" / "10% of your hunger" / "all of your heat".</summary>
     public static string Of(float v, string noun)
     {
         float a = Mathf.Abs(v);
-        if (a < Sliver) return $"a sliver of {noun}";
+        if (a < Sliver) return $"{Percent(a)} of {noun}";
         if (a >= 1f - Close) return $"all of {noun}";
         return $"{Near(a, out _)} of {noun}";
     }
 
-    /// <summary>"⅓ bar of bonus stamina" / "a full bar of ..." / "1½ bars of ...".</summary>
+    /// <summary>"⅓ bar of bonus stamina" / "a full bar of ..." / "1½ bars of ..." / "10% of a bar of ...".</summary>
     public static string Bars(float v, string noun)
     {
         float a = Mathf.Abs(v);
-        if (a < Sliver) return $"a sliver of {noun}";
+        if (a < Sliver) return $"{Percent(a)} of a bar of {noun}";
         string n = Near(a, out float shown);
         if (Mathf.Abs(shown - 1f) < 0.01f)
             return $"{(n.StartsWith("almost") ? "almost " : n.StartsWith("over") ? "over " : "")}a full bar of {noun}";
@@ -226,7 +229,7 @@ internal static class CardStats
             case TreeId.Food:
             {
                 // Its own share by step, plus a full trail mix inside a granola bar (Stacking); exact
-                // percentages - food steps are small, so no "sliver".
+                // percentages.
                 float share = Stats.FoodShare(p, lv);
                 float hunger = p.GetComponents<Action_RestoreHunger>().Sum(a => a.restorationAmount) * share;
                 float stam = p.GetComponents<Action_GiveExtraStamina>().Sum(a => a.amount) * share;
@@ -235,11 +238,11 @@ internal static class CardStats
                     hunger += mix.GetComponents<Action_RestoreHunger>().Sum(a => a.restorationAmount);
                     stam += mix.GetComponents<Action_GiveExtraStamina>().Sum(a => a.amount);
                 }
-                if (hunger > 0f) l.Add($"Fills {hunger * 100f:0}% of your hunger.");
-                if (stam > 0f) l.Add($"+{stam * 100f:0}% bonus stamina.");
+                if (hunger > 0f) l.Add($"Fills {Amount.Percent(hunger)} of your hunger.");
+                if (stam > 0f) l.Add($"+{Amount.Percent(stam)} bonus stamina.");
                 var (heal, glass) = Stats.FoodMend(p, lv);
-                if (heal > 0f) l.Add($"Heals {heal * 100f:0}% of your injury.");
-                if (glass > 0) l.Add($"Removes {glass} glass.");
+                if (heal > 0f) l.Add($"Heals {Amount.Percent(heal)} of your injury.");
+                if (glass > 0) l.Add($"Removes {glass}% of your glass.");
                 if (Stats.IsGranola(p)) l.Add("Includes a full Trail Mix.");
                 if (Stats.IsAirlineFood(p)) l.Add("Doesn't stack.");
                 break;
@@ -297,7 +300,7 @@ internal static class CardStats
             l.Add($"{Amount.Seconds(ModConfig.HolyShieldSeconds.Value)} of invincibility.");
             l.Add("A scout who passes out finds one beside them.");
             if (ModConfig.TopKitHunger.Value > 0f) l.Add($"Fills {ModConfig.TopKitHunger.Value * 100f:0}% of your hunger.");
-            if (ModConfig.TopKitGlass.Value > 0) l.Add($"Removes {ModConfig.TopKitGlass.Value} glass.");
+            if (ModConfig.TopKitGlass.Value > 0) l.Add($"Removes {ModConfig.TopKitGlass.Value}% of your glass.");
         }
     }
 

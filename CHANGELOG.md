@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.69
+- Fixed: the level-4 Holy Health Pack cured all of your poison - it now cures half, as its card says.
+- The Cure-All's Radiant dose includes the Radiant pack's hunger and glass too (each sip).
+- Cards show small amounts as exact percentages ("Heals 10% of your injury") instead of "a sliver", and every glass line reads "% of your glass" (food, health kits, Scout Cookies, Portable Stove).
+
 ## 0.12.68
 - **Unread amulets**: taking a statue amulet raises the blood moon at once - no cards. It rides in your pockets unread (it counts as a relic for the moon and the hunters, "RELIC UNREAD [L]" under the tray) until you click it in your hand or press L. "Not yet" keeps it unread. An amulet raises one moon in its life, however often it's dropped or handed on. Statue amulets never act as the game's own item any more (Scout's Honor is untouched).
 - **Relic variants**: a second amulet of a colour you hold offers the variants you don't have yet (another trigger). All three = **complete**: that colour fires without glass (gold banner, gold ring in the tray). A fourth crumbles when read. Each variant drops as its own amulet when you die.

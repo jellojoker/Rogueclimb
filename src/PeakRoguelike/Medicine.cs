@@ -113,7 +113,9 @@ internal class Medicine : MonoBehaviour
                 if (step >= 3) TopKitMend(c, holy: br != 2);
                 if (br == 2) { DarkConvert(c, step); return; }
                 float share = step <= 1 ? Stats.HolyFirstStep : 1f;
-                foreach (var s in Ailments) aff.SubtractStatus(s, share);
+                // Poison is the kit's own cure (already scaled to its step) - easing it again
+                // would cure all of it at level 4, where the card says half.
+                foreach (var s in Ailments) if (s != STATUS.Poison) aff.SubtractStatus(s, share);
                 if (step >= 3) Shield(c);
                 return;
             }
@@ -137,12 +139,13 @@ internal class Medicine : MonoBehaviour
         if (glass > 0) aff.AddPetrify(-glass);
     }
 
-    /// <summary>A Radiant pack's worth: all injury and every ailment, then milk invincibility.</summary>
+    /// <summary>A Radiant pack's worth: all injury and every ailment, its hunger and glass, then milk invincibility.</summary>
     private static void RadiantDose(Character c)
     {
         var aff = c.refs.afflictions;
         aff.SubtractStatus(STATUS.Injury, 1f);
         foreach (var s in Ailments) aff.SubtractStatus(s, 1f);
+        TopKitMend(c, holy: true); // everything the Radiant pack does, hunger and glass included
         Shield(c);
     }
 
