@@ -6,7 +6,8 @@ namespace PeakRoguelike;
 
 /// <summary>
 /// Trade-ups: a full stack (3) of a tree item and a 4th copy in your pockets trade for one item two
-/// levels higher. The offer pops up on flat ground; "Keep them" leaves it be until your pockets change.
+/// levels higher. The offer pops up once you stand on the ground (a crate offers it as a card instead);
+/// "Keep them" leaves it be until your pockets change.
 /// (XP level-ups raise the whole stack instead.)
 /// </summary>
 internal class StackMerge : MonoBehaviour
@@ -27,6 +28,17 @@ internal class StackMerge : MonoBehaviour
         instance = go.AddComponent<StackMerge>();
     }
 
+    /// <summary>A crate already asked about this item's trade (the scout took the plain 4th copy).</summary>
+    private static ushort declinedItem;
+    private static float declinedAt = -99f;
+
+    /// <summary>Crates: the plain copy was picked over the trade - the pop-up won't ask again for it.</summary>
+    internal static void Declined(ushort itemID)
+    {
+        declinedItem = itemID;
+        declinedAt = Time.time;
+    }
+
     private static string Key(Offer o) =>
         Player.localPlayer?.GetItemSlot(o.Slot) is { } s && s.data != null ? $"{o.Slot}:{s.data.guid}:{Stacks.Count(s.data)}:{o.Level}" : "";
 
@@ -44,9 +56,14 @@ internal class StackMerge : MonoBehaviour
         if (ready == null || ChoiceScreen.IsOpen) { flatSince = -1f; return; }
 
         if (keyPressed) { flatSince = -1f; Show(ready); return; }
-        if (Key(ready) == snoozed || !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
+        // The crate's plain copy was the answer: snooze this stack the way "Keep them" would (once it has arrived).
+        if (ready.Carried == declinedItem && Time.time - declinedAt < 10f) { snoozed = Key(ready); declinedItem = 0; }
+        if (Key(ready) == snoozed) { flatSince = -1f; return; }
+        // Standing on the ground: ask now. Climbing / falling: wait for a second on flat ground.
+        bool standing = me.data.isGrounded && !me.data.isClimbingAnything;
+        if (!standing && !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
         if (flatSince < 0f) flatSince = Time.time;
-        if (Time.time - flatSince < 1f) return;
+        if (!standing && Time.time - flatSince < 1f) return;
         flatSince = -1f;
         Show(ready);
     }

@@ -171,52 +171,130 @@ internal static class BloodZombies
         return prefab;
     }
 
+    /// <summary>Host: whose zombies these are (actor numbers) - each scout's own pack chases them.</summary>
+    private static readonly Dictionary<MushroomZombie, int> ownerOf = new();
+    /// <summary>Host: zombies of a scout's pack that crumbled on safe ground - they rise again once the scout leaves it.</summary>
+    private static readonly Dictionary<int, int> owed = new();
+    private static readonly Dictionary<int, float> nextRise = new();
+
+    private static int ActorOf(Character c) => c.photonView != null && c.photonView.Owner != null ? c.photonView.Owner.ActorNumber : 0;
+
     /// <summary>
-    /// Zombies rise right beside every scout out in the open (ZombiesPerScout each); scouts
-    /// carrying a relic (copies included), the Cursed Skull or the Ritual Dagger get
-    /// ZombiesPerCarrier more. Solo, a carrier gets ZombiesSoloCarrier on the zombies' first tier (later tiers
-    /// bring the Scoutmaster, tornado and meteors instead).
+    /// Zombies rise a little ahead of / above every scout out in the open (ZombiesPerScout each),
+    /// on the way up; scouts carrying a relic (copies included), the Cursed Skull or the Ritual
+    /// Dagger get ZombiesPerCarrier more. Solo, a carrier gets ZombiesSoloCarrier on the zombies'
+    /// first tier (later tiers bring the Scoutmaster, tornado and meteors instead). A scout who gets
+    /// ZombieLeash metres from all of their pack finds it rising right beside them again.
     /// </summary>
     public static void Spawn(float seconds)
     {
         var marked = Squad.Alive().Where(c => !Sanctuary.Safe(c) && Modless.HasMod(c)).ToList();
         if (marked.Count == 0) return;
         until = Time.time + seconds;
-        float near = Mathf.Max(1f, ModConfig.BmZombieNear.Value) * Squad.M;
+        owed.Clear();
+        nextRise.Clear();
         int made = 0;
         foreach (var scout in marked)
         {
             int each = Mathf.Max(0, ModConfig.BmZombiesPerScout.Value);
             if (Squad.Priority(scout) == 0)
-                each = Squad.Solo && BloodMoon.TierOf(BloodMoon.Hazard.Zombies) <= 1 ? Mathf.Max(0, ModConfig.BmZombiesSoloCarrier.Value)
-                       : each + Mathf.Max(0, ModConfig.BmZombiesPerCarrier.Value);
-            if (each <= 0) continue;
-            // Spread evenly around the scout (two = opposite sides), so they're flanked, not walled in.
-            float start = Random.Range(0f, 360f);
-            for (int n = 0; n < each; n++)
             {
-                float angle = start + n * 360f / each;
-                var pos = Squad.GroundToward(scout.Center, angle, 360f / each * 0.4f, near * 0.75f, near * 1.25f, 4f * Squad.M)
-                          ?? Squad.GroundNear(scout.Center, near, near * 2f, 8f * Squad.M);
-                if (pos == null) continue;
-                try
-                {
-                    var go = PhotonNetwork.Instantiate(Prefab(), pos.Value, Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), 0);
-                    var z = go.GetComponent<MushroomZombie>();
-                    if (z == null) continue;
-                    spawned.Add(z);
-                    z.StartCoroutine(Wake(z));
-                    made++;
-                }
-                catch (System.Exception e)
-                {
-                    Plugin.Log.LogWarning($"Zombie spawn failed: {e.Message}");
-                    goto done;
-                }
+                int solo = Mathf.Max(0, ModConfig.BmZombiesSoloCarrier.Value);
+                int squad = each + Mathf.Max(0, ModConfig.BmZombiesPerCarrier.Value);
+                // A relay moon's zombies come at their hardest: whichever count is bigger.
+                each = !Squad.Solo ? squad
+                       : BloodMoon.Relay ? Mathf.Max(solo, squad)
+                       : BloodMoon.TierOf(BloodMoon.Hazard.Zombies) <= 1 ? solo : squad;
+            }
+            if (each <= 0) continue;
+            int got = RiseFor(scout, each, beside: false);
+            if (got < 0) break;
+            made += got;
+        }
+        Plugin.Log.LogInfo($"Blood moon: {made} zombie(s) rose ahead of {marked.Count} marked scout(s) ({seconds:0}s).");
+    }
+
+    /// <summary>
+    /// A scout's pack: ahead of them on the way up (a little above, spread so they don't wall the
+    /// path), or - <paramref name="beside"/> - right around them. -1 = spawning failed outright.
+    /// </summary>
+    private static int RiseFor(Character scout, int count, bool beside)
+    {
+        float near = Mathf.Max(1f, ModConfig.BmZombieNear.Value) * Squad.M;
+        float ahead = Mathf.Max(near, ModConfig.BmZombieAhead.Value * Squad.M);
+        float up = Random.Range(0f, 360f);
+        if (!beside && Squad.UpMountain(false) is { } top)
+        {
+            var d = Vector3.ProjectOnPlane(top - scout.Center, Vector3.up);
+            if (d.sqrMagnitude > 1f) up = Mathf.Atan2(d.x, d.z) * Mathf.Rad2Deg;
+        }
+        int made = 0;
+        for (int n = 0; n < count; n++)
+        {
+            Vector3? pos;
+            if (beside)
+            {
+                float angle = up + n * 360f / count;
+                pos = Squad.GroundToward(scout.Center, angle, 360f / count * 0.4f, near * 0.75f, near * 1.25f, 4f * Squad.M);
+            }
+            else
+            {
+                // Fanned across the way up (±50 degrees), from a little above the scout so ledges count.
+                float angle = up + (count == 1 ? 0f : Mathf.Lerp(-50f, 50f, n / (float)(count - 1)));
+                pos = Squad.GroundToward(scout.Center + Vector3.up * (3f * Squad.M), angle, 15f, ahead * 0.75f, ahead * 1.25f, 10f * Squad.M);
+            }
+            pos ??= Squad.GroundNear(scout.Center, near, near * 2f, 8f * Squad.M);
+            if (pos == null || Sanctuary.Safe(pos.Value)) continue;
+            try
+            {
+                var go = PhotonNetwork.Instantiate(Prefab(), pos.Value, Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), 0);
+                var z = go.GetComponent<MushroomZombie>();
+                if (z == null) continue;
+                spawned.Add(z);
+                ownerOf[z] = ActorOf(scout);
+                z.StartCoroutine(Wake(z));
+                made++;
+            }
+            catch (System.Exception e)
+            {
+                Plugin.Log.LogWarning($"Zombie spawn failed: {e.Message}");
+                return -1;
             }
         }
-        done:
-        Plugin.Log.LogInfo($"Blood moon: {made} zombie(s) rose beside {marked.Count} marked scout(s) ({seconds:0}s).");
+        return made;
+    }
+
+    /// <summary>
+    /// Host: a scout who left their pack ZombieLeash metres behind (or whose pack crumbled at a
+    /// campfire they've now left) finds it rising right beside them again - they chase, not block.
+    /// </summary>
+    private static void Regroup()
+    {
+        if (until - Time.time < 5f) return;
+        float leash = Mathf.Max(10f, ModConfig.BmZombieLeash.Value) * Squad.M;
+        foreach (var scout in Squad.Pursued())
+        {
+            int actor = ActorOf(scout);
+            if (actor == 0 || BloodTornado.Carrying(scout)) continue;
+            if (nextRise.TryGetValue(actor, out float at) && Time.time < at) continue;
+            var pack = spawned.Where(z => z != null && z.photonView.IsMine && z.character != null && ownerOf.TryGetValue(z, out int o) && o == actor).ToList();
+            int back = owed.TryGetValue(actor, out int n) ? n : 0;
+            bool lost = pack.Count > 0 && pack.All(z => Vector3.Distance(z.character.Center, scout.Center) > leash);
+            if (!lost && back == 0) continue;
+            int count = back + (lost ? pack.Count : 0);
+            if (lost)
+                foreach (var z in pack)
+                {
+                    try { z.currentState = MushroomZombie.State.Dead; z.DestroyZombie(); }
+                    catch (System.Exception e) { Plugin.Log.LogWarning($"Zombie regroup failed: {e.Message}"); }
+                    spawned.Remove(z);
+                    ownerOf.Remove(z);
+                }
+            owed.Remove(actor);
+            nextRise[actor] = Time.time + 5f;
+            int got = RiseFor(scout, count, beside: true);
+            Plugin.Log.LogInfo($"Blood moon: {scout.characterName}'s {count} zombie(s) {(lost ? "were left behind" : "come back off safe ground")} - {got} rose beside them.");
+        }
     }
 
     /// <summary>NPC zombies sleep until looked at - blood moon zombies get up and come for you.</summary>
@@ -233,10 +311,11 @@ internal static class BloodZombies
 
     public static void HostTick()
     {
-        if (spawned.Count == 0) return;
+        if (spawned.Count == 0 && owed.Count == 0) return;
         if (Time.time >= until) { Clear(); return; }
         if (Time.time < nextSafeCheck) return;
         nextSafeCheck = Time.time + 0.5f;
+        Regroup();
         // Safe ground: a zombie that stumbles into a campfire's circle crumbles; one chasing a
         // scout who reached it turns on someone still out there.
         var hunted = Squad.Pursued();
@@ -252,6 +331,8 @@ internal static class BloodZombies
                     z.currentState = MushroomZombie.State.Dead;
                     z.DestroyZombie();
                     spawned.RemoveAt(i);
+                    // It rises again beside its scout once they're back out in the open.
+                    if (ownerOf.TryGetValue(z, out int owner)) { owed[owner] = (owed.TryGetValue(owner, out int n) ? n : 0) + 1; ownerOf.Remove(z); }
                     Plugin.Log.LogInfo("Blood moon zombie crumbled on safe ground.");
                     continue;
                 }
@@ -282,6 +363,8 @@ internal static class BloodZombies
         }
         if (spawned.Count > 0) Plugin.Log.LogInfo("Blood moon zombies crumbled.");
         spawned.Clear();
+        ownerOf.Clear();
+        owed.Clear();
     }
 }
 
@@ -336,7 +419,9 @@ internal class BloodTornado : MonoBehaviour
         if (alive.Count == 0) return;
         // It rises where the squad came into this part of the map (the Kiln / Citadel: a small, gentle one).
         bool kiln = MapHandler.Exists && MapHandler.CurrentSegmentNumber == Segment.TheKiln;
-        Vector3 pos = EntrySpot(alive) is { } entry ? Squad.GroundNear(entry, 6f, 16f, 30f) ?? entry : FarFallback(alive);
+        // A relay gives it only its own turn: it rises in plain sight, just down the mountain from the squad.
+        Vector3? back = BloodMoon.Relay && !kiln && !VoidRun.Active ? DownMountain(alive) : null;
+        Vector3 pos = back ?? (EntrySpot(alive) is { } entry ? Squad.GroundNear(entry, 6f, 16f, 30f) ?? entry : FarFallback(alive));
         Look look = LookHere();
         float width = kiln ? Mathf.Clamp(ModConfig.BmTornadoKilnWidth.Value, 0.1f, 3f)
             : alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedWidth.Value, 0.2f, 3f);
@@ -399,6 +484,30 @@ internal class BloodTornado : MonoBehaviour
         if (go == null) return null;
         var fire = go.GetComponentInChildren<Campfire>(true);
         return fire != null ? fire.transform.position : go.transform.position;
+    }
+
+    /// <summary>
+    /// Relay moons: RelayTornadoBack metres back down the mountain from the lowest scout (away from
+    /// the way up, fanned up to ±50 degrees until there's ground). Null = no way up known / no ground.
+    /// </summary>
+    private static Vector3? DownMountain(List<Character> alive)
+    {
+        var low = alive.OrderBy(c => c.Center.y).First().Center;
+        if (Squad.UpMountain(false) is not { } top) return null;
+        var down = Vector3.ProjectOnPlane(low - top, Vector3.up);
+        if (down.sqrMagnitude < 1f) return null;
+        down.Normalize();
+        float dist = Mathf.Max(20f, ModConfig.BmRelayTornadoBack.Value) * Squad.M;
+        foreach (float a in new[] { 0f, 25f, -25f, 50f, -50f })
+        {
+            var p = low + Quaternion.Euler(0f, a, 0f) * down * dist;
+            var from = new Vector3(p.x, low.y + 60f * Squad.M, p.z);
+            if (!Physics.Raycast(from, Vector3.down, out var hit, 300f * Squad.M, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore)) continue;
+            Plugin.Log.LogInfo($"Blood tornado (relay): rising {dist / Squad.M:0}m down the mountain ({a:0} degrees off).");
+            return hit.point;
+        }
+        Plugin.Log.LogInfo("Blood tornado (relay): no ground down the mountain - its usual spot.");
+        return null;
     }
 
     /// <summary>No entry spot: 150-250m from the squad, below them and out of everyone's sight if possible.</summary>

@@ -544,7 +544,7 @@ internal static class ReportState
             var dnm = DayNightManager.instance;
             if (dnm != null) L($"Day {dnm.dayCount} {dnm.TimeOfDayString()} ({(dnm.isDay > 0.5f ? "day" : "night")})");
             L($"Sun: {(Suns.Current is { } sun ? Suns.ColorName(sun) : "normal")}");
-            L(BloodMoon.Active ? $"Blood moon: tier {BloodMoon.Tier}, {BloodMoon.Elapsed:0}s in, order {BloodMoon.OrderLabel}" : "Blood moon: none");
+            L(BloodMoon.Active ? $"Blood moon: tier {BloodMoon.Tier} {(BloodMoon.Relay ? $"relay ({BloodMoon.RelaySlot:0}s each)" : "stacked")}, {BloodMoon.Elapsed:0}s in, order {BloodMoon.OrderLabel}" : "Blood moon: none");
             L($"Squad relics: {RunState.SquadRelics()}");
         });
         Part("Me", () =>

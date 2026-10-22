@@ -21,7 +21,8 @@ namespace PeakRoguelike;
 ///   zombies beside every scout (more beside relic / skull / dagger carriers),
 ///   the Scoutmaster, a tornado (sand on Mesa, snow on Alpine),
 ///   a meteor shower (purple glass on Gloom runs, fire on Caldera runs).
-/// Binding another relic mid-moon restarts it at the new tier. In daylight it's a blood eclipse
+/// With [BloodMoon] Relay on, the hazards take turns instead (RelaySeconds each, in the same order),
+/// each at its hardest. Binding another relic mid-moon restarts it at the new tier. In daylight it's a blood eclipse
 /// (red sun and sky, the clock isn't touched). The host publishes "tier|start time|binder" as a room
 /// property and the order beside it; everyone draws the sky from that, so late joiners see it too.
 /// </summary>
@@ -29,6 +30,7 @@ internal class BloodMoon : MonoBehaviour
 {
     internal const string RoomKey = "prl.bm";
     private const string OrderKey = "prl.bmo";
+    private const string RelayKey = "prl.bmr";
 
     internal enum Hazard { Zombies, Scoutmaster, Tornado, Meteors }
     /// <summary>The order before the shuffle (and for hosts on older builds).</summary>
@@ -56,10 +58,15 @@ internal class BloodMoon : MonoBehaviour
     internal static int TierOf(Hazard h)
     {
         int i = System.Array.IndexOf(Order, h);
+        if (Relay) return i >= 0 && i < Tier ? 1 : 0; // relay: each hazard has the moon to itself
         return i < 0 ? 0 : Tier - i;
     }
-    /// <summary>Counted from his first tier: 1 = hunter, 2 = watcher (stare charge), 3+ = he only watches.</summary>
-    internal static int ScoutmasterTier => TierOf(Hazard.Scoutmaster);
+    /// <summary>Counted from his first tier: 1 = hunter, 2 = watcher (stare charge), 3+ = he only watches.
+    /// A relay moon gets him at his hardest, the watcher (two grabs and the stare charge).</summary>
+    internal static int ScoutmasterTier => Relay && TierOf(Hazard.Scoutmaster) >= 1 ? 2 : TierOf(Hazard.Scoutmaster);
+    /// <summary>Seconds each hazard gets in a relay moon (they take turns, one at a time); 0 = stacked (all at once).</summary>
+    internal static float RelaySlot { get; private set; }
+    internal static bool Relay => RelaySlot > 0f;
     internal static string OrderLabel => string.Join(" > ", Order);
     /// <summary>Dev panel (host): this hazard comes first, the rest follow the shuffle. Null = the shuffle.</summary>
     internal static Hazard? DevFirst;
@@ -107,7 +114,7 @@ internal class BloodMoon : MonoBehaviour
     /// <summary>Host: a Void moon's own length (0 = the tier's usual length).</summary>
     private static float voidLength;
     /// <summary>How long this moon lasts (host's view).</summary>
-    internal static float Length => voidLength > 0f ? voidLength : EffectsEnd(Tier);
+    internal static float Length => voidLength > 0f ? voidLength : Relay ? Mathf.Clamp(Tier, 1, 4) * RelaySlot : EffectsEnd(Tier);
 
     /// <summary>Host, the Void: a tier 1 moon bringing only this hazard, for this long.</summary>
     internal static void VoidMoon(Hazard h, float seconds)
@@ -155,6 +162,9 @@ internal class BloodMoon : MonoBehaviour
         Tier = tier;
         string? rawOrder = PhotonNetwork.CurrentRoom!.CustomProperties.TryGetValue(OrderKey, out object o) ? o as string : null;
         Order = ParseOrder(rawOrder);
+        // The host keeps its own (the room echoes a new moon's back a moment late).
+        if (!PhotonNetwork.IsMasterClient)
+            RelaySlot = PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(RelayKey, out object r) && r is float slot ? slot : 0f;
         if (seenId != raw && string.IsNullOrEmpty(rawOrder))
             Plugin.Log.LogWarning("Blood moon: no hazard order from the host (an older build?) - using the default order.");
         StartTime = start;
@@ -198,7 +208,18 @@ internal class BloodMoon : MonoBehaviour
             nightfallPending = false;
             skipNextNight = false;
             sharedWaiting.Clear();
+            waitTier = 0;
             return;
+        }
+
+        // A moon that came while the whole squad sat on safe ground rises the moment someone steps off it.
+        if (waitTier > 0 && !EveryoneSafe())
+        {
+            int t = Mathf.Clamp(Mathf.Max(waitTier, RunState.SquadRelics()), 1, 4);
+            waitTier = 0;
+            nightfallPending = false;
+            Plugin.Log.LogInfo("Someone left safe ground - the waiting blood moon rises.");
+            Rise(t, waitBinder);
         }
 
         // A daytime pickup moon spares the night that follows it - even if it's still up at nightfall.
@@ -231,6 +252,25 @@ internal class BloodMoon : MonoBehaviour
         wasNight = night;
     }
 
+    /// <summary>Host: a moon owed while the whole squad was on safe ground (0 = none) - it waits for them, day or night.</summary>
+    private int waitTier;
+    private string waitBinder = "";
+
+    private static bool EveryoneSafe()
+    {
+        var alive = Squad.Alive();
+        return alive.Count > 0 && alive.All(Sanctuary.Safe);
+    }
+
+    /// <summary>Rise now - or, with every scout on safe ground (a campfire, the summit), once someone leaves it.</summary>
+    private void RiseOrWait(int tier, string binder)
+    {
+        if (!EveryoneSafe()) { waitTier = 0; Rise(tier, binder); return; }
+        if (waitTier == 0) Plugin.Log.LogInfo($"Blood moon (tier {tier}) waits: the whole squad is on safe ground.");
+        waitTier = Mathf.Max(waitTier, tier);
+        waitBinder = binder;
+    }
+
     private void Rise(int tier, string binder, Hazard? only = null, float length = 0f)
     {
         if (Active) StopEffects(); // a new relic mid-moon: start over at the new tier
@@ -241,9 +281,13 @@ internal class BloodMoon : MonoBehaviour
         var order = RelicShuffle.MoonOrder(out string how);
         if (only is { } v && order.Remove(v)) { order.Insert(0, v); how += $", the Void's turn for {v}"; }
         else if (DevFirst is { } first && order.Remove(first)) { order.Insert(0, first); how += $", F8 put {first} first"; }
-        Plugin.Log.LogInfo($"Blood moon order (host): {string.Join(" > ", order)} - shuffled from {how}.");
-        SetRoom($"{tier}|{now}|{binder}", string.Join(",", order));
+        // The Void's moons are one hazard already: never a relay.
+        RelaySlot = only == null && ModConfig.BmRelay.Value ? Mathf.Max(5f, ModConfig.BmRelaySeconds.Value) : 0f;
+        Plugin.Log.LogInfo($"Blood moon order (host): {string.Join(" > ", order)} - shuffled from {how}"
+            + (Relay ? $"; relay, {RelaySlot:0}s each." : "; stacked."));
+        SetRoom($"{tier}|{now}|{binder}", string.Join(",", order), RelaySlot);
         huntDone = zombiesDone = zombiesCleared = tornadoDone = finalDone = false;
+        relayAt = -1;
         stagesFor = -2; // ours from the start: claimed on the first wave tick
         ReadRoom();
         Plugin.Log.LogInfo(only != null ? $"The Void: blood moon ({only}) for {length:0}s."
@@ -331,7 +375,7 @@ internal class BloodMoon : MonoBehaviour
         if (afternoon && ModConfig.DevMoonEveryNight.Value) skipNextNight = true;
         Plugin.Log.LogInfo($"{riseBinder} took a relic - blood {(IsNight ? "moon" : "eclipse")} now"
             + (IsNight ? "." : afternoon ? " (afternoon: tonight stays calm)." : " (morning: tonight's moon still rises)."));
-        Rise(Mathf.Clamp(RunState.SquadRelics(), 1, 4), riseBinder);
+        RiseOrWait(Mathf.Clamp(RunState.SquadRelics(), 1, 4), riseBinder);
     }
 
     // --- testing options -----------------------------------------------------------------------------
@@ -353,7 +397,7 @@ internal class BloodMoon : MonoBehaviour
         int tier = RunState.SquadRelics();
         if (!ModConfig.DevMoonEveryNight.Value || tier <= 0) { Plugin.Log.LogInfo("Nightfall - a calm night."); return; }
         if (skip) { Plugin.Log.LogInfo("Nightfall - calm: the day's pickup moon stands in for tonight's."); return; }
-        Rise(Mathf.Clamp(tier, 1, 4), "");
+        RiseOrWait(Mathf.Clamp(tier, 1, 4), "");
     }
 
     /// <summary>
@@ -389,7 +433,7 @@ internal class BloodMoon : MonoBehaviour
         int tier = Mathf.Clamp(RunState.SquadRelics(), 1, 4);
         Plugin.Log.LogInfo($"{who} performed a dark rite - blood {(IsNight ? "moon" : "eclipse")} at tier {tier}.");
         instance.nightfallPending = false;
-        instance.Rise(tier, who);
+        instance.RiseOrWait(tier, who);
     }
 
     private void RunWaves()
@@ -404,39 +448,73 @@ internal class BloodMoon : MonoBehaviour
             {
                 huntDone = zombiesDone = tornadoDone = finalDone = t > 1f;
                 zombiesCleared = false;
+                // A relay's current hazard was set loose by the old host: leave it running.
+                relayAt = t > 1f ? RelayIndex(t) : -1;
             }
+        }
+
+        if (Relay)
+        {
+            // Relay: one hazard at a time, each at its hardest, handing over every RelaySlot seconds.
+            int at = RelayIndex(t);
+            if (at != relayAt)
+            {
+                if (relayAt >= 0) StopHazard(Order[relayAt]);
+                relayAt = at;
+                float slotLeft = (at + 1) * RelaySlot - t;
+                Plugin.Log.LogInfo($"Blood moon relay: {Order[at]} for {slotLeft:0}s ({at + 1} of {Mathf.Clamp(Tier, 1, 4)}).");
+                StartHazard(Order[at], slotLeft, alone: true);
+            }
+            BloodZombies.HostTick();
+            return;
         }
 
         // Everything the tier unlocks rises together and lasts the whole moon.
         float left = Length - t;
-        if (TierOf(Hazard.Scoutmaster) >= 1 && !huntDone)
-        {
-            huntDone = true;
-            if (ModConfig.BmScoutmaster.Value) ScoutmasterHunt.Steer(left);
-        }
-        if (TierOf(Hazard.Zombies) >= 1 && !zombiesDone)
-        {
-            zombiesDone = true;
-            if (ModConfig.BmZombies.Value) BloodZombies.Spawn(left);
-        }
-        if (TierOf(Hazard.Tornado) >= 1 && !tornadoDone)
-        {
-            tornadoDone = true;
-            if (ModConfig.BmTornado.Value) BloodTornado.Spawn(left, alone: Tier <= 1);
-        }
-        if (TierOf(Hazard.Meteors) >= 1 && !finalDone)
-        {
-            finalDone = true;
-            if (GloomRun ? ModConfig.BmGlassMeteors.Value : ModConfig.BmMeteors.Value) Meteors.Begin(left, aloneInMoon: Tier <= 1);
-        }
+        if (TierOf(Hazard.Scoutmaster) >= 1 && !huntDone) { huntDone = true; StartHazard(Hazard.Scoutmaster, left, Tier <= 1); }
+        if (TierOf(Hazard.Zombies) >= 1 && !zombiesDone) { zombiesDone = true; StartHazard(Hazard.Zombies, left, Tier <= 1); }
+        if (TierOf(Hazard.Tornado) >= 1 && !tornadoDone) { tornadoDone = true; StartHazard(Hazard.Tornado, left, Tier <= 1); }
+        if (TierOf(Hazard.Meteors) >= 1 && !finalDone) { finalDone = true; StartHazard(Hazard.Meteors, left, Tier <= 1); }
         BloodZombies.HostTick();
     }
 
-    private static void SetRoom(string? value, string? order = null)
+    /// <summary>Relay: which turn it is at this many seconds in.</summary>
+    private int relayAt = -1;
+    private static int RelayIndex(float t) =>
+        Mathf.Clamp(Mathf.FloorToInt(t / Mathf.Max(1f, RelaySlot)), 0, Mathf.Min(Mathf.Clamp(Tier, 1, 4), Order.Length) - 1);
+
+    /// <summary>Host: set one hazard loose for this long. Alone = its full-strength version (the Kiln's tornado stays small).</summary>
+    private static void StartHazard(Hazard h, float seconds, bool alone)
+    {
+        switch (h)
+        {
+            case Hazard.Scoutmaster: if (ModConfig.BmScoutmaster.Value) ScoutmasterHunt.Steer(seconds); break;
+            case Hazard.Zombies: if (ModConfig.BmZombies.Value) BloodZombies.Spawn(seconds); break;
+            case Hazard.Tornado: if (ModConfig.BmTornado.Value) BloodTornado.Spawn(seconds, alone); break;
+            case Hazard.Meteors:
+                if (GloomRun ? ModConfig.BmGlassMeteors.Value : ModConfig.BmMeteors.Value) Meteors.Begin(seconds, aloneInMoon: alone);
+                break;
+        }
+    }
+
+    /// <summary>Host: a relay hazard's turn is over.</summary>
+    private static void StopHazard(Hazard h)
+    {
+        switch (h)
+        {
+            case Hazard.Scoutmaster: ScoutmasterHunt.Stop(); break;
+            case Hazard.Zombies: BloodZombies.Clear(); break;
+            case Hazard.Tornado: BloodTornado.KillAll(); break;
+            case Hazard.Meteors: Meteors.Stop(); break;
+        }
+    }
+
+    private static void SetRoom(string? value, string? order = null, float relay = -1f)
     {
         if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null) return;
         var props = new Hashtable { [RoomKey] = value };
         if (order != null) props[OrderKey] = order;
+        if (relay >= 0f) props[RelayKey] = relay;
         PhotonNetwork.CurrentRoom.SetCustomProperties(props);
     }
 

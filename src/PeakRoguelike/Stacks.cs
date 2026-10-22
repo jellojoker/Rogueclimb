@@ -606,3 +606,23 @@ internal class Stacks : MonoBehaviourPunCallbacks
         return go.transform;
     }
 }
+
+/// <summary>
+/// The game only refreshes an item box when the item KIND changes - so a stack of pitons traded
+/// up into one better piton kept the old stack's data (its count badge, its level in the name).
+/// </summary>
+[HarmonyPatch]
+internal static class FreshBoxData
+{
+    [HarmonyPostfix, HarmonyPatch(typeof(InventoryItemUI), nameof(InventoryItemUI.SetItem))]
+    private static void Refresh(InventoryItemUI __instance, ItemSlot slot)
+    {
+        try
+        {
+            if (__instance.isBackpack || slot == null || slot.IsEmpty() || __instance._itemData == slot.data) return;
+            __instance._itemData = slot.data;
+            __instance.UpdateNameText();
+        }
+        catch (Exception e) { Plugin.Log.LogWarning($"Item box refresh failed: {e.Message}"); }
+    }
+}

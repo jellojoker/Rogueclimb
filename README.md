@@ -33,10 +33,11 @@ Everything below explains the mechanics. Numbers are beta values and may change.
 
 ### Crates and item trees
 
-- Opening luggage shows a few cards (more with more scouts). Each scout takes one pick per crate.
-- The main items each have a **tree**: rope, pitons, glider, lantern, balloons, drink, food and
-  bandages. Each tree starts weak and gets better with each level. Your first copy of an item is
-  level 1, and later cards for that item come at your current level.
+- Opening luggage shows a few cards (more with more scouts). Each scout takes one pick per crate
+  (unless the host picked "First come" crates - see Settings).
+- The main items each have a **tree**: rope, pitons, glider, lantern, balloons, drink, food,
+  bandages and the antidote. Each tree starts weak and gets better with each level. Your first
+  copy of an item is level 1, and later cards for that item come at your current level.
 - Some trees **evolve** at a certain level (sports drink into energy drink, a balloon into a
   bunch, the rope spool into a rope cannon...). Some **fork**, and you choose a path - the
   bandage tree splits into a holy Health Pack or a dark Medkit.
@@ -60,7 +61,8 @@ Everything below explains the mechanics. Numbers are beta values and may change.
 - Backpacks and fanny packs become **extra pockets** (up to 6). Key 4 is your back slot.
 - Up to **3 copies** of the same item stack in one pocket.
 - Holding a full stack and getting a **4th copy** offers a **trade-up**: all four become one
-  item two levels higher. You can always keep them instead.
+  item two levels higher. A crate shows it as a second card next to the plain copy; you can
+  always keep them instead.
 
 ### Relics (statue amulets)
 
@@ -72,9 +74,10 @@ Everything below explains the mechanics. Numbers are beta values and may change.
   - **Green - Generosity:** a crate pick of your chosen kind earns a second pick.
 - Every time a relic fires, it adds a little **glass** (the petrification bar). Spam it and you
   turn to stone. Each relic has a short cooldown.
-- Glass can be healed: surviving a blood moon clears some, and so does food cooked on a
-  **Portable Stove**.
+- Glass can be healed: surviving a blood moon clears some, and so do **Scout Cookies** and food
+  cooked on a **Portable Stove**.
 - Dying drops your relics as amulets, and whoever picks one up gets that exact relic.
+- Forgot what a relic does? Pause the game and hover it in the top-left tray.
 - **Cursed Skull and Ritual Dagger** make cursed copies of relics. Copies shatter on death and
   don't count toward the blood moon.
 
@@ -100,11 +103,12 @@ campfires, the crash site and the summit are safe ground.
 - Taking a relic raises a **blood moon** (a **blood eclipse** by day), and so does every
   nightfall while your squad holds one.
 - The **tier** is how many relics the squad holds. Each tier adds a hazard: **zombies**, the
-  **Scoutmaster**, a **tornado** or **meteors**. The order of the hazards is shuffled by the
-  "Relic order" setting on the airport ticket.
+  **Scoutmaster**, a **tornado** or **meteors**. They take turns, 30 seconds each, and each one
+  comes at full strength. The order is shuffled by the "Relic order" setting on the airport ticket.
 - The hazards go after relic carriers first.
 - When a relic fires during a blood moon, you're hidden from the hunters for a few seconds.
-- Campfires are safe ground. Surviving a blood moon clears some glass.
+- Campfires are safe ground - but a moon that comes while everyone sits at one waits for you to
+  leave. Surviving a blood moon clears some glass.
 
 ### Starting relics
 
@@ -135,6 +139,7 @@ the whole run and never raises a blood moon.
 ### Supply drops and flares
 
 - Every few minutes a crate floats down on balloons, aimed at the scout who needs it most.
+  Bigger lobbies get them more often, and in lobbies of 5+ a group that splits off gets its own.
 - Firing a **flare** calls in a bigger crate - and sometimes an Ancient one.
 - If your pockets are empty when you reach a sky crate, you get two picks.
 
@@ -146,6 +151,17 @@ the whole run and never raises a blood moon.
 
 ## Settings
 
+The host sets up the run on the **airport ticket**, under the ascent. The second choice of each is
+the harder one, written in red:
+
+- **Relic order:** Off / Daily / Every run - how the statue amulets and the blood moon's hazards
+  are shuffled.
+- **Blood moons:** Relay (hazards take turns) / **Stacked** (every hazard at once).
+- **Crates:** Shared (every scout gets a pick) / **First come** (the game's own number of cards,
+  a taken card is gone, anyone takes what's left).
+- **Relics:** Shared (a relic taken from a statue is offered to everyone) / **First come** (only
+  whoever takes the amulet gets one).
+
 Most of this can be tuned or turned off in the BepInEx config file (`rey.PeakRoguelike.cfg`).
 The host can also press **F8** in game to check which build each player has.
 
@@ -154,6 +170,13 @@ The host can also press **F8** in game to check which build each player has.
 - Music: "It's In The Fog" by Darren Curtis (@DarrenCurtisMusic)
 - Meteor showers and the darkness of lights out: built with reference to True Final Ascent by
   CptPICHU - thank you!
+
+## AI disclosure
+
+This mod is a proof of concept. The code was written with AI assistance (Claude). The card art
+and the mod icon are AI-generated placeholders and will be replaced with hand-made art. The music
+is by Darren Curtis (see above). Everything else you see and hear in game (characters, monsters,
+items, sounds) is PEAK's own.
 
 ## License
 

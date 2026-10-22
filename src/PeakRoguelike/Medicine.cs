@@ -16,7 +16,8 @@ namespace PeakRoguelike;
 ///                         Radiant pack (6) adds milk invincibility, and drops beside anyone who passes out.
 ///   Dark medkits          turn injury and glass into ailments that fade on their own: half into
 ///                         poison (4), all into poison (5), injury into sleep and glass shattered (6).
-///   Antidote              eases every ailment a little, on top of its poison cure.
+///   Antidote (1-3)        each sip: a little off your worst ailments (poison among them), then
+///                         injury too (2), then hunger too (3); the game's cooling on top.
 ///   Cure-All (fused)      the game's Cure-All + a Radiant pack; thrown and broken it doses everyone near.
 ///   Pandora's Lunchbox    the game's reroll (glass wiped too), shared: everyone near gets the same roll.
 /// The suns' caps still apply (blue: healing at 10%) - it all runs inside the item's own action.
@@ -44,12 +45,37 @@ internal class Medicine : MonoBehaviour
 
     // --- the item's own actions -----------------------------------------------------------------
 
-    /// <summary>Dark medkits never heal: the game's own injury / poison cure is skipped (we convert instead).</summary>
+    /// <summary>
+    /// Dark medkits never heal: the game's own injury / poison cure is skipped (we convert instead).
+    /// The Antidote's own poison cure is skipped too - poison is one of the ailments its levels ease.
+    /// </summary>
     [HarmonyPrefix, HarmonyPriority(Priority.First), HarmonyPatch(typeof(Action_ModifyStatus), nameof(Action_ModifyStatus.RunAction))]
     private static bool Before(Action_ModifyStatus __instance, out float __state)
     {
         __state = __instance.changeAmount; // before the tree scales it
-        return !(On && __instance.changeAmount < 0f && IsDarkKit(__instance.item));
+        if (!On || __instance.changeAmount >= 0f) return true;
+        if (IsDarkKit(__instance.item)) return false;
+        return !(__instance.statusType == STATUS.Poison && Trees.Classify(__instance.item) == TreeId.Antidote);
+    }
+
+    /// <summary>What the Antidote's first level eases, worst first (heat too: the game's cooling comes on top).</summary>
+    private static readonly STATUS[] AntidoteAilments = { STATUS.Poison, STATUS.Cold, STATUS.Hot, STATUS.Drowsy, STATUS.Spores };
+
+    /// <summary>One sip: a few points off the worst ailments, then injury (level 2), then hunger (level 3).</summary>
+    private static void AntidoteSip(Character c, int lv)
+    {
+        var aff = c.refs.afflictions;
+        float pts = Mathf.Clamp01(ModConfig.AntidotePoints.Value / 100f), left = pts;
+        foreach (var s in AntidoteAilments.OrderByDescending(aff.GetCurrentStatus))
+        {
+            float take = Mathf.Min(aff.GetCurrentStatus(s), left);
+            if (take <= 0f) break;
+            aff.SubtractStatus(s, take);
+            left -= take;
+        }
+        if (lv >= 2) aff.SubtractStatus(STATUS.Injury, pts);
+        if (lv >= 3) aff.SubtractStatus(STATUS.Hunger, pts);
+        Plugin.Log.LogInfo($"Antidote (level {lv}) sip: {pts - left:0.##} off ailments{(lv >= 2 ? $", {pts:0.##} injury" : "")}{(lv >= 3 ? $", {pts:0.##} hunger" : "")}.");
     }
 
     /// <summary>
@@ -67,11 +93,9 @@ internal class Medicine : MonoBehaviour
             if (!Local(c)) return;
             var aff = c.refs.afflictions;
 
-            if (Items.IsAntidote(item))
+            if (Trees.Classify(item) == TreeId.Antidote)
             {
-                if (__instance.statusType != STATUS.Poison) return;
-                float ease = Mathf.Clamp01(ModConfig.AntidoteCleanse.Value);
-                foreach (var s in new[] { STATUS.Injury, STATUS.Cold, STATUS.Drowsy }) aff.SubtractStatus(s, ease);
+                if (__instance.statusType == STATUS.Poison) AntidoteSip(c, Stats.For(item, TreeId.Antidote).level);
                 return;
             }
             if (__instance.statusType != STATUS.Injury) return;

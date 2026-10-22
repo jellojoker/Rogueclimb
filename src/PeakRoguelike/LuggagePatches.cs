@@ -127,7 +127,13 @@ internal static class LuggagePatches
         Vector3 from = Character.localCharacter != null ? Character.localCharacter.Center : luggage.Center();
         var cards = items.Select(CrateCards.ForItem).ToList();
         // Green sun on the Shore: one of the crate's own cards withers (never the last one).
-        if (Suns.WitheredCard(luggage, items) is { } gone) cards[gone].Withered = true;
+        int? withered = Suns.WitheredCard(luggage, items);
+        if (withered is { } gone) cards[gone].Withered = true;
+        // A card for an item you hold a full stack of gets a twin: trade the stack up instead of a 4th copy.
+        var trades = new List<(int index, Offer offer)>();
+        for (int i = 0; i < items.Count; i++)
+            if (i != withered && Offers.ForCrateTrade(items[i]) is { } t) trades.Add((i, t));
+        cards.AddRange(trades.Select(t => CrateCards.ForCrateTrade(t.offer)));
         cards.AddRange(fused.Select(r => Fusion.ItemCard(r, "Fusion unlocked")));
 
         bool shown = ChoiceScreen.Show(new ScreenSpec
@@ -139,8 +145,14 @@ internal static class LuggagePatches
             StillValid = () => luggage != null && !luggage.IsOpen && LuggagePatches.StillHere(from),
             OnConfirm = i =>
             {
-                if (i < items.Count) Picked(luggage, items, i);
-                else ClaimFusion(luggage, fused[i - items.Count]);
+                if (i < items.Count)
+                {
+                    // The plain 4th copy, with a trade on offer: that's the scout's answer - no pop-up asking again.
+                    if (trades.Any(t => t.index == i)) StackMerge.Declined(Offers.ForCrate(items[i]).Grant.itemID);
+                    Picked(luggage, items, i);
+                }
+                else if (i < items.Count + trades.Count) TradeUp(luggage, items, trades[i - items.Count]);
+                else ClaimFusion(luggage, fused[i - items.Count - trades.Count]);
             },
             OnBack = () => perk?.ReleaseLock(),
             // A flare in your pockets rerolls the whole crate (for everyone still to pick).
@@ -245,6 +257,31 @@ internal static class LuggagePatches
         });
     }
 
+    /// <summary>A crate's trade-up card: the stack goes, the crate card is taken, you get the item two levels up.</summary>
+    private static void TradeUp(Luggage luggage, List<Item> items, (int index, Offer offer) trade)
+    {
+        var (index, offer) = trade;
+        var tree = offer.Tree!;
+        void Finish(int branch, Item grant)
+        {
+            if (!Offers.ConsumeMerge(offer)) { Claim(luggage, Spare(offer, items[index]), index); return; }
+            LevelUp(tree, offer.Level, branch);
+            Claim(luggage, grant, index);
+        }
+        if (offer.Kind != OfferKind.Fork) { Finish(offer.Branch, offer.Grant); return; }
+        var options = Offers.Paths(tree, offer.Level);
+        ChoiceScreen.Show(new ScreenSpec
+        {
+            Title = "CHOOSE YOUR PATH",
+            Subtitle = $"{tree.Name} · level {offer.Level}",
+            Confirm = "CHOOSE",
+            Cards = options.Select(o => CrateCards.ForPath(tree, offer.Level, o, items[index])).ToList(),
+            StillValid = () => luggage != null && !luggage.IsOpen,
+            OnConfirm = i => Finish(options[i].Branch, Offers.Grant(options[i], items[index])),
+            OnBack = () => ShowCrate(luggage, items),
+        });
+    }
+
     /// <summary>The item at your current level (a merge whose stack went missing).</summary>
     internal static Item Spare(Offer offer, Item crateItem)
     {
@@ -285,8 +322,8 @@ internal static class LuggagePatches
             List<Transform> spots = luggage.GetSpawnSpots();
             int vanilla = spots?.Count ?? 0;
             if (vanilla == 0) return result;
-            // One extra card per scout in the lobby (each still picks just one).
-            int scouts = PhotonNetwork.InRoom ? Mathf.Max(1, PhotonNetwork.PlayerList.Count(Modless.HasMod)) : 1;
+            // One extra card per scout in the lobby (each still picks just one). First come: the game's own count.
+            int scouts = PerkLuggage.FirstCome ? 0 : PhotonNetwork.InRoom ? Mathf.Max(1, PhotonNetwork.PlayerList.Count(Modless.HasMod)) : 1;
             int count = Mathf.Min(vanilla + scouts, MaxCards);
             // Earned-only items (fusions, level unlocks) are thrown back, and no card shows twice;
             // the crate keeps rolling until it's full or its pool runs dry.
@@ -485,6 +522,8 @@ public class PerkLuggage : MonoBehaviourPun
         get
         {
             Load();
+            // First come: anyone, as long as a card is left.
+            if (FirstCome) return rolled == null || rolled.Length > 0;
             return pickers == null || (!picked.Contains(LocalActor) && (pickers.Contains(LocalActor) || !Spent));
         }
     }
@@ -523,7 +562,7 @@ public class PerkLuggage : MonoBehaviourPun
         catch { rolled = null; pickers = null; picked.Clear(); return; }
         Plugin.Log.LogInfo($"{luggage?.displayName}: draft from the room - {rolled.Length} cards, {picked.Count}/{pickers.Length} picked.");
         if (Spent) RPC_PerkOpen();
-        else if (picked.Contains(LocalActor)) OpenForMe();
+        else if (picked.Contains(LocalActor) && !FirstCome) OpenForMe();
     }
 
     /// <summary>Host, new run: forget every crate draft.</summary>
@@ -539,9 +578,12 @@ public class PerkLuggage : MonoBehaviourPun
     }
 
     /// <summary>Someone else in the lobby still has a pick coming (worth re-rolling the card you took).</summary>
-    public bool OthersLeft => pickers != null && pickers.Any(a => a != LocalActor && !picked.Contains(a) && InRoom(a));
+    public bool OthersLeft => !FirstCome && pickers != null && pickers.Any(a => a != LocalActor && !picked.Contains(a) && InRoom(a));
 
-    private bool Spent => pickers != null && pickers.All(a => picked.Contains(a) || !InRoom(a));
+    private bool Spent => FirstCome ? rolled != null && rolled.Length == 0 : pickers != null && pickers.All(a => picked.Contains(a) || !InRoom(a));
+
+    /// <summary>The ticket's "First come" crates: the cards are dealt once, a taken one is gone, anyone takes what's left.</summary>
+    internal static bool FirstCome => Tickets.CratesFirstCome;
 
     /// <summary>The crate's cards apart from the one in this slot (the re-roll must not repeat them).</summary>
     public HashSet<ushort> CardsBesides(int slot) =>
@@ -568,7 +610,7 @@ public class PerkLuggage : MonoBehaviourPun
         if (actor == LocalActor) Publish();
         Plugin.Log.LogInfo($"{luggage?.displayName}: actor {actor} picked ({picked.Count}/{pickers?.Length ?? 1}){(reroll > 0 && Items.TryGet((ushort)reroll, out var it) ? $", card re-rolled to {it.gameObject.name}" : "")}.");
         if (Spent) RPC_PerkOpen();
-        else if (actor == LocalActor) OpenForMe();
+        else if (actor == LocalActor && !FirstCome) OpenForMe();
     }
 
     /// <summary>The lid opens for this scout only (the crate stays closed for those still to pick).</summary>
@@ -638,6 +680,9 @@ public class PerkLuggage : MonoBehaviourPun
             rolled = items.Select(i => i.itemID).ToArray();
             // Scouts without the mod never pick, so they aren't waited on.
             pickers = PhotonNetwork.InRoom ? PhotonNetwork.PlayerList.Where(Modless.HasMod).Select(p => p.ActorNumber).ToArray() : new[] { LocalActor };
+            // A group's supply crate: only that group picks (others may take what's left once they have).
+            if (luggage.GetComponent<SkyDrop>()?.Pickers is { } group && PhotonNetwork.InRoom)
+                pickers = pickers.Where(group.Contains).DefaultIfEmpty(LocalActor).ToArray();
             if (rolled.Length > 0 && PhotonNetwork.InRoom)
             {
                 photonView.RPC(nameof(RPC_SetRoll), RpcTarget.Others, rolled.Select(x => (int)x).ToArray(), pickers);

@@ -12,7 +12,7 @@ public enum DropKind { Plain, Big, Ancient }
 public enum DropStyle { Slam, Float }
 
 /// <summary>
-/// Supply crates from the sky. Every 2.5 minutes out on the mountain one floats down on balloons
+/// Supply crates from the sky. Every few minutes out on the mountain (sooner in bigger lobbies) one floats down on balloons
 /// near the scout carrying the least (fewest items, then lowest levels); a lit flare slams a big
 /// one down beside you (sometimes an Ancient Luggage). The crate is a copy of a crate already in
 /// the level, so it carries that crate's loot. Landing spots are picked first: flat ground with
@@ -161,10 +161,11 @@ internal class SupplyDrop : IPunPrefabPool
         Physics.Raycast(at + Vector3.up * 2f * M, Vector3.down, out var hit, 40f * M, HelperFunctions.AllPhysicalExceptCharacter, QueryTriggerInteraction.Ignore)
             ? hit.point : at;
 
-    private static void Spawn(DropKind kind, DropStyle style, Vector3 ground, string caller)
+    private static void Spawn(DropKind kind, DropStyle style, Vector3 ground, string caller, int[]? pickers = null)
     {
         var rot = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
-        PhotonNetwork.InstantiateRoomObject(Prefix + kind, ground, rot, 0, new object[] { PhotonNetwork.Time + SkyDrop.PlaneLead, caller ?? "", (int)style, (int)kind });
+        PhotonNetwork.InstantiateRoomObject(Prefix + kind, ground, rot, 0,
+            new object[] { PhotonNetwork.Time + SkyDrop.PlaneLead, caller ?? "", (int)style, (int)kind, pickers ?? new int[0] });
         Plugin.Log.LogInfo($"Supply drop: {kind} ({style}) for {(string.IsNullOrEmpty(caller) ? "the squad" : caller)} at {ground}.");
     }
 
@@ -179,12 +180,58 @@ internal class SupplyDrop : IPunPrefabPool
         return (full.Count, full.Sum(ItemLevels.LevelOf));
     }
 
-    /// <summary>Host: a crate floats down 15-40m ahead of the scout carrying the least. False = no spot yet.</summary>
+    /// <summary>
+    /// Host: a crate floats down 15-40m ahead of the scout carrying the least. In a big lobby
+    /// (GroupDropsFrom+) every group of scouts far from the others gets its own, picked by that
+    /// group only. False = no spot yet.
+    /// </summary>
     internal static bool TimedDrop()
     {
         Install();
-        var outside = Squad.Alive().Where(c => !Sanctuary.Safe(c)).ToList();
-        if (outside.Count == 0) outside = Squad.Alive();
+        var alive = Squad.Alive();
+        int lobby = PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null ? PhotonNetwork.CurrentRoom.PlayerCount : 1;
+        if (lobby < Mathf.Max(2, ModConfig.DropClusterScouts.Value)) return DropFor(alive, null);
+        var groups = Groups(alive, Mathf.Max(10f, ModConfig.DropClusterMetres.Value) * M);
+        if (groups.Count == 1) return DropFor(alive, null);
+        Plugin.Log.LogInfo($"Supply drop: {groups.Count} groups - " + string.Join(" / ", groups.Select(g => string.Join(", ", g.Select(c => c.characterName)))) + ".");
+        bool any = false;
+        foreach (var g in groups)
+        {
+            // Resting at a campfire: that group's crate waits for the next drop.
+            if (g.All(Sanctuary.Safe)) continue;
+            var actors = g.Where(c => c.photonView != null && c.photonView.Owner != null).Select(c => c.photonView.Owner.ActorNumber).ToArray();
+            any |= DropFor(g, actors);
+        }
+        return any;
+    }
+
+    /// <summary>
+    /// Everyone in a group is within this distance of everyone else in it (no chains: a long line
+    /// up the slope splits), so a group's crate is never far from any of them. Each group starts
+    /// from the scout with the most others close by, then takes the nearest that still fit.
+    /// </summary>
+    private static List<List<Character>> Groups(List<Character> scouts, float apart)
+    {
+        bool Near(Character a, Character b) => Vector3.Distance(a.Center, b.Center) <= apart;
+        var left = new List<Character>(scouts);
+        var groups = new List<List<Character>>();
+        while (left.Count > 0)
+        {
+            var seed = left.OrderByDescending(c => left.Count(o => o != c && Near(c, o))).First();
+            var g = new List<Character> { seed };
+            left.Remove(seed);
+            foreach (var c in left.OrderBy(c => Vector3.Distance(c.Center, seed.Center)).ToList())
+                if (g.All(m => Near(m, c))) { g.Add(c); left.Remove(c); }
+            groups.Add(g);
+        }
+        return groups;
+    }
+
+    /// <summary>One crate for these scouts. Pickers = who may pick from it (null = the whole lobby).</summary>
+    private static bool DropFor(List<Character> scouts, int[]? pickers)
+    {
+        var outside = scouts.Where(c => !Sanctuary.Safe(c)).ToList();
+        if (outside.Count == 0) outside = scouts;
         var target = outside.OrderBy(c => Carried(c).count).ThenBy(c => Carried(c).levels).FirstOrDefault();
         if (target == null || Template(DropKind.Plain, target.Center) == null) return false;
         Vector3 ahead = Vector3.zero;
@@ -196,8 +243,9 @@ internal class SupplyDrop : IPunPrefabPool
         var spot = Spot(target.Center, ahead, 15f * M, 40f * M) ?? Spot(target.Center, Vector3.zero, 10f * M, 40f * M);
         if (spot == null) { Plugin.Log.LogInfo($"Supply drop: no clear landing near {target.characterName} yet."); return false; }
         var (n, lv) = Carried(target);
-        Plugin.Log.LogInfo($"Supply drop: helping {target.characterName} ({n} items, levels {lv}).");
-        Spawn(DropKind.Plain, DropStyle.Float, spot.Value, "");
+        Plugin.Log.LogInfo($"Supply drop: helping {target.characterName} ({n} items, levels {lv})"
+            + (pickers != null ? $", picks for {pickers.Length} scout(s) in that group." : "."));
+        Spawn(DropKind.Plain, DropStyle.Float, spot.Value, "", pickers);
         return true;
     }
 
@@ -231,11 +279,38 @@ internal class SupplyDrop : IPunPrefabPool
     }
 }
 
-/// <summary>Host: counts 2.5 minutes while anyone is out on the mountain (not at a campfire, the crash site or a blood moon).</summary>
+/// <summary>
+/// Host: counts time out on the mountain (not at a campfire, the crash site or a blood moon) until
+/// the next drop. The wait is rolled fresh after every drop from the lobby size's range (Supply config).
+/// </summary>
 internal class DropClock : MonoBehaviour
 {
     private static float clock;
+    private static float next = -1f;
     private static int scene = -1;
+
+    /// <summary>"180-360" or "180" for this many scouts in the lobby.</summary>
+    private static string RangeFor(int scouts) => scouts switch
+    {
+        <= 1 => ModConfig.DropSolo.Value,
+        2 => ModConfig.DropDuo.Value,
+        <= 4 => ModConfig.DropSmall.Value,
+        _ => ModConfig.DropBig.Value,
+    };
+
+    private static float Roll()
+    {
+        int scouts = PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null ? PhotonNetwork.CurrentRoom.PlayerCount : 1;
+        string range = RangeFor(scouts);
+        var bits = range.Split('-');
+        float min = 180f, max = 180f;
+        if (bits.Length > 0 && float.TryParse(bits[0].Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float a)) min = max = a;
+        if (bits.Length > 1 && float.TryParse(bits[1].Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float b)) max = b;
+        if (max < min) (min, max) = (max, min);
+        float s = Mathf.Max(20f, Random.Range(min, max));
+        Plugin.Log.LogInfo($"Supply drop: next in {s:0}s ({scouts} scout(s), range {range}).");
+        return s;
+    }
 
     internal static void Install()
     {
@@ -245,26 +320,28 @@ internal class DropClock : MonoBehaviour
         go.AddComponent<DropClock>();
     }
 
-    internal static void Reset() => clock = 0f;
+    internal static void Reset() { clock = 0f; next = -1f; }
 
     private void Update()
     {
         int s = SceneManager.GetActiveScene().handle;
-        if (s != scene) { scene = s; clock = 0f; }
+        if (s != scene) { scene = s; Reset(); }
         if (!ModConfig.TimedDrops.Value || !MapHandler.Exists || Character.localCharacter == null) return;
         if (PhotonNetwork.InRoom && !PhotonNetwork.IsMasterClient) return;
         if (BloodMoon.Active) return;
         if (!Squad.Alive().Any(c => !Sanctuary.Safe(c))) return;
+        if (next < 0f) next = Roll();
         clock += Time.deltaTime;
-        if (clock < ModConfig.DropSeconds.Value) return;
+        if (clock < next) return;
         try
         {
             // No clear landing yet: try again in a few seconds.
-            clock = SupplyDrop.TimedDrop() ? 0f : ModConfig.DropSeconds.Value - 5f;
+            if (SupplyDrop.TimedDrop()) Reset();
+            else clock = next - 5f;
         }
         catch (System.Exception e)
         {
-            clock = 0f;
+            Reset();
             Plugin.Log.LogError($"Supply drop failed: {e}");
         }
     }
@@ -297,6 +374,8 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
 
     /// <summary>Seconds of plane overhead before the crate is let go.</summary>
     internal const float PlaneLead = 3f;
+    /// <summary>A group's crate: only these scouts pick from it (null = everyone).</summary>
+    internal int[]? Pickers { get; private set; }
     private Renderer[] shown = new Renderer[0];
     private bool hidden;
 
@@ -319,6 +398,7 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
         string caller = data is { Length: > 1 } && data[1] is string s ? s : "";
         style = data is { Length: > 2 } && data[2] is int st ? (DropStyle)st : DropStyle.Slam;
         kind = data is { Length: > 3 } && data[3] is int k ? (DropKind)k : DropKind.Plain;
+        Pickers = data is { Length: > 4 } && data[4] is int[] who && who.Length > 0 ? who : null;
         height = style == DropStyle.Float ? 45f * M : 60f * M;
         seconds = style == DropStyle.Float ? 9f : 3.5f;
         var r = GetComponentsInChildren<Renderer>().Where(x => x.enabled).ToList();

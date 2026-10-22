@@ -443,6 +443,7 @@ internal class Relics : MonoBehaviour
         finally { SunCaps.Pop(); }
 
         Stove.Eaten(item, character);
+        Cookies.Eaten(item, character);
         DarkRite(item);
 
         try { Xp.Used(item, character); }
@@ -943,6 +944,7 @@ internal static class RelicPatches
             var uses = item.GetData<OptionableIntItemData>(DataEntryKey.ItemUses);
             if (__instance.consumeOnFullyUsed && uses.HasData && uses.Value == 0) return;
             Stove.Eaten(item, holder);
+            Cookies.Eaten(item, holder);
             Relics.OnUsedOnce(item);
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Multi-use relic hook failed: {e.Message}"); }

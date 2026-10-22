@@ -127,6 +127,8 @@ internal class Hud : MonoBehaviour
         ropeMeter.rectTransform.sizeDelta = new Vector2(400, 30);
         ropeMeter.characterSpacing = 3;
         ropeMeter.alpha = 0f;
+
+        BuildTip();
     }
 
     private void UpdateRopeMeter()
@@ -149,6 +151,7 @@ internal class Hud : MonoBehaviour
         if (root == null) return;
         foreach (Transform child in tray) Destroy(child.gameObject);
         medallions.Clear();
+        tips.Clear();
         int i = 0;
         foreach (var kv in RunState.Relics.OrderBy(k => k.Key))
         {
@@ -175,6 +178,15 @@ internal class Hud : MonoBehaviour
             }
             TrayName(m.Rect, def.Name.ToUpperInvariant() + (stack > 0 ? $"  x{stack + 1}" : ""), Color.Lerp(c, Color.white, 0.55f));
             medallions[kv.Key] = m;
+            // The hover card says what its relic card said - a reminder, never more.
+            var foot = new List<string> { $"Fires on: {kv.Value.Label()}" };
+            if (stack > 0) foot.Add($"x{stack + 1}: recharges faster");
+            if (cursedCopy) foot.Add("Shatters if you die");
+            tips.Add((m.Rect, new Tip
+            {
+                Title = def.Name, Kind = cursedCopy ? $"Cursed copy · {Relics.GemName(kv.Key)}" : Relics.GemName(kv.Key),
+                Body = def.Desc, Foot = string.Join("  ·  ", foot), Color = c,
+            }));
             i++;
         }
 
@@ -183,7 +195,13 @@ internal class Hud : MonoBehaviour
         {
             var rect = TraySlot(CurioRelics.Name(CurioRelics.Mine), i);
             TrayPicture(rect, curio);
-            TrayName(rect, CurioRelics.Name(CurioRelics.Mine).ToUpperInvariant(), new Color(0.88f, 0.9f, 0.94f));
+            var tint = new Color(0.88f, 0.9f, 0.94f);
+            TrayName(rect, CurioRelics.Name(CurioRelics.Mine).ToUpperInvariant(), tint);
+            tips.Add((rect, new Tip
+            {
+                Title = CurioRelics.Name(CurioRelics.Mine), Kind = "Starting relic",
+                Body = CurioRelics.Desc(CurioRelics.Mine), Foot = "Lasts the whole run", Color = tint,
+            }));
             i++;
         }
 
@@ -193,9 +211,122 @@ internal class Hud : MonoBehaviour
             var def = Badges.Get(id);
             var rect = TraySlot(def.Name, i);
             if (Badges.Icon(id) is { } pic) TrayPicture(rect, pic);
-            TrayName(rect, def.Name.ToUpperInvariant(), new Color(0.95f, 0.86f, 0.62f));
+            var tint = new Color(0.95f, 0.86f, 0.62f);
+            TrayName(rect, def.Name.ToUpperInvariant(), tint);
+            tips.Add((rect, new Tip { Title = def.Name, Kind = "Badge relic", Body = def.Desc, Foot = "Lasts the whole run", Color = tint }));
             i++;
         }
+    }
+
+    // --- hover details (pause menu) ----------------------------------------------------------
+
+    private class Tip
+    {
+        public string Title = "", Kind = "", Body = "", Foot = "";
+        public Color Color = Color.white;
+    }
+
+    private readonly List<(RectTransform rect, Tip tip)> tips = new();
+    private RectTransform tipPanel = null!;
+    private CanvasGroup tipGroup = null!;
+    private Image tipGlow = null!, tipRule = null!;
+    private TextMeshProUGUI tipKind = null!, tipTitle = null!, tipBody = null!, tipFoot = null!;
+    private Tip? tipShown;
+    private float tipAlpha;
+    private const float TipWidth = 380f;
+
+    /// <summary>The hover card: the relic card's look in small - a dark panel lit in the relic's colour.</summary>
+    private void BuildTip()
+    {
+        tipPanel = Ui.Rect(root!, "RelicDetails");
+        tipPanel.anchorMin = tipPanel.anchorMax = tipPanel.pivot = new Vector2(0f, 1f);
+        tipPanel.sizeDelta = new Vector2(TipWidth, 170f);
+        tipGroup = tipPanel.gameObject.AddComponent<CanvasGroup>();
+        tipGroup.alpha = 0f;
+        tipGroup.blocksRaycasts = false;
+        tipGroup.interactable = false;
+
+        // A soft glow in the relic's colour behind a dark ink panel.
+        tipGlow = Ui.Image(tipPanel, "Glow", UiArt.Glow(128, 96, 28, 24), new Color(1f, 1f, 1f, 0.35f));
+        Ui.Stretch(tipGlow.rectTransform);
+        tipGlow.rectTransform.offsetMin = new Vector2(-26f, -26f);
+        tipGlow.rectTransform.offsetMax = new Vector2(26f, 26f);
+        var ink = ChoiceScreen.InkBrown;
+        var panel = Ui.Image(tipPanel, "Panel", UiArt.Glow(128, 96, 6, 18), new Color(ink.r, ink.g, ink.b, 0.94f));
+        Ui.Stretch(panel.rectTransform);
+
+        tipKind = TipText("Kind", 13f, ChoiceScreen.Muted, -16f, 18f);
+        tipKind.characterSpacing = 5f;
+        tipKind.fontStyle = FontStyles.UpperCase;
+        tipTitle = TipText("Title", 26f, ChoiceScreen.Cream, -36f, 32f);
+        tipTitle.fontStyle = FontStyles.Bold;
+        tipRule = Ui.Image(tipPanel, "Rule", UiArt.FadeLine(), new Color(1f, 1f, 1f, 0.5f));
+        tipRule.rectTransform.anchorMin = tipRule.rectTransform.anchorMax = new Vector2(0.5f, 1f);
+        tipRule.rectTransform.sizeDelta = new Vector2(TipWidth - 60f, 2f);
+        tipRule.rectTransform.anchoredPosition = new Vector2(0f, -74f);
+        tipBody = TipText("Body", 18f, ChoiceScreen.Cream, -86f, 60f);
+        tipBody.textWrappingMode = TextWrappingModes.Normal;
+        tipBody.lineSpacing = -8f;
+        tipFoot = TipText("Foot", 13f, ChoiceScreen.Muted, 0f, 20f);
+        tipFoot.characterSpacing = 2f;
+    }
+
+    private TextMeshProUGUI TipText(string name, float size, Color color, float top, float height)
+    {
+        var t = Ui.Text(tipPanel, name, "", UiArt.BodyFont, size, color, TextAlignmentOptions.Center);
+        t.rectTransform.anchorMin = new Vector2(0f, 1f);
+        t.rectTransform.anchorMax = new Vector2(1f, 1f);
+        t.rectTransform.pivot = new Vector2(0.5f, 1f);
+        t.rectTransform.sizeDelta = new Vector2(-36f, height);
+        t.rectTransform.anchoredPosition = new Vector2(0f, top);
+        t.raycastTarget = false;
+        return t;
+    }
+
+    /// <summary>While the pause menu is up (the cursor is free), hovering a tray relic shows what it does.</summary>
+    private void UpdateTip()
+    {
+        if (tipPanel == null) return;
+        Tip? over = null;
+        RectTransform? slot = null;
+        if (GUIManager.InPauseMenu && UnityEngine.InputSystem.Mouse.current is { } mouse)
+        {
+            var pos = mouse.position.ReadValue();
+            foreach (var (rect, tip) in tips)
+                if (rect != null && RectTransformUtility.RectangleContainsScreenPoint(rect, pos, null)) { over = tip; slot = rect; break; }
+        }
+        if (over != null && over != tipShown) ShowTip(over, slot!);
+        tipAlpha = Mathf.MoveTowards(tipAlpha, over != null ? 1f : 0f, Time.unscaledDeltaTime * 8f);
+        tipGroup.alpha = tipAlpha;
+        if (tipAlpha <= 0f) tipShown = null;
+    }
+
+    private void ShowTip(Tip tip, RectTransform slot)
+    {
+        tipShown = tip;
+        tipKind.text = tip.Kind;
+        tipTitle.text = tip.Title;
+        tipTitle.color = Color.Lerp(tip.Color, Color.white, 0.45f);
+        tipBody.text = tip.Body;
+        tipFoot.text = tip.Foot;
+        tipGlow.color = new Color(tip.Color.r, tip.Color.g, tip.Color.b, 0.35f);
+        tipRule.color = new Color(tip.Color.r, tip.Color.g, tip.Color.b, 0.55f);
+        // Fit the body, then hang the panel just under the hovered relic.
+        tipBody.ForceMeshUpdate();
+        float body = Mathf.Max(24f, tipBody.preferredHeight);
+        tipBody.rectTransform.sizeDelta = new Vector2(-36f, body);
+        float height = 86f + body + 14f + 20f + 16f;
+        tipPanel.sizeDelta = new Vector2(TipWidth, height);
+        tipFoot.rectTransform.anchoredPosition = new Vector2(0f, -(86f + body + 14f));
+        var corners = new Vector3[4];
+        slot.GetWorldCorners(corners);
+        Vector2 local;
+        RectTransformUtility.ScreenPointToLocalPointInRectangle(root!, new Vector2(corners[0].x, corners[0].y), null, out local);
+        // Root is centred: convert to its top-left (the panel's anchor).
+        var size = root!.rect.size;
+        float x = Mathf.Clamp(local.x + size.x * 0.5f - 20f, 16f, size.x - TipWidth - 16f);
+        float y = local.y - size.y * 0.5f - 34f;
+        tipPanel.anchoredPosition = new Vector2(x, y);
     }
 
     // A relic in the tray: just its picture, its name underneath.
@@ -468,6 +599,7 @@ internal class Hud : MonoBehaviour
             Build();
             RebuildTray();
         }
+        UpdateTip();
         float now = Time.unscaledTime;
         if (banners.Count > 0 && now >= bannerBusyUntil)
         {

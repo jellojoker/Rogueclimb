@@ -184,8 +184,8 @@ internal class Fusion : MonoBehaviour
         {
             Id = "cureall", Name = "Cure-All", Result = "CureAll",
             Desc = "Everything a Cure-All does,\nand the light of a Radiant pack.",
-            Ingredients = new[] { Kit(1, "Radiant Health Pack (max)"), Any("Antidote", Items.IsAntidote, "Antidote") },
-            Trees = new[] { TreeId.Bandage },
+            Ingredients = new[] { Kit(1, "Radiant Health Pack (max)"), Tree(TreeId.Antidote, "Antidote (max)", i => Trees.Classify(i) == TreeId.Antidote) },
+            Trees = new[] { TreeId.Bandage, TreeId.Antidote },
         },
         new Recipe
         {

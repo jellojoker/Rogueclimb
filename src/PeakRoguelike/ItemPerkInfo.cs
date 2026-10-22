@@ -130,6 +130,12 @@ public class ItemPerkInfo
         if (item.GetComponent<MagicBugle>()) Add("A tune that rallies the team");
         if (item.GetComponent<Frisbee>()) Add("Fun for the whole expedition");
 
+        // The mod's own extras go in before the cut to three lines.
+        if (ModConfig.ItemTrees.Value && Cookies.Is(item) && ModConfig.CookieGlass.Value > 0)
+            lines.Insert(Mathf.Min(1, lines.Count), $"Each bite melts {Amount.Of(ModConfig.CookieGlass.Value * 0.01f, "your glass")}"
+                + (ModConfig.CookieInjury.Value > 0f ? $"\nand heals {Amount.Of(ModConfig.CookieInjury.Value * 0.01f, "your injury")}" : ""));
+        if (Stove.IsStoveItem(item) && ModConfig.StoveGlass.Value > 0)
+            lines.Insert(0, $"Food cooked on it melts\n{Amount.Of(ModConfig.StoveGlass.Value * 0.01f, "your glass")}");
         if (lines.Count == 0) lines.Add("Trusty expedition gear");
         var shown = lines.Take(3).ToList();
         // Milk, Antidote, Candle, skull, dagger... anything that goes into a fusion says so.
@@ -264,6 +270,30 @@ internal static class Offers
         var (have, _) = Stack(spare.itemID, br);
         if (Stacks.GreenBlocks(Player.localPlayer)) have = 0;
         return new Offer { Kind = OfferKind.TreeSpare, CrateItem = item, Grant = spare, Tree = tree, Level = cur, Branch = br, Have = have };
+    }
+
+    /// <summary>
+    /// A crate card's trade-up twin: you carry a full stack of this card's item, so instead of the
+    /// 4th copy you may trade the stack (and the copy) for one item two levels up. Null = no trade.
+    /// </summary>
+    public static Offer? ForCrateTrade(Item item)
+    {
+        var spare = ForCrate(item);
+        var tree = spare.Tree;
+        if (tree == null || spare.Kind != OfferKind.TreeSpare || !Stacks.On || Stacks.GreenBlocks(Player.localPlayer)) return null;
+        int cur = spare.Level, br = spare.Branch;
+        if (cur < 1 || cur >= tree.MaxFor(br) || Items.Find(Trees.BaseRole(tree.Id)) is not { } baseItem) return null;
+        var (have, slot) = Stack(spare.Grant.itemID, br);
+        if (have < Stacks.Limit) return null;
+        int level = Mathf.Min(cur + TradeLevels, br == 0 ? tree.Levels.Length : tree.MaxFor(br));
+        var o = new Offer
+        {
+            Tree = tree, Level = level, Branch = br, CrateItem = spare.Grant, Merge = true,
+            Slot = slot, ExtraSlot = null, Carried = spare.Grant.itemID, Have = have,
+            Kind = br == 0 && tree.Levels[level - 1].Length > 1 ? OfferKind.Fork : OfferKind.TreeLevel,
+        };
+        if (o.Kind == OfferKind.TreeLevel) o.Grant = Grant(tree.At(level, br), baseItem);
+        return o;
     }
 
     /// <summary>The biggest stack of this item in your pockets (on the given path): copies and pocket.</summary>
@@ -466,7 +496,7 @@ internal static class CrateCards
                 card.Body = CardStats.Tree(tree, def, o.Level, o.Branch);
                 card.Footer = Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) && o.Have < Stacks.Limit
                     ? $"{tree.Name}{Dot}x{o.Have + 1} / {Stacks.Limit}"
-                    : Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) && o.Have >= Stacks.Limit ? $"{tree.Name}{Dot}a 4th copy: trade up +{Offers.TradeLevels}" : $"{tree.Name}{Dot}level {o.Level}";
+                    : Stacks.On && !Stacks.GreenBlocks(Player.localPlayer) && o.Have >= Stacks.Limit ? $"{tree.Name}{Dot}a 4th copy" : $"{tree.Name}{Dot}level {o.Level}";
                 card.Icon = Items.Icon(o.Grant);
                 return card;
             }
@@ -504,6 +534,28 @@ internal static class CrateCards
         if (card.Tag != "NEW ITEM") card.Tag = $"Lv {RunState.Level(o.Tree!.Id)}{Arrow}{o.Level}";
         card.Footer = $"{o.Tree!.Name}{Dot}x{Stacks.Limit + 1}{Arrow}level {o.Level}";
         return card;
+    }
+
+    /// <summary>A crate's trade-up card, beside the plain 4th copy: "Trade up" over the level jump.</summary>
+    public static CardSpec ForCrateTrade(Offer o)
+    {
+        if (o.Kind == OfferKind.Fork)
+        {
+            var tree = o.Tree!;
+            var card = ItemPerkInfo.From(o.CrateItem).ToCard();
+            card.Theme = tree.Theme;
+            card.Title = $"Trade up: {tree.Name}";
+            card.Tag = $"Lv {RunState.Level(tree.Id)}{Arrow}{o.Level}";
+            card.TagColor = Trees.Steel;
+            card.Body = $"Your {Stacks.Limit} {tree.Name.ToLowerInvariant()}s and this one become one, level {o.Level}.\n"
+                + string.Join("  or  ", Offers.Paths(tree, o.Level).Select(x => x.Name)) + " - choose on claim.";
+            card.Footer = $"{tree.Name}{Dot}trade up{Arrow}level {o.Level}";
+            return card;
+        }
+        var trade = ForStack(o);
+        trade.Title = $"Trade up: {trade.Title}";
+        trade.Footer = $"{o.Tree!.Name}{Dot}your {Stacks.Limit} + this{Arrow}level {o.Level}";
+        return trade;
     }
 
     /// <summary>A tree going up a level (new item, merge, XP level-up).</summary>

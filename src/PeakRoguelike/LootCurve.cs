@@ -123,6 +123,8 @@ internal static class LootCurve
             foreach (ushort id in baseIds)
             {
                 float m = Items.TryGet(id, out var b) && RunState.IsMaxed(Trees.Classify(b)) ? Mathf.Clamp01(ModConfig.MaxedTreeWeight.Value) : 1f;
+                // The Antidote tree keeps its own (rarer) weight.
+                if (b != null && Items.IsAntidote(b)) m *= Mathf.Max(0f, ModConfig.AntidoteWeight.Value);
                 spawnPoolDictionary[id] = Mathf.Max(1, Mathf.RoundToInt(even * 10 * m));
             }
         // The one ingredient a maxed item in the roller's pockets is waiting for comes up more.

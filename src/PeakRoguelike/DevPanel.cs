@@ -463,8 +463,8 @@ internal class DevPanel : MonoBehaviour
             .Select(h => B(h.ToString(), () => { if (InGame(true)) { BloodMoon.DevAlone(h); Rebuild(); } }, BloodMoon.DevFirst == h ? OnColor : RedColor))
             .Append(B("Shuffle", () => { BloodMoon.DevAlone(null); Rebuild(); })).ToArray());
         Label("<color=#FF5A4A>Testing (saved to the config)</color>", 26f);
-        Row(Toggle("Shared relics", ModConfig.DevShareRelics),
-            Toggle("Moon every night", ModConfig.DevMoonEveryNight),
+        // Blood moons, crates and relics (Shared / First come) live on the airport ticket.
+        Row(Toggle("Moon every night", ModConfig.DevMoonEveryNight),
             Toggle("Moon on pickup", ModConfig.DevMoonOnPickup));
         Row(B($"Relic order: {RelicShuffle.Label(ModConfig.StatueOrder.Value)}", () => { RelicShuffle.Cycle(1); Rebuild(); },
             ModConfig.StatueOrder.Value == StatueOrder.Off ? ButtonColor : RedColor));

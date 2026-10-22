@@ -259,94 +259,137 @@ internal class RelicShuffle : MonoBehaviourPunCallbacks
 }
 
 /// <summary>
-/// A "RELIC ORDER / ◀ Off ▶" block on the airport ticket, under the ascent, in the ticket's own
-/// lettering and arrows: the host's arrows change it, everyone else sees what the host picked.
+/// The run settings on the airport ticket, under the ascent, in the ticket's own lettering and
+/// arrows: a 2 x 2 grid - RELIC ORDER | BLOOD MOONS, CRATES | RELICS - each a small caption over
+/// "◀ choice ▶". The host's arrows change them; everyone else sees what the host picked. A harder
+/// choice (Stacked, First come) is written in blood red.
 /// </summary>
 [HarmonyPatch]
 internal class TicketRelicOrder : MonoBehaviour
 {
-    private const string RowName = "PEAK Roguelike - Relic Order";
-    private BoardingPass pass = null!;
-    private TMP_Text label = null!;
-    private Button left = null!, right = null!;
+    private const string GridName = "PEAK Roguelike - Run settings";
+
+    /// <summary>One cell of the grid.</summary>
+    private class Cell
+    {
+        public TMP_Text Label = null!;
+        public Button Left = null!, Right = null!;
+        public System.Func<string> Value = null!;
+        public System.Func<bool> Hard = () => false;
+        public System.Func<bool> CanChange = () => true;
+    }
+
+    private readonly List<Cell> cells = new();
+    private Color plain;
     private static bool logged;
+
+    private static readonly Color Blood = new(0.78f, 0.12f, 0.1f);
 
     [HarmonyPostfix, HarmonyPatch(typeof(BoardingPass), "OnOpen")]
     private static void AddRow(BoardingPass __instance)
     {
-        if (!ModConfig.Relics.Value) return;
         try
         {
             var desc = __instance.ascentDesc;
             if (desc == null || desc.transform.parent == null) return;
-            var parent = desc.transform.parent;
-            var existing = parent.Find(RowName);
+            var existing = desc.transform.parent.Find(GridName);
             if (existing != null) { existing.GetComponent<TicketRelicOrder>()?.Refresh(); return; }
             Build(__instance, (RectTransform)desc.transform);
         }
-        catch (System.Exception e) { Plugin.Log.LogWarning($"Ticket relic order failed: {e.Message}"); }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Ticket settings failed: {e.Message}"); }
     }
+
+    private const float CellHeight = 70f, CaptionHeight = 24f, ArrowSize = 36f, ArrowGap = 98f, RowGap = 6f;
 
     private static void Build(BoardingPass bp, RectTransform desc)
     {
-        var row = new GameObject(RowName, typeof(RectTransform));
-        var rt = (RectTransform)row.transform;
+        var settings = new List<(string caption, System.Func<string> value, System.Func<bool> hard, System.Action<int> step, System.Func<bool> can)>();
+        if (ModConfig.Relics.Value)
+            settings.Add(("Relic order", () => RelicShuffle.Label(RelicShuffle.Mode), () => false, s => RelicShuffle.Cycle(s), () => RelicShuffle.CanChange));
+        if (ModConfig.BloodMoon.Value)
+            settings.Add(("Blood moons", () => Tickets.StackedMoons ? "Stacked" : "Relay", () => Tickets.StackedMoons, _ => Tickets.ToggleMoons(), () => Tickets.CanChange));
+        settings.Add(("Crates", () => Tickets.CratesFirstCome ? "First come" : "Shared", () => Tickets.CratesFirstCome, _ => Tickets.ToggleCrates(), () => Tickets.CanChange));
+        if (ModConfig.Relics.Value)
+            settings.Add(("Relics", () => Tickets.RelicsFirstCome ? "First come" : "Shared", () => Tickets.RelicsFirstCome, _ => Tickets.ToggleRelics(), () => Tickets.CanChange));
+
+        int rows = (settings.Count + 1) / 2;
+        var grid = new GameObject(GridName, typeof(RectTransform));
+        var rt = (RectTransform)grid.transform;
         rt.SetParent(desc.parent, false);
         rt.anchorMin = desc.anchorMin;
         rt.anchorMax = desc.anchorMax;
         rt.pivot = new Vector2(0.5f, 1f);
-        rt.sizeDelta = new Vector2(desc.rect.width, RowHeight);
+        rt.sizeDelta = new Vector2(desc.rect.width, rows * CellHeight + (rows - 1) * RowGap);
         // Just under the ascent's description box.
         rt.localPosition = desc.localPosition + new Vector3(desc.rect.center.x, desc.rect.yMin - 4f, 0f);
 
-        var me = row.AddComponent<TicketRelicOrder>();
-        me.pass = bp;
+        var me = grid.AddComponent<TicketRelicOrder>();
         var ink = bp.ascentDesc.color;
+        me.plain = bp.ascentTitle != null ? bp.defaultColor : ink;
 
-        // A faint rule, like the ticket's own section breaks.
-        var rule = new GameObject("Rule", typeof(RectTransform), typeof(Image));
-        var rr = (RectTransform)rule.transform;
-        rr.SetParent(rt, false);
-        rr.anchorMin = new Vector2(0.2f, 1f);
-        rr.anchorMax = new Vector2(0.8f, 1f);
-        rr.pivot = new Vector2(0.5f, 1f);
-        rr.sizeDelta = new Vector2(0f, 2f);
-        rr.anchoredPosition = Vector2.zero;
-        var ri = rule.GetComponent<Image>();
-        ri.color = new Color(ink.r, ink.g, ink.b, ink.a * 0.25f);
-        ri.raycastTarget = false;
+        // A faint rule, like the ticket's own section breaks, and a fainter one between the columns.
+        Rule(rt, ink, 1f, 0.2f, 0.8f, true);
+        if (settings.Count > 1) Rule(rt, ink, 0.5f, 0.12f, 0.88f, false);
 
-        // "RELIC ORDER" caption in the description's ink, small and spaced.
         float body = Mathf.Max(14f, bp.ascentDesc.fontSize);
-        var caption = Text(bp.ascentDesc, rt, "Caption", 1f, CaptionHeight);
-        caption.fontSize = body * 0.7f;
-        caption.characterSpacing = 8f;
-        caption.fontStyle = FontStyles.UpperCase;
-        caption.color = new Color(ink.r, ink.g, ink.b, ink.a * 0.65f);
-        caption.text = "Relic order";
-
-        // The choice itself, in the ascent title's lettering.
         var proto = bp.ascentTitle != null ? bp.ascentTitle : bp.ascentDesc;
-        me.label = Text(proto, rt, "Value", 0f, RowHeight - CaptionHeight - 6f);
-        me.label.fontSize = body * 1.3f;
-        me.label.color = proto == bp.ascentTitle ? bp.defaultColor : ink;
+        for (int i = 0; i < settings.Count; i++)
+        {
+            var (caption, value, hard, step, can) = settings[i];
+            int row = i / 2, col = i % 2;
+            // A lone last setting sits in the middle.
+            float x = i == settings.Count - 1 && col == 0 ? 0.5f : col == 0 ? 0.25f : 0.75f;
+            var cellGo = new GameObject(caption, typeof(RectTransform));
+            var cr = (RectTransform)cellGo.transform;
+            cr.SetParent(rt, false);
+            cr.anchorMin = cr.anchorMax = new Vector2(x, 1f);
+            cr.pivot = new Vector2(0.5f, 1f);
+            cr.sizeDelta = new Vector2(desc.rect.width * 0.5f, CellHeight);
+            cr.anchoredPosition = new Vector2(0f, -row * (CellHeight + RowGap));
 
-        // The ticket's own ascent arrows, flanking the choice like they flank the ascent.
-        me.left = Arrow(bp.decrementAscentButton, rt, -1f, () => { RelicShuffle.Cycle(-1); me.Refresh(); });
-        me.right = Arrow(bp.incrementAscentButton, rt, 1f, () => { RelicShuffle.Cycle(1); me.Refresh(); });
+            // Small spaced caption in the description's ink.
+            var cap = Text(bp.ascentDesc, cr, "Caption", 1f, CaptionHeight);
+            cap.fontSize = body * 0.62f;
+            cap.characterSpacing = 6f;
+            cap.fontStyle = FontStyles.UpperCase;
+            cap.color = new Color(ink.r, ink.g, ink.b, ink.a * 0.65f);
+            cap.text = caption;
+
+            var cell = new Cell { Value = value, Hard = hard, CanChange = can };
+            // The choice itself, in the ascent title's lettering, flanked by the ticket's own arrows.
+            cell.Label = Text(proto, cr, "Value", 0f, CellHeight - CaptionHeight - 4f);
+            cell.Label.fontSize = body;
+            cell.Left = Arrow(bp.decrementAscentButton, cr, -1f, () => { step(-1); me.Refresh(); });
+            cell.Right = Arrow(bp.incrementAscentButton, cr, 1f, () => { step(1); me.Refresh(); });
+            me.cells.Add(cell);
+        }
         me.Refresh();
 
         if (!logged)
         {
             logged = true;
-            Plugin.Log.LogInfo($"Ticket: relic order row under '{desc.name}' (parent '{desc.parent.name}', desc rect {desc.rect}, desc font {bp.ascentDesc.fontSize}, "
+            Plugin.Log.LogInfo($"Ticket: {settings.Count} run settings in {rows} row(s) under '{desc.name}' (parent '{desc.parent.name}', desc rect {desc.rect}, desc font {bp.ascentDesc.fontSize}, "
                 + $"title '{proto.name}' font {proto.fontSize}, arrows '{bp.decrementAscentButton.name}' {((RectTransform)bp.decrementAscentButton.transform).rect.size}).");
         }
     }
 
-    private const float RowHeight = 78f, CaptionHeight = 26f, ArrowSize = 44f, ArrowGap = 110f;
+    /// <summary>A faint line in the ticket's ink: across the top (horizontal) or down the middle.</summary>
+    private static void Rule(RectTransform parent, Color ink, float at, float from, float to, bool horizontal)
+    {
+        var rule = new GameObject("Rule", typeof(RectTransform), typeof(Image));
+        var rr = (RectTransform)rule.transform;
+        rr.SetParent(parent, false);
+        rr.anchorMin = horizontal ? new Vector2(from, at) : new Vector2(at, from);
+        rr.anchorMax = horizontal ? new Vector2(to, at) : new Vector2(at, to);
+        rr.pivot = new Vector2(0.5f, horizontal ? 1f : 0.5f);
+        rr.sizeDelta = horizontal ? new Vector2(0f, 2f) : new Vector2(2f, 0f);
+        rr.anchoredPosition = Vector2.zero;
+        var ri = rule.GetComponent<Image>();
+        ri.color = new Color(ink.r, ink.g, ink.b, ink.a * (horizontal ? 0.25f : 0.15f));
+        ri.raycastTarget = false;
+    }
 
-    /// <summary>A copy of one of the ticket's texts, stretched across the row at its top (1) or bottom (0).</summary>
+    /// <summary>A copy of one of the ticket's texts, stretched across the cell at its top (1) or bottom (0).</summary>
     private static TMP_Text Text(TMP_Text proto, RectTransform row, string name, float edge, float height)
     {
         var t = Instantiate(proto, row, false);
@@ -375,9 +418,9 @@ internal class TicketRelicOrder : MonoBehaviour
     }
 
     /// <summary>A copy of the ticket's own ascent arrow, either side of the choice.</summary>
-    private static Button Arrow(Button proto, RectTransform row, float side, UnityEngine.Events.UnityAction onClick)
+    private static Button Arrow(Button proto, RectTransform cell, float side, UnityEngine.Events.UnityAction onClick)
     {
-        var b = Instantiate(proto, row, false);
+        var b = Instantiate(proto, cell, false);
         b.name = side < 0f ? "Left" : "Right";
         b.onClick = new Button.ButtonClickedEvent();
         b.onClick.AddListener(onClick);
@@ -387,24 +430,28 @@ internal class TicketRelicOrder : MonoBehaviour
         r.pivot = new Vector2(0.5f, 0.5f);
         r.sizeDelta = size;
         r.localScale = Vector3.one * (ArrowSize / Mathf.Max(1f, size.y));
-        r.anchoredPosition = new Vector2(side * ArrowGap, (RowHeight - CaptionHeight - 6f) * 0.5f);
+        r.anchoredPosition = new Vector2(side * ArrowGap, (CellHeight - CaptionHeight - 4f) * 0.5f);
         return b;
     }
 
     private void Refresh()
     {
-        if (label == null) return;
-        label.text = RelicShuffle.Label(RelicShuffle.Mode);
-        bool can = RelicShuffle.CanChange;
-        if (left != null) { left.interactable = can; left.gameObject.SetActive(can); }
-        if (right != null) { right.interactable = can; right.gameObject.SetActive(can); }
+        foreach (var c in cells)
+        {
+            if (c.Label == null) continue;
+            c.Label.text = c.Value();
+            c.Label.color = c.Hard() ? Blood : plain;
+            bool can = c.CanChange();
+            if (c.Left != null) { c.Left.interactable = can; c.Left.gameObject.SetActive(can); }
+            if (c.Right != null) { c.Right.interactable = can; c.Right.gameObject.SetActive(can); }
+        }
     }
 
     private float nextRefresh;
 
     private void Update()
     {
-        // Others' tickets follow the host's choice while open.
+        // Others' tickets follow the host's choices while open.
         if (Time.unscaledTime < nextRefresh) return;
         nextRefresh = Time.unscaledTime + 0.5f;
         Refresh();

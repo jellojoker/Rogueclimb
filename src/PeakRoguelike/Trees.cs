@@ -4,7 +4,7 @@ using UnityEngine;
 
 namespace PeakRoguelike;
 
-public enum TreeId { None, Rope, Piton, Glider, Balloons, Bandage, SportsDrink, Food, Light }
+public enum TreeId { None, Rope, Piton, Glider, Balloons, Bandage, SportsDrink, Food, Light, Antidote }
 
 /// <summary>One step of an item tree. Branch is 0 for shared levels, 1/2 for the two paths of a fork.</summary>
 public class LevelDef
@@ -146,6 +146,12 @@ public static class Trees
             new[] { L("Faltering Flame", "Dim light.\nBurns out fast.", "Lantern") },
             new[] { L("Guttering Flame", "Fair light.\nBurns a while.", "Lantern") },
             new[] { L("Lantern", "Full brightness and burn time.\nFusion-ready.", "Lantern") });
+
+        // The Antidote: every level adds a cure to the one before (Medicine). Poison is one of the ailments.
+        Add(TreeId.Antidote, "Antidote", PerkTheme.Mountaineer,
+            new[] { L("Diluted Antidote", "Eases your worst ailments.", "Antidote") },
+            new[] { L("Antidote", "Eases your ailments\nand injury.", "Antidote") },
+            new[] { L("Potent Antidote", "Eases your ailments, injury\nand hunger. Fusion-ready.", "Antidote") });
     }
 
     static void Add(TreeId id, string name, PerkTheme theme, params LevelDef[][] levels) =>
@@ -188,6 +194,7 @@ public static class Trees
         if (n.Contains("trailmix") || n.Contains("trail mix") || n.Contains("granola")
             || n.Contains("airplane food") || n.Contains("airline food")) return TreeId.Food;
         if (item.GetComponent<Lantern>() && !Items.IsFaerie(item)) return TreeId.Light;
+        if (Items.IsAntidote(item) && !Items.IsCureAll(item)) return TreeId.Antidote;
         return TreeId.None;
     }
 
@@ -201,6 +208,7 @@ public static class Trees
         TreeId.Bandage => "Bandage",
         TreeId.SportsDrink => "SportsDrink",
         TreeId.Food => "TrailMix",
+        TreeId.Antidote => "Antidote",
         _ => "Lantern",
     };
 

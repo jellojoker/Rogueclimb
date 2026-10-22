@@ -237,6 +237,18 @@ internal static class CardStats
                 break;
             }
 
+            case TreeId.Antidote:
+            {
+                float pts = Mathf.Clamp01(ModConfig.AntidotePoints.Value / 100f);
+                int sips = Mathf.Max(1, p.totalUses);
+                l.Add($"Each of {sips} sips eases {Amount.Of(pts, "your worst ailments")}.");
+                if (lv >= 2) l.Add($"And heals {Amount.Of(pts, "your injury")}.");
+                if (lv >= 3) l.Add($"And fills {Amount.Of(pts, "your hunger")}.");
+                float cool = -p.GetComponents<Action_ModifyStatus>().Where(a => a.statusType == CharacterAfflictions.STATUSTYPE.Hot && a.changeAmount < 0f).Sum(a => a.changeAmount);
+                if (cool > 0f) l.Add($"Cools {Amount.Of(cool, "your heat")}.");
+                break;
+            }
+
             case TreeId.Light:
                 if (p.GetComponent<Lantern>() is { } lantern)
                 {

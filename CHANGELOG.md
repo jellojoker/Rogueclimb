@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.12.59
+- **Run settings on the airport ticket** (host), under the relic order, in a 2 x 2 grid: **Blood moons** Relay / Stacked, **Crates** Shared / First come, **Relics** Shared / First come. The harder choice is written in red. Everyone's ticket shows the host's choices.
+  - **First come crates**: the crate deals the game's own number of cards once, a taken card is gone, and anyone may take what's left (like the game's loot). [Systems] CratesFirstCome.
+  - **First come relics**: only whoever takes the amulet gets a relic.
+- **Blood moons are relays by default now** (one hazard at a time, each at full strength). Existing configs are switched once; pick Stacked on the ticket for the old way.
+- **Relic details**: pause the game and hover a relic, badge or starting relic in the top-left tray to see what its card said.
+- The F8 panel's relay and shared-relic switches moved to the ticket.
+
+## 0.12.58
+- **Antidote tree** (3 levels). Each of its 3 sips: level 1 eases 10 points of your worst ailments (poison, cold, heat, drowsiness, spores - poison is one of them now), level 2 also heals 10 injury, level 3 also fills 10 hunger. The game's cooling stays on top. Healing relics only. Cure-All needs a maxed Antidote. [Medicine] AntidotePoints (AntidoteCleanse is gone).
+- **Scout Cookies**: each bite melts 5 glass and heals 2.5 injury on top of the food (food relics only). [Medicine] CookieGlass, CookieInjury.
+- Cards: the Portable Stove and Scout Cookies say what they do for glass.
+- **Trade-ups in crates**: when a crate offers an item you hold a full stack of, a second "Trade up" card sits beside the plain 4th copy. Taking the plain copy means the pop-up won't ask again. Copies found elsewhere still pop up - straight away when you're standing on the ground.
+- Fixed: after a trade-up, the item box kept the old stack's count ("3") and level in its name.
+- A blood moon that comes while the whole squad is on safe ground (a campfire, the summit) waits until someone steps off it, day or night - it no longer runs out while you sit at the fire.
+- Blood moon zombies rise a little ahead of and above their scout on the way up ([BloodMoon] ZombieAhead, 8m). Get 50m from your whole pack and it rises right beside you again ([BloodMoon] ZombieLeash); zombies that crumbled at a campfire come back once you leave it.
+- Relay moons: the tornado rises 100m back down the mountain from the squad, in plain sight ([BloodMoon] RelayTornadoBack). Stacked moons, the Kiln / Citadel and the Void keep their spots.
+
+## 0.12.57
+- Supply drops scale with the lobby: a fresh wait after every drop - solo 3-6 min, 2 scouts 3-5, 3-4 scouts 3-4, 5+ every 3 min ([Supply] IntervalSolo / IntervalTwoScouts / IntervalThreeToFour / IntervalFivePlus). With 5+ scouts ([Supply] GroupDropsFrom), every group of scouts all within 100m of each other ([Supply] GroupDistance) gets its own crate, picked by that group.
+- Blood moon **Relay** mode (F8 World tab "Mode" button, [BloodMoon] Relay, off by default): hazards take turns, 30s each ([BloodMoon] RelaySeconds), each at its hardest. The Kiln / Citadel tornado stays small.
+- README: AI disclosure.
+
 ## 0.12.54
 - Shelf Fungus and cloud fungus fire your tool relics when they sprout after you throw them (a soft drop that doesn't sprout costs nothing). Remedy Fungus fires healing relics when its cloud bursts, not on the throw.
 

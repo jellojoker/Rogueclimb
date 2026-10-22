@@ -25,6 +25,9 @@ internal static class Stove
 
     private static string Key(Guid guid) => Prefix + guid.ToString("N");
 
+    /// <summary>The Portable Stove you carry (its card mentions the glass).</summary>
+    internal static bool IsStoveItem(Item? item) => item != null && Items.Key(item).Contains("stove");
+
     private static bool Cooked(Item item) =>
         item.data != null && PhotonNetwork.InRoom
         && PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(Key(item.data.guid), out object v) && v is true;
@@ -57,5 +60,30 @@ internal static class Stove
             Plugin.Log.LogInfo($"Stove food: {item.gameObject.name} healed {heal:0.#} glass.");
         }
         catch (Exception e) { Plugin.Log.LogWarning($"Stove food heal failed: {e.Message}"); }
+    }
+}
+
+/// <summary>
+/// Scout Cookies: every bite melts a little glass and heals a little injury, flat amounts on top of
+/// the food. They stay food for relics (the heal is the cookie's own thing).
+/// </summary>
+internal static class Cookies
+{
+    internal static bool Is(Item? item) => item != null && Items.Key(item).Contains("cookie");
+
+    /// <summary>One bite (the last one too).</summary>
+    internal static void Eaten(Item item, Character eater)
+    {
+        try
+        {
+            if (!ModConfig.ItemTrees.Value || !Is(item) || eater == null || !eater.IsLocal) return;
+            var aff = eater.refs.afflictions;
+            int glass = Mathf.Max(0, ModConfig.CookieGlass.Value);
+            float injury = Mathf.Max(0f, ModConfig.CookieInjury.Value) * 0.01f;
+            if (glass > 0 && eater.data.petrifyAmount > 0) aff.SubtractStatus(STATUS.Petrify, glass * 0.01f);
+            if (injury > 0f) aff.SubtractStatus(STATUS.Injury, injury);
+            Plugin.Log.LogInfo($"Scout Cookies bite: {glass} glass, {injury * 100f:0.#} injury.");
+        }
+        catch (Exception e) { Plugin.Log.LogWarning($"Cookie heal failed: {e.Message}"); }
     }
 }

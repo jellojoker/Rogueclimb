@@ -153,11 +153,6 @@ internal static class Items
         Uses("ChainShooter", ModConfig.ChainLauncherUses.Value);
         Uses("RescueHook", ModConfig.RescueClawUses.Value);
         Uses("AntiZooka", ModConfig.AntiGravUses.Value);
-        // The Antidote soothes heat as much as every other ailment it now eases (Medicine).
-        if (Find("Antidote") is { } antidote)
-            foreach (var a in antidote.GetComponents<Action_ModifyStatus>())
-                if (a.statusType == CharacterAfflictions.STATUSTYPE.Hot && a.changeAmount < 0f)
-                    a.changeAmount = -Mathf.Max(-a.changeAmount, ModConfig.AntidoteCleanse.Value);
     }
 
     /// <summary>Food-tree snacks: offered by crates, never lying around the mountain.</summary>

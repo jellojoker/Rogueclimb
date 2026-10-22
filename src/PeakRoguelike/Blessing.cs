@@ -372,6 +372,7 @@ internal class Blessing : MonoBehaviour
             TreeId.Light => TreeId.Bandage,
             TreeId.SportsDrink => TreeId.Food,  // sugar-rush
             TreeId.Food => TreeId.SportsDrink,
+            TreeId.Antidote => TreeId.Bandage,  // cure-all
             _ => TreeId.None,
         };
         var tree = Trees.Get(partner);
@@ -380,7 +381,7 @@ internal class Blessing : MonoBehaviour
 
     internal static RelicTrigger ClassOf(TreeId id) => id switch
     {
-        TreeId.Bandage or TreeId.Light => RelicTrigger.Healing,
+        TreeId.Bandage or TreeId.Light or TreeId.Antidote => RelicTrigger.Healing,
         TreeId.SportsDrink or TreeId.Food => RelicTrigger.Food,
         _ => RelicTrigger.Movement,
     };

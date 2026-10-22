@@ -31,7 +31,9 @@ internal static class ModConfig
     public static ConfigEntry<float> JetpackFuel = null!, FaerieBoost = null!, ShoreOtherItems = null!, StatueIngredientChance = null!, StatueJackpotChance = null!, AncientJackpotChance = null!, JackpotDarkShare = null!, ReviveDarkChance = null!;
     public static ConfigEntry<int> ChainLauncherUses = null!, RescueClawUses = null!, AntiGravUses = null!;
     public static ConfigEntry<float> MedicineRadius = null!, HolyShieldSeconds = null!, PassOutKitCooldown = null!,
-        AntidoteCleanse = null!, AntidoteWeight = null!, BookOfBonesWeight = null!;
+        AntidoteWeight = null!, BookOfBonesWeight = null!;
+    public static ConfigEntry<int> AntidotePoints = null!, CookieGlass = null!;
+    public static ConfigEntry<float> CookieInjury = null!;
     public static ConfigEntry<bool> EqualTreeItems = null!, FusionCards = null!, CursedCopies = null!;
     public static ConfigEntry<float> AuraRadius = null!;
 
@@ -47,7 +49,9 @@ internal static class ModConfig
     // --- blessings / relic risks -------------------------------------------------------------
     public static ConfigEntry<bool> Blessings = null!;
     public static ConfigEntry<bool> FlareReroll = null!, FlareSupplyDrop = null!, TimedDrops = null!, EmptyHandedPicks = null!, FindCards = null!;
-    public static ConfigEntry<float> FlareAncientChance = null!, DropSeconds = null!;
+    public static ConfigEntry<float> FlareAncientChance = null!, DropClusterMetres = null!;
+    public static ConfigEntry<string> DropSolo = null!, DropDuo = null!, DropSmall = null!, DropBig = null!;
+    public static ConfigEntry<int> DropClusterScouts = null!;
     public static ConfigEntry<bool> CurioRelics = null!, CurioWakeNotice = null!, FrisbeeHitsScouts = null!;
     public static ConfigEntry<float> CurioPingSeconds = null!, CurioCrateBoost = null!, FrisbeeForce = null!, BingBongMinSeconds = null!, BingBongMaxSeconds = null!;
     public static ConfigEntry<float> BingBongHideMin = null!, BingBongHideMax = null!, BingBongDarkSeconds = null!, BingBongBlinkRange = null!, BingBongGiftMaxChance = null!;
@@ -57,7 +61,8 @@ internal static class ModConfig
     internal static ConfigEntry<StatueOrder> StatueOrder = null!;
 
     // --- blood moon ----------------------------------------------------------------------
-    public static ConfigEntry<bool> BloodMoon = null!, BmDarkRites = null!, BmWarning = null!;
+    public static ConfigEntry<bool> BloodMoon = null!, BmDarkRites = null!, BmWarning = null!, BmRelay = null!;
+    public static ConfigEntry<float> BmRelaySeconds = null!, BmRelayTornadoBack = null!, BmZombieAhead = null!, BmZombieLeash = null!;
     public static ConfigEntry<bool> BmScoutmaster = null!, BmZombies = null!, BmTornado = null!, BmGlassMeteors = null!, BmMeteors = null!;
     public static ConfigEntry<float> BmMeteorRate = null!;
     public static ConfigEntry<float> BmMoonLight = null!, BmNightDarkness = null!, BmEclipseDarkness = null!, BmMeteorHitGrace = null!;
@@ -102,6 +107,7 @@ internal static class ModConfig
 
     // --- dev -----------------------------------------------------------------------------
     public static ConfigEntry<bool> DevTools = null!;
+    public static ConfigEntry<bool> CratesFirstCome = null!;
     public static ConfigEntry<bool> DevShareRelics = null!, DevMoonEveryNight = null!, DevMoonOnPickup = null!;
     public static ConfigEntry<float> DevShareWait = null!;
     public static ConfigEntry<float> BmScoutmasterGrabGrace = null!, BmScoutmasterStare = null!, BmScoutmasterSprintDistance = null!, BmGrabPause = null!, BmGrabDelay = null!;
@@ -127,6 +133,11 @@ internal static class ModConfig
         BmWarning = cfg.Bind("BloodMoon", "RelicWarning", true, "The relic screen carries a red warning line.");
         BmWaveGap = cfg.Bind("BloodMoon", "WaveGap", 20f, "Seconds each tier above 1 adds to a blood moon. A moon lasts (tier-1) x WaveGap + WaveLength; every wave runs the whole moon.");
         BmWaveLength = cfg.Bind("BloodMoon", "WaveLength", 60f, "How long a tier 1 blood moon lasts (s).");
+        BmRelay = cfg.Bind("BloodMoon", "Relay", true, "The airport ticket's Blood moons setting. On = relay: the hazards take turns in the shuffled order, RelaySeconds each, every one at its hardest (the Kiln / Citadel tornado stays the small one). Off = stacked (harder): every hazard the tier brings rises together for the whole moon.");
+        BmRelaySeconds = cfg.Bind("BloodMoon", "RelaySeconds", 30f, "Relay moons: how long each hazard gets. A relay moon lasts tier x this.");
+        BmRelayTornadoBack = cfg.Bind("BloodMoon", "RelayTornadoBack", 100f, "Relay moons: the tornado rises this many metres back down the mountain from the lowest scout, in plain sight (the Kiln / Citadel and the Void keep their own spots).");
+        BmZombieAhead = cfg.Bind("BloodMoon", "ZombieAhead", 8f, "Blood moon zombies rise this many metres (+-25%) ahead of their scout on the way up, a little above.");
+        BmZombieLeash = cfg.Bind("BloodMoon", "ZombieLeash", 50f, "A scout this many metres from every zombie of their pack finds it rising right beside them again.");
         BmRelicAura = cfg.Bind("BloodMoon", "RelicAura", 24f, "The Scoutmaster and the tornado go after relic holders and anyone within this many metres of one (24 = vanilla's buddy distance). A holder with someone this close is 'grouped' (the tornado slows).");
         BmScoutmaster = cfg.Bind("BloodMoon", "Scoutmaster", true, "From tier 2: the Scoutmaster hunts (tiers 2-3), then only watches (tier 4).");
         BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: zombies rise beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
@@ -298,7 +309,8 @@ internal static class ModConfig
         AirportSky = cfg.Bind("Ambiance", "AirportSky", 1f, "How blood red the sky outside the airport is, with a red moon in it (0 = vanilla).");
         AirportLight = cfg.Bind("Ambiance", "AirportLight", 0.35f, "Red sunlight at the airport - reddens the clouds and the view outside (0 = vanilla).");
         DevTools = cfg.Bind("Dev", "DevTools", false, "Host-only cheats in the F8 panel (fly, god mode, item levels, time, blood moons). Off = the panel only shows builds.");
-        DevShareRelics = cfg.Bind("Dev", "SharedRelicPickups", true, "Testing (host): when a scout binds a relic from an amulet, every other scout gets that colour's relic choice too. Shared relics don't raise the moon's tier, and the pickup's moon waits until everyone has chosen.");
+        DevShareRelics = cfg.Bind("Dev", "SharedRelicPickups", true, "The airport ticket's Relics setting (host). Shared: when a scout binds a relic from an amulet, every other scout gets that colour's relic choice too. Shared relics don't raise the moon's tier, and the pickup's moon waits until everyone has chosen. Off = first come (harder): only whoever takes the amulet gets a relic.");
+        CratesFirstCome = cfg.Bind("Systems", "CratesFirstCome", false, "The airport ticket's Crates setting (host). Off = shared: every scout gets a pick from each crate, and a taken card is re-rolled for the next. On = first come (harder): the crate deals the game's own number of cards once, a taken card is gone, and anyone may take what's left.");
         DevShareWait = cfg.Bind("Dev", "SharedRelicWait", 60f, "Testing (host): longest the pickup's moon waits for everyone to choose their shared relic (s).");
         DevMoonEveryNight = cfg.Bind("Dev", "BloodMoonEveryNight", true, "Host: once the squad holds a relic, every nightfall raises a blood moon (skipped the night after an afternoon or evening pickup moon; a morning pickup still gets its night).");
         DevMoonOnPickup = cfg.Bind("Dev", "BloodMoonOnPickup", true, "Host: binding a fresh relic raises a blood moon at once (by day a blood eclipse). Off = pickups raise nothing.");
@@ -326,7 +338,9 @@ internal static class ModConfig
         MedicineRadius = cfg.Bind("Medicine", "AreaRadius", 10f, "Metres: a thrown Cure-All that breaks, and Pandora's Lunchbox, reach every scout this close.");
         HolyShieldSeconds = cfg.Bind("Medicine", "RadiantShieldSeconds", 15f, "Radiant Health Pack (holy level 6) and the Cure-All: seconds of milk invincibility.");
         PassOutKitCooldown = cfg.Bind("Medicine", "PassOutPackCooldown", 60f, "With a Radiant Health Pack scout in the squad, a scout who passes out gets one dropped beside them - at most once per this many seconds each (0 = off).");
-        AntidoteCleanse = cfg.Bind("Medicine", "AntidoteCleanse", 0.15f, "Antidote: share of injury, cold, heat and drowsiness each sip removes (poison stays vanilla 35%).");
+        AntidotePoints = cfg.Bind("Medicine", "AntidotePoints", 10, "Antidote tree, per sip (0-100 of a bar): level 1 takes this much off your worst ailments (poison, cold, heat, drowsiness, spores - worst first), level 2 also this much injury, level 3 also this much hunger. The game's own cooling stays on top.");
+        CookieGlass = cfg.Bind("Medicine", "CookieGlass", 5, "Scout Cookies: glass (0-100) each bite removes, flat (a box has 4 bites).");
+        CookieInjury = cfg.Bind("Medicine", "CookieInjury", 2.5f, "Scout Cookies: injury (0-100 of a bar) each bite heals, flat.");
         AntidoteWeight = cfg.Bind("Medicine", "AntidoteCrateWeight", 0.5f, "Antidote: weight in every biome's crates, as a share of a Bandage's.");
         BookOfBonesWeight = cfg.Bind("Medicine", "BookOfBonesWeight", 0.5f, "The Book of Bones: weight in cursed luggage and coffins, as a share of its vanilla weight (= the Skull's and Dagger's).");
         FusionCards = cfg.Bind("Fusion", "UnlockedFusionCards", true, "Once you've made a fusion, crates that roll one of its ingredients also offer the fused item as an extra card.");
@@ -361,7 +375,12 @@ internal static class ModConfig
         FlareSupplyDrop = cfg.Bind("Flare", "SupplyDrop", true, "Lighting a flare anywhere but the peak slams a big supply crate down beside you (at the peak it still calls the helicopter).");
         FlareAncientChance = cfg.Bind("Flare", "AncientChance", 0.2f, "Chance a flare's crate is an Ancient Luggage (a blessing) instead of a big crate.");
         TimedDrops = cfg.Bind("Supply", "TimedDrops", true, "Host: while anyone is out on the mountain (not at a campfire, the crash site or a blood moon), a supply crate floats down on balloons near the scout carrying the least.");
-        DropSeconds = cfg.Bind("Supply", "IntervalSeconds", 150f, "Seconds out on the mountain between timed supply drops.");
+        DropSolo = cfg.Bind("Supply", "IntervalSolo", "180-360", "Solo: seconds out on the mountain between timed supply drops, rolled fresh after each one (\"min-max\", or one number).");
+        DropDuo = cfg.Bind("Supply", "IntervalTwoScouts", "180-300", "2 scouts: seconds between timed supply drops (\"min-max\").");
+        DropSmall = cfg.Bind("Supply", "IntervalThreeToFour", "180-240", "3-4 scouts: seconds between timed supply drops (\"min-max\").");
+        DropBig = cfg.Bind("Supply", "IntervalFivePlus", "180", "5+ scouts: seconds between timed supply drops (\"min-max\").");
+        DropClusterScouts = cfg.Bind("Supply", "GroupDropsFrom", 5, "With at least this many scouts, every group more than GroupDistance apart gets its own supply crate (picks for that group only). Fewer scouts: one crate for the whole squad.");
+        DropClusterMetres = cfg.Bind("Supply", "GroupDistance", 100f, "Supply drop groups: everyone in a group is within this many metres of everyone else in it.");
         EmptyHandedPicks = cfg.Bind("Supply", "EmptyHandedPicks", true, "Opening a supply crate with empty pockets lets you take two cards.");
         FindCards = cfg.Bind("Systems", "FindCards", true, "Flare and Lantern show a card the first time you pick each up in a run.");
         CurioRelics = cfg.Bind("Curios", "StartingRelics", true, "Bugle, Binoculars, Compass, Frisbee and Bing Bong offer a starting relic (one per scout, never raises a blood moon).");
@@ -465,6 +484,12 @@ internal static class ModConfig
             if (GlassPerTrigger.Value == 3) GlassPerTrigger.Value = 5;
             defaults.Value = 11;
             Plugin.Log.LogInfo("Config: relics cost 5 glass a trigger (new default).");
+        }
+        if (defaults.Value < 12)
+        {
+            BmRelay.Value = true;
+            defaults.Value = 12;
+            Plugin.Log.LogInfo("Config: blood moons are relays - one hazard at a time (new default; Stacked on the airport ticket).");
         }
     }
 }
