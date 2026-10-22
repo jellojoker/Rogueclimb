@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.12.68
+- **Unread amulets**: taking a statue amulet raises the blood moon at once - no cards. It rides in your pockets unread (it counts as a relic for the moon and the hunters, "RELIC UNREAD [L]" under the tray) until you click it in your hand or press L. "Not yet" keeps it unread. An amulet raises one moon in its life, however often it's dropped or handed on. Statue amulets never act as the game's own item any more (Scout's Honor is untouched).
+- **Relic variants**: a second amulet of a colour you hold offers the variants you don't have yet (another trigger). All three = **complete**: that colour fires without glass (gold banner, gold ring in the tray). A fourth crumbles when read. Each variant drops as its own amulet when you die.
+- **Glass**: you pay only when a relic fires on you. A scout you feed or bandage pays their own; a scout using your rope, chain or piton gets your tool relic and pays theirs - your tools never cost you.
+- **Food tree, 7 levels**: Crushed / Stale / Trail Mix (50 / 75 / 100% of a trail mix), Crumbled / Stale / Granola Bar (the same steps of a granola bar, + a full trail mix, + 3 / 4 / 5% injury healed and 3 / 4 / 5 glass), then **Airline Food**: the vanilla meal (40% hunger, 40% stamina) + 10% healing and 10 glass, on its own - and it never stacks. Cooking still boosts the hunger and stamina. [ItemTrees] AirlineFoodHeal / AirlineFoodGlass / GranolaHeal / GranolaGlass.
+- The level-6 **Radiant Health Pack** also fills 5% hunger and removes 5 glass; the **Abyssal Medkit** fills 5% hunger. [ItemTrees] TopKitHunger / TopKitGlass.
+- **Harsh suns** on the airport ticket (host): Shore only / **Every biome** - each sun's Shore lesson (blue glass in direct light, red gravity, yellow drowsiness, a withered green card) in every biome. [Suns] HarshSunsEverywhere.
+- **Run report**: when the run ends, a RUN REPORT button beside NEXT flips the scouting report to one page per scout (arrows or A/D / Left/Right): relics carried, starting relic, badges (hover for details), level, best items, fusions, crates, items used, relic fires, moons survived, peak glass. Relic tray hover details work on the end screen too.
+- **Relay tornado** rises at the base, where the squad came into the section, and rushes in until it's close ([BloodMoon] RelayTornadoFromBase; off = the old spot down the mountain). A tornado fading at the end of its moon lets go of everyone and pulls nobody.
+- Fixed: your starting relic was published under the same key as crafted-item levels - other players saw it as none (relic lock, Bugle pull).
+- Fixed: the F8 "Red sprint cut" / "Red lunge cut" rows changed old unused settings; they now show and change the real ones (the red sun stays 25% slower). The dead "Red heavy: Shore only" toggle is now the Harsh suns toggle.
+- Fixed: F9 (fly) froze the game for ~2.5s - it also re-ran the item export.
+- Fixed: Binoculars / Compass markers for something behind you now sit on the bottom edge instead of floating ahead.
+- Fixed: an error when the item in your hand vanished during the parasol check.
+
 ## 0.12.59
 - **Run settings on the airport ticket** (host), under the relic order, in a 2 x 2 grid: **Blood moons** Relay / Stacked, **Crates** Shared / First come, **Relics** Shared / First come. The harder choice is written in red. Everyone's ticket shows the host's choices.
   - **First come crates**: the crate deals the game's own number of cards once, a taken card is gone, and anyone may take what's left (like the game's loot). [Systems] CratesFirstCome.

@@ -93,9 +93,9 @@ internal static class Squad
     /// <summary>Sort key: relic holders (and skull / dagger carriers) before everyone else.</summary>
     public static int Priority(Character c) => HoldsRelic(c) || CarriesRite(c) ? 0 : 1;
 
-    /// <summary>Carries at least one relic (copies included).</summary>
+    /// <summary>Carries at least one relic (copies and unread amulets included).</summary>
     public static bool HoldsRelic(Character c) =>
-        c.photonView != null && c.photonView.Owner != null && RunState.RelicsOf(c.photonView.Owner).Count > 0;
+        c.photonView != null && c.photonView.Owner is { } o && RunState.RelicsOf(o).Count + RunState.UnreadOf(o) > 0;
 
     /// <summary>Has the Cursed Skull or the Ritual Dagger in their pockets or hand.</summary>
     public static bool CarriesRite(Character c)
@@ -419,8 +419,9 @@ internal class BloodTornado : MonoBehaviour
         if (alive.Count == 0) return;
         // It rises where the squad came into this part of the map (the Kiln / Citadel: a small, gentle one).
         bool kiln = MapHandler.Exists && MapHandler.CurrentSegmentNumber == Segment.TheKiln;
-        // A relay gives it only its own turn: it rises in plain sight, just down the mountain from the squad.
-        Vector3? back = BloodMoon.Relay && !kiln && !VoidRun.Active ? DownMountain(alive) : null;
+        // Relay: it rises at the base too and rushes up (Speed); the old way (switch off) put it just
+        // down the mountain from the squad.
+        Vector3? back = BloodMoon.Relay && !kiln && !VoidRun.Active && !ModConfig.BmRelayTornadoFromBase.Value ? DownMountain(alive) : null;
         Vector3 pos = back ?? (EntrySpot(alive) is { } entry ? Squad.GroundNear(entry, 6f, 16f, 30f) ?? entry : FarFallback(alive));
         Look look = LookHere();
         float width = kiln ? Mathf.Clamp(ModConfig.BmTornadoKilnWidth.Value, 0.1f, 3f)
@@ -539,7 +540,12 @@ internal class BloodTornado : MonoBehaviour
     {
         foreach (var t in live.Values.ToList())
             if (t != null && t.tornado.view != null && t.tornado.view.IsMine)
+            {
+                // Anyone it's carrying is let go before it fades (it pulls nobody from here on).
+                foreach (var c in t.tornado.caughtCharacters.ToList())
+                    if (c != null && c.photonView != null) t.tornado.view.RPC("RPCA_ThrowPlayer", RpcTarget.All, c.photonView.ViewID);
                 t.tornado.view.RPC("RPCA_TornadoDie", RpcTarget.All);
+            }
     }
 
     /// <summary>
@@ -1018,14 +1024,22 @@ internal class BloodTornado : MonoBehaviour
         {
             spareAdded.Clear();
             if (__instance.GetComponent<BloodTornado>() == null) return;
+            // Its moon is over: it shrinks away for a few seconds and pulls nobody while it does.
+            bool fading = Dying(__instance);
+            // (It can also die of its own lifetime, not just KillAll: whoever it still carries goes free.)
+            if (fading && __instance.view != null && __instance.view.IsMine)
+                foreach (var c in __instance.caughtCharacters.ToList())
+                    if (c != null && c.photonView != null) __instance.view.RPC("RPCA_ThrowPlayer", RpcTarget.All, c.photonView.ViewID);
             foreach (var c in Character.AllCharacters)
                 if (c != null && !__instance.ignoredCharacters.Contains(c)
-                    && ((spared.TryGetValue(c, out float until) && until > Time.time) || Sanctuary.Safe(c)))
+                    && (fading || (spared.TryGetValue(c, out float until) && until > Time.time) || Sanctuary.Safe(c)))
                 {
                     __instance.ignoredCharacters.Add(c);
                     spareAdded.Add(c);
                 }
         }
+
+        private static readonly AccessTools.FieldRef<Tornado, bool> Dying = AccessTools.FieldRefAccess<Tornado, bool>("dying");
 
         [HarmonyPostfix, HarmonyPatch(typeof(Tornado), "AttractCharacters")]
         private static void Unspare(Tornado __instance)

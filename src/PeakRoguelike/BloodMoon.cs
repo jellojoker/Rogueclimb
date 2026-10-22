@@ -150,7 +150,7 @@ internal class BloodMoon : MonoBehaviour
         if (raw == null)
         {
             if (Active) Plugin.Log.LogInfo("Blood moon over.");
-            if (Active && InRun) SurviveGlass();
+            if (Active && InRun) { RunReport.MoonOver(); SurviveGlass(); }
             Active = false;
             seenId = null;
             return;

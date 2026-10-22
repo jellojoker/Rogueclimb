@@ -55,7 +55,7 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         if (kinds.TryGetValue(item.itemID, out var cached)) return cached;
         Kind? kind = null;
         var id = Trees.Classify(item);
-        var tree = id is TreeId.None or TreeId.Food ? null : Trees.Get(id);
+        var tree = id is TreeId.None ? null : Trees.Get(id);
         if (tree != null)
         {
             for (int i = 0; i < tree.Levels.Length; i++)
@@ -142,26 +142,12 @@ internal class ItemLevels : MonoBehaviourPunCallbacks
         return lv > 0 ? lv : Discovered(k);
     }
 
-    private static readonly Dictionary<ushort, int> foodLevels = new();
-
     /// <summary>The level shown after an item's name (0 = none): its stamp, else what our discovery level would give it.</summary>
     internal static int Shown(Item item, ItemInstanceData? data)
     {
-        if (!ModConfig.ItemTrees.Value || item == null) return 0;
-        if (KindOf(item) is { } k)
-        {
-            int lv = Stamp(data ?? item.data);
-            return lv > 0 ? lv : Discovered(k);
-        }
-        // Snacks aren't stamped: each one is its own level of the food tree.
-        if (foodLevels.TryGetValue(item.itemID, out int food)) return food;
-        food = 0;
-        if (Trees.Classify(item) == TreeId.Food && Trees.Get(TreeId.Food) is { } tree)
-            for (int i = 0; i < tree.Levels.Length && food == 0; i++)
-                foreach (var def in tree.Levels[i])
-                    if (def.Grants != null && Items.Find(def.Grants) is { } g && g.itemID == item.itemID) { food = i + 1; break; }
-        if (Items.Find(Trees.BaseRole(TreeId.Rope)) != null) foodLevels[item.itemID] = food; // only once the item database is up
-        return food;
+        if (!ModConfig.ItemTrees.Value || item == null || KindOf(item) is not { } k) return 0;
+        int lv = Stamp(data ?? item.data);
+        return lv > 0 ? lv : Discovered(k);
     }
 
     /// <summary>Is this pocket item at the top level of its kind (a fusion ingredient)?</summary>

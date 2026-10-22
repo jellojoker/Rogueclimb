@@ -27,6 +27,9 @@ internal static class DevCheats
         {
             if (me.data.dead) return;
             me.refs.climbing.StopAnyClimbing();
+            // No stumble on take-off: the game would read the lost ground as a fall.
+            me.data.fallSeconds = 0f;
+            me.data.sinceGrounded = 0f;
             me.refs.ragdoll.ToggleCollision(false);
             flyer = me;
             Fly = true;
@@ -192,5 +195,17 @@ internal static class DevCheats
         }
         flyer.data.sinceGrounded = 0f;
         flyer.data.sinceJump = 0f;
+        flyer.data.fallSeconds = 0f;
     }
+
+    /// <summary>
+    /// Flying: the game never knocks you over or hurts you for "falling" (with the panel closed its own
+    /// movement still runs, and the first frame without collision read as a fall - a second's freeze).
+    /// </summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(Character), nameof(Character.RPCA_Fall))]
+    private static bool NoFallWhileFlying(Character __instance) => !(Fly && __instance == flyer);
+
+    [HarmonyPrefix, HarmonyPatch(typeof(CharacterMovement), "CheckFallDamage")]
+    private static bool NoFallDamageWhileFlying(CharacterMovement __instance) =>
+        !(Fly && flyer != null && __instance.gameObject == flyer.gameObject);
 }

@@ -134,12 +134,17 @@ public static class Trees
             new[] { L("Energy Drink", "A longer speed boost.\n+ a sports drink.", "EnergyDrink") },
             new[] { L("Charged Energy Drink", "Full speed boost,\n+ a sports drink. Fusion-ready.", "EnergyDrink") });
 
-        // Food: vanilla's snacks are already a ladder, so each one is a level. Each snack keeps
-        // the effects of the snacks below it. These only ever come out of crates.
+        // Food: three steps of trail mix, three of granola (which also gives a full trail mix, and
+        // mends a little), then Airline Food - vanilla's meal that heals and mends glass, on its own.
+        // These only ever come out of crates. Steps are 50% / 75% / 100% (Stats.FoodShare).
         Add(TreeId.Food, "Food", PerkTheme.Mountaineer,
-            new[] { L("Trail Mix", "A handful of energy\nfor the climb ahead.", "TrailMix") },
-            new[] { L("Granola Bar", "Evolves! Keeps the trail\nmix's boost, and more.", "Granola") },
-            new[] { L("Airline Food", "Evolves! A full meal, plus every\nsnack before it. Fusion-ready.", "AirlineFood") });
+            new[] { L("Crushed Trail Mix", "Half a handful of energy\nfor the climb ahead.", "TrailMix") },
+            new[] { L("Stale Trail Mix", "Most of a handful\nof energy.", "TrailMix") },
+            new[] { L("Trail Mix", "A full handful of energy\nfor the climb ahead.", "TrailMix") },
+            new[] { L("Crumbled Granola Bar", "Evolves! Half a granola bar,\na full trail mix, and it mends.", "Granola") },
+            new[] { L("Stale Granola Bar", "Most of a granola bar,\na full trail mix, and it mends.", "Granola") },
+            new[] { L("Granola Bar", "A full granola bar,\na full trail mix, and it mends.", "Granola") },
+            new[] { L("Airline Food", "Evolves! A full meal that heals\nand mends glass. Fusion-ready.", "AirlineFood") });
 
         // Lanterns only - candles stay plain vanilla items (they're a Faerie Lantern ingredient).
         Add(TreeId.Light, "Lantern", PerkTheme.Explorer,

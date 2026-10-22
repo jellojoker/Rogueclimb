@@ -110,6 +110,7 @@ internal class Medicine : MonoBehaviour
             if (Items.IsMedKit(item))
             {
                 int step = Stats.KitStep(lv, br);
+                if (step >= 3) TopKitMend(c, holy: br != 2);
                 if (br == 2) { DarkConvert(c, step); return; }
                 float share = step <= 1 ? Stats.HolyFirstStep : 1f;
                 foreach (var s in Ailments) aff.SubtractStatus(s, share);
@@ -121,6 +122,19 @@ internal class Medicine : MonoBehaviour
             foreach (var s in Ailments) aff.SubtractStatus(s, healed);
         }
         catch (Exception e) { Plugin.Log.LogWarning($"Medicine failed: {e.Message}"); }
+    }
+
+    /// <summary>
+    /// A top-level kit also feeds you a little, like a granola bar; the Radiant pack mends glass too
+    /// (the Abyssal medkit already shatters all of it).
+    /// </summary>
+    private static void TopKitMend(Character c, bool holy)
+    {
+        var aff = c.refs.afflictions;
+        float hunger = Mathf.Max(0f, ModConfig.TopKitHunger.Value);
+        if (hunger > 0f) aff.SubtractStatus(STATUS.Hunger, hunger);
+        int glass = holy ? Mathf.Min(Mathf.Max(0, ModConfig.TopKitGlass.Value), c.data.petrifyAmount) : 0;
+        if (glass > 0) aff.AddPetrify(-glass);
     }
 
     /// <summary>A Radiant pack's worth: all injury and every ailment, then milk invincibility.</summary>

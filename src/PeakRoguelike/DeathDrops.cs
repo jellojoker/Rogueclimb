@@ -68,11 +68,8 @@ internal class DeathDrops : MonoBehaviour
                 w.handled = true;
                 if (w.relics.Count == 0) continue;
                 Plugin.Log.LogWarning($"Death drops: no word from {c.characterName}'s game - the host drops their {w.relics.Count} relic(s).");
-                foreach (var (gem, trigger) in w.relics)
-                {
-                    RelicDrops.Add(gem, trigger);
-                    Spawn(gem, w, c);
-                }
+                RelicDrops.Add(w.relics);
+                foreach (var (gem, _) in w.relics) Spawn(gem, w, c);
             }
         }
     }

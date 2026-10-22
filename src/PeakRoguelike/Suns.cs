@@ -44,8 +44,8 @@ internal class Suns : MonoBehaviour
     internal static bool Red => Hits(RelicGem.Initiative);
     internal static bool Blue => Hits(RelicGem.Tenacity);
     private static bool On => ModConfig.Suns.Value;
-    /// <summary>The Shore teaches each sun: blue glass, yellow drowsiness, a withered green card. The Void tests it.</summary>
-    internal static bool OnShore => InRun && (VoidRun.Active || Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore);
+    /// <summary>The Shore teaches each sun: blue glass, yellow drowsiness, a withered green card. The Void tests it, and Harsh suns (ticket) keep teaching it in every biome.</summary>
+    internal static bool OnShore => InRun && (VoidRun.Active || Tickets.HarshSunsEverywhere || Singleton<MapHandler>.Instance.GetCurrentBiome() == Biome.BiomeType.Shore);
 
     // A relic beats its own sun: carrying it, that sun can't touch you.
     private static bool Hits(RelicGem gem) => On && Current == gem && !Sanctuary.SunSpared && !(ModConfig.Relics.Value && RunState.Relics.ContainsKey(gem));
@@ -207,7 +207,8 @@ internal class Suns : MonoBehaviour
     /// <summary>The open parasol in our hands, if it still has shield left.</summary>
     internal static bool ParasolShade(Character? me)
     {
-        if (me == null || me.data.currentItem is not { } item || !item.TryGetComponent<Parasol>(out var p) || !p.isOpen) return false;
+        var item = me == null ? null : me.data.currentItem;
+        if (item == null || !item.TryGetComponent<Parasol>(out var p) || !p.isOpen) return false;
         return !Burnt(item) && ParasolLeft(item) > 0f;
     }
 

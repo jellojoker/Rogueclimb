@@ -259,10 +259,11 @@ internal class RelicShuffle : MonoBehaviourPunCallbacks
 }
 
 /// <summary>
-/// The run settings on the airport ticket, under the ascent, in the ticket's own lettering and
-/// arrows: a 2 x 2 grid - RELIC ORDER | BLOOD MOONS, CRATES | RELICS - each a small caption over
-/// "◀ choice ▶". The host's arrows change them; everyone else sees what the host picked. A harder
-/// choice (Stacked, First come) is written in blood red.
+/// The run settings on the airport ticket: a column in the ascent box, under its three buttons -
+/// RELIC ORDER ◀ Every run ▶, BLOOD MOONS, CRATES, RELICS - in the ticket's own
+/// lettering and (smaller) arrows; the description wraps short of it at every ascent. The host's
+/// arrows change them; everyone else sees what the host picked. A harder choice (Stacked, First come)
+/// is written in blood red.
 /// </summary>
 [HarmonyPatch]
 internal class TicketRelicOrder : MonoBehaviour
@@ -299,7 +300,9 @@ internal class TicketRelicOrder : MonoBehaviour
         catch (System.Exception e) { Plugin.Log.LogWarning($"Ticket settings failed: {e.Message}"); }
     }
 
-    private const float CellHeight = 70f, CaptionHeight = 24f, ArrowSize = 36f, ArrowGap = 98f, RowGap = 6f;
+
+    // Each row: a small caption on top, "◀ value ▶" underneath (CaptionFrom = where the caption starts, from the bottom).
+    private const float RowGap = 4f, ArrowSize = 22f, CaptionFrom = 0.6f, LeftArrowAt = 0.09f, ValueFrom = 0.18f, ValueTo = 0.82f, RightArrowAt = 0.91f;
 
     private static void Build(BoardingPass bp, RectTransform desc)
     {
@@ -311,56 +314,65 @@ internal class TicketRelicOrder : MonoBehaviour
         settings.Add(("Crates", () => Tickets.CratesFirstCome ? "First come" : "Shared", () => Tickets.CratesFirstCome, _ => Tickets.ToggleCrates(), () => Tickets.CanChange));
         if (ModConfig.Relics.Value)
             settings.Add(("Relics", () => Tickets.RelicsFirstCome ? "First come" : "Shared", () => Tickets.RelicsFirstCome, _ => Tickets.ToggleRelics(), () => Tickets.CanChange));
+        if (ModConfig.Suns.Value)
+            settings.Add(("Harsh suns", () => Tickets.HarshSunsEverywhere ? "Every biome" : "Shore only", () => Tickets.HarshSunsEverywhere, _ => Tickets.ToggleHarshSuns(), () => Tickets.CanChange));
 
-        int rows = (settings.Count + 1) / 2;
+        // In the ascent box's right-hand column, under its three buttons (the description wraps
+        // short of it at every ascent), from the top of the description to its bottom.
+        var parent = (RectTransform)desc.parent;
+        var (left, right) = ButtonColumn(bp, parent);
+        float top = desc.localPosition.y + desc.rect.yMax, bottom = desc.localPosition.y + desc.rect.yMin;
+        float height = Mathf.Max(80f, top - bottom);
+        float rowHeight = (height - (settings.Count - 1) * RowGap) / settings.Count;
+
         var grid = new GameObject(GridName, typeof(RectTransform));
         var rt = (RectTransform)grid.transform;
-        rt.SetParent(desc.parent, false);
-        rt.anchorMin = desc.anchorMin;
-        rt.anchorMax = desc.anchorMax;
-        rt.pivot = new Vector2(0.5f, 1f);
-        rt.sizeDelta = new Vector2(desc.rect.width, rows * CellHeight + (rows - 1) * RowGap);
-        // Just under the ascent's description box.
-        rt.localPosition = desc.localPosition + new Vector3(desc.rect.center.x, desc.rect.yMin - 4f, 0f);
+        rt.SetParent(parent, false);
+        rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0f, 1f);
+        rt.sizeDelta = new Vector2(right - left, height);
+        rt.localPosition = new Vector3(left, top, 0f);
 
+        var dt = bp.ascentDesc;
         var me = grid.AddComponent<TicketRelicOrder>();
-        var ink = bp.ascentDesc.color;
+        var ink = dt.color;
         me.plain = bp.ascentTitle != null ? bp.defaultColor : ink;
 
-        // A faint rule, like the ticket's own section breaks, and a fainter one between the columns.
-        Rule(rt, ink, 1f, 0.2f, 0.8f, true);
-        if (settings.Count > 1) Rule(rt, ink, 0.5f, 0.12f, 0.88f, false);
+        // A faint rule down the column's left edge, like the ticket's own section breaks.
+        Rule(rt, ink, 0f, 0.04f, 0.96f, false, 0f);
 
-        float body = Mathf.Max(14f, bp.ascentDesc.fontSize);
-        var proto = bp.ascentTitle != null ? bp.ascentTitle : bp.ascentDesc;
+        float body = Mathf.Max(14f, dt.fontSize);
+        var proto = bp.ascentTitle != null ? bp.ascentTitle : dt;
         for (int i = 0; i < settings.Count; i++)
         {
             var (caption, value, hard, step, can) = settings[i];
-            int row = i / 2, col = i % 2;
-            // A lone last setting sits in the middle.
-            float x = i == settings.Count - 1 && col == 0 ? 0.5f : col == 0 ? 0.25f : 0.75f;
             var cellGo = new GameObject(caption, typeof(RectTransform));
             var cr = (RectTransform)cellGo.transform;
             cr.SetParent(rt, false);
-            cr.anchorMin = cr.anchorMax = new Vector2(x, 1f);
+            cr.anchorMin = new Vector2(0f, 1f);
+            cr.anchorMax = new Vector2(1f, 1f);
             cr.pivot = new Vector2(0.5f, 1f);
-            cr.sizeDelta = new Vector2(desc.rect.width * 0.5f, CellHeight);
-            cr.anchoredPosition = new Vector2(0f, -row * (CellHeight + RowGap));
+            cr.sizeDelta = new Vector2(0f, rowHeight);
+            cr.anchoredPosition = new Vector2(0f, -i * (rowHeight + RowGap));
 
-            // Small spaced caption in the description's ink.
-            var cap = Text(bp.ascentDesc, cr, "Caption", 1f, CaptionHeight);
-            cap.fontSize = body * 0.62f;
-            cap.characterSpacing = 6f;
+            // Small spaced caption in the description's ink on top, like the ticket's PASSENGER / GATE labels.
+            var cap = Text(dt, cr, "Caption", 0f, 1f, TextAlignmentOptions.Center, CaptionFrom, 1f);
+            cap.enableAutoSizing = true;
+            cap.fontSizeMax = body * 0.4f;
+            cap.fontSizeMin = body * 0.28f;
+            cap.characterSpacing = 3f;
             cap.fontStyle = FontStyles.UpperCase;
             cap.color = new Color(ink.r, ink.g, ink.b, ink.a * 0.65f);
             cap.text = caption;
 
+            // "◀ value ▶" underneath: the ascent title's lettering between the ticket's own (small) arrows.
             var cell = new Cell { Value = value, Hard = hard, CanChange = can };
-            // The choice itself, in the ascent title's lettering, flanked by the ticket's own arrows.
-            cell.Label = Text(proto, cr, "Value", 0f, CellHeight - CaptionHeight - 4f);
-            cell.Label.fontSize = body;
-            cell.Left = Arrow(bp.decrementAscentButton, cr, -1f, () => { step(-1); me.Refresh(); });
-            cell.Right = Arrow(bp.incrementAscentButton, cr, 1f, () => { step(1); me.Refresh(); });
+            cell.Label = Text(proto, cr, "Value", ValueFrom, ValueTo, TextAlignmentOptions.Center, 0f, CaptionFrom);
+            cell.Label.enableAutoSizing = true;
+            cell.Label.fontSizeMax = body * 0.6f;
+            cell.Label.fontSizeMin = body * 0.35f;
+            cell.Left = Arrow(bp.decrementAscentButton, cr, LeftArrowAt, CaptionFrom * 0.5f, () => { step(-1); me.Refresh(); });
+            cell.Right = Arrow(bp.incrementAscentButton, cr, RightArrowAt, CaptionFrom * 0.5f, () => { step(1); me.Refresh(); });
             me.cells.Add(cell);
         }
         me.Refresh();
@@ -368,31 +380,59 @@ internal class TicketRelicOrder : MonoBehaviour
         if (!logged)
         {
             logged = true;
-            Plugin.Log.LogInfo($"Ticket: {settings.Count} run settings in {rows} row(s) under '{desc.name}' (parent '{desc.parent.name}', desc rect {desc.rect}, desc font {bp.ascentDesc.fontSize}, "
+            Plugin.Log.LogInfo($"Ticket: {settings.Count} run settings in a column ({right - left:0} x {height:0}) beside '{desc.name}' (parent '{parent.name}' rect {parent.rect}, desc rect {desc.rect} at {desc.localPosition}, desc font {dt.fontSize}, "
                 + $"title '{proto.name}' font {proto.fontSize}, arrows '{bp.decrementAscentButton.name}' {((RectTransform)bp.decrementAscentButton.transform).rect.size}).");
         }
     }
 
+    /// <summary>
+    /// Left and right of the ticket's ascent buttons (◀ ▶ and the custom-run pencil), in the ascent
+    /// box's own space - the column the settings line up under. Falls back to right of the description.
+    /// </summary>
+    private static (float left, float right) ButtonColumn(BoardingPass bp, RectTransform parent)
+    {
+        float left = float.MaxValue, right = float.MinValue;
+        var corners = new Vector3[4];
+        foreach (var b in new[] { bp.decrementAscentButton, bp.incrementAscentButton, bp.customRunButton, bp.customOptionsButton })
+        {
+            if (b == null || !b.gameObject.activeInHierarchy) continue;
+            ((RectTransform)b.transform).GetWorldCorners(corners);
+            foreach (var c in corners)
+            {
+                float x = parent.InverseTransformPoint(c).x;
+                left = Mathf.Min(left, x);
+                right = Mathf.Max(right, x);
+            }
+        }
+        var desc = (RectTransform)bp.ascentDesc.transform;
+        float descRight = desc.localPosition.x + desc.rect.xMax;
+        if (left == float.MaxValue || right - left < 150f) { left = descRight + 14f; right = left + 240f; }
+        // Never over the description itself.
+        left = Mathf.Max(left, descRight + 8f);
+        if (right - left < 150f) right = left + 150f;
+        return (left, right);
+    }
+
     /// <summary>A faint line in the ticket's ink: across the top (horizontal) or down the middle.</summary>
-    private static void Rule(RectTransform parent, Color ink, float at, float from, float to, bool horizontal)
+    private static void Rule(RectTransform parent, Color ink, float at, float from, float to, bool horizontal, float lift)
     {
         var rule = new GameObject("Rule", typeof(RectTransform), typeof(Image));
         var rr = (RectTransform)rule.transform;
         rr.SetParent(parent, false);
         rr.anchorMin = horizontal ? new Vector2(from, at) : new Vector2(at, from);
         rr.anchorMax = horizontal ? new Vector2(to, at) : new Vector2(at, to);
-        rr.pivot = new Vector2(0.5f, horizontal ? 1f : 0.5f);
+        rr.pivot = new Vector2(0.5f, 0.5f);
         rr.sizeDelta = horizontal ? new Vector2(0f, 2f) : new Vector2(2f, 0f);
-        rr.anchoredPosition = Vector2.zero;
+        rr.anchoredPosition = new Vector2(0f, lift);
         var ri = rule.GetComponent<Image>();
         ri.color = new Color(ink.r, ink.g, ink.b, ink.a * (horizontal ? 0.25f : 0.15f));
         ri.raycastTarget = false;
     }
 
-    /// <summary>A copy of one of the ticket's texts, stretched across the cell at its top (1) or bottom (0).</summary>
-    private static TMP_Text Text(TMP_Text proto, RectTransform row, string name, float edge, float height)
+    /// <summary>A copy of one of the ticket's texts, filling the cell's height between two points across it.</summary>
+    private static TMP_Text Text(TMP_Text proto, RectTransform cell, string name, float from, float to, TextAlignmentOptions align, float low = 0f, float high = 1f)
     {
-        var t = Instantiate(proto, row, false);
+        var t = Instantiate(proto, cell, false);
         t.name = name;
         // Drop the game's own scripts on the copy (localisation would overwrite our text).
         foreach (var mb in t.GetComponents<MonoBehaviour>())
@@ -403,12 +443,12 @@ internal class TicketRelicOrder : MonoBehaviour
         }
         foreach (Transform child in t.transform) Destroy(child.gameObject);
         var r = t.rectTransform;
-        r.anchorMin = new Vector2(0f, edge);
-        r.anchorMax = new Vector2(1f, edge);
-        r.pivot = new Vector2(0.5f, edge);
-        r.sizeDelta = new Vector2(0f, height);
-        r.anchoredPosition = new Vector2(0f, edge > 0.5f ? -6f : 0f);
-        t.alignment = TextAlignmentOptions.Center;
+        r.anchorMin = new Vector2(from, low);
+        r.anchorMax = new Vector2(to, high);
+        r.pivot = new Vector2(0.5f, 0.5f);
+        r.offsetMin = r.offsetMax = Vector2.zero;
+        t.margin = Vector4.zero;
+        t.alignment = align;
         t.enableAutoSizing = false;
         t.textWrappingMode = TextWrappingModes.NoWrap;
         t.overflowMode = TextOverflowModes.Overflow;
@@ -417,20 +457,30 @@ internal class TicketRelicOrder : MonoBehaviour
         return t;
     }
 
-    /// <summary>A copy of the ticket's own ascent arrow, either side of the choice.</summary>
-    private static Button Arrow(Button proto, RectTransform cell, float side, UnityEngine.Events.UnityAction onClick)
+    /// <summary>
+    /// A copy of the ticket's own ascent arrow, small, centred at this point across the cell. It sits
+    /// in a scaled holder: the button's own animation drives its scale, so scaling it directly won't stick.
+    /// </summary>
+    private static Button Arrow(Button proto, RectTransform cell, float at, float atY, UnityEngine.Events.UnityAction onClick)
     {
-        var b = Instantiate(proto, cell, false);
-        b.name = side < 0f ? "Left" : "Right";
+        var holder = new GameObject(proto.name + " holder", typeof(RectTransform));
+        var hr = (RectTransform)holder.transform;
+        hr.SetParent(cell, false);
+        hr.anchorMin = hr.anchorMax = new Vector2(at, atY);
+        hr.pivot = new Vector2(0.5f, 0.5f);
+        var size = ((RectTransform)proto.transform).rect.size;
+        hr.sizeDelta = size;
+        hr.anchoredPosition = Vector2.zero;
+        hr.localScale = Vector3.one * (ArrowSize / Mathf.Max(1f, size.y));
+
+        var b = Instantiate(proto, hr, false);
+        b.name = proto.name;
         b.onClick = new Button.ButtonClickedEvent();
         b.onClick.AddListener(onClick);
         var r = (RectTransform)b.transform;
-        var size = ((RectTransform)proto.transform).rect.size;
-        r.anchorMin = r.anchorMax = new Vector2(0.5f, 0f);
-        r.pivot = new Vector2(0.5f, 0.5f);
+        r.anchorMin = r.anchorMax = r.pivot = new Vector2(0.5f, 0.5f);
         r.sizeDelta = size;
-        r.localScale = Vector3.one * (ArrowSize / Mathf.Max(1f, size.y));
-        r.anchoredPosition = new Vector2(side * ArrowGap, (CellHeight - CaptionHeight - 4f) * 0.5f);
+        r.anchoredPosition = Vector2.zero;
         return b;
     }
 
@@ -442,8 +492,8 @@ internal class TicketRelicOrder : MonoBehaviour
             c.Label.text = c.Value();
             c.Label.color = c.Hard() ? Blood : plain;
             bool can = c.CanChange();
-            if (c.Left != null) { c.Left.interactable = can; c.Left.gameObject.SetActive(can); }
-            if (c.Right != null) { c.Right.interactable = can; c.Right.gameObject.SetActive(can); }
+            if (c.Left != null) { c.Left.interactable = can; c.Left.transform.parent.gameObject.SetActive(can); }
+            if (c.Right != null) { c.Right.interactable = can; c.Right.transform.parent.gameObject.SetActive(can); }
         }
     }
 

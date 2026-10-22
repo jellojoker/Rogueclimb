@@ -21,6 +21,7 @@ who takes the relics.
 - **Supply drops and flares** - help falls from the sky.
 - **XP and campfire blessings** - climbing makes you stronger.
 - **The Void** - it's different down there.
+- **Run report** - at the end of a run, flip the scouting report to see what every scout did.
 
 The game won't explain much of this. That's on purpose: PEAK is about finding things out, and so
 is this mod. If you'd rather know how it all works, read on.
@@ -41,6 +42,9 @@ Everything below explains the mechanics. Numbers are beta values and may change.
 - Some trees **evolve** at a certain level (sports drink into energy drink, a balloon into a
   bunch, the rope spool into a rope cannon...). Some **fork**, and you choose a path - the
   bandage tree splits into a holy Health Pack or a dark Medkit.
+- **Food** climbs slowly: three steps of trail mix, three of granola (each granola bar also holds a
+  full trail mix and mends a little injury and glass), then **Airline Food** - the game's own
+  meal, which also heals and mends glass. Airline Food never stacks.
 - Cards always show real numbers: metres of rope, seconds of boost, how much they heal. Hovering
   an item shows its level ("Lv 2").
 - **Ancient Luggage** offers a +2 levels card and a badge card, and sometimes a finished fusion or
@@ -66,16 +70,21 @@ Everything below explains the mechanics. Numbers are beta values and may change.
 
 ### Relics (statue amulets)
 
-- Each statue amulet becomes a **relic** when you pick it up. You choose what sets it off: eating
-  food, using a healing item, or using a tool.
+- **Taking** a statue amulet raises the blood moon at once - grab it and run. It stays **unread**
+  in your pockets (it already counts as a relic) until you click it in your hand or press **L**.
+  Then you choose what sets it off: eating food, using a healing item, or using a tool.
   - **Red - Initiative:** launches you and nearby scouts into a super jump.
   - **Yellow - Ambition:** gives you and nearby scouts infinite stamina for a while.
   - **Blue - Tenacity:** heals you and makes you invincible for a moment.
   - **Green - Generosity:** a crate pick of your chosen kind earns a second pick.
-- Every time a relic fires, it adds a little **glass** (the petrification bar). Spam it and you
-  turn to stone. Each relic has a short cooldown.
-- Glass can be healed: surviving a blood moon clears some, and so do **Scout Cookies** and food
-  cooked on a **Portable Stove**.
+- Every time a relic fires on you, it adds a little **glass** (the petrification bar). Spam it and
+  you turn to stone. Each relic has a short cooldown. Feeding or bandaging a friend fires your
+  relic on both of you, and each of you pays your own glass. A friend using a rope or piton you
+  placed gets your tool relic, and only they pay.
+- A second amulet of a colour you hold teaches **another variant** (a different trigger). Learn all
+  three and that colour is **complete**: it fires without any glass.
+- Glass can be healed: surviving a blood moon clears some, and so do **Scout Cookies**, food
+  cooked on a **Portable Stove**, granola bars, **Airline Food** and the top **Radiant Health Pack**.
 - Dying drops your relics as amulets, and whoever picks one up gets that exact relic.
 - Forgot what a relic does? Pause the game and hover it in the top-left tray.
 - **Cursed Skull and Ritual Dagger** make cursed copies of relics. Copies shatter on death and
@@ -84,7 +93,8 @@ Everything below explains the mechanics. Numbers are beta values and may change.
 ### Coloured suns
 
 Each biome's sun takes the colour of that biome's statue amulet, and each sun works against its
-own relic. The **Shore** is where each sun hits hardest - that's where you learn it.
+own relic. The **Shore** is where each sun hits hardest - that's where you learn it (or in every
+biome, with the **Harsh suns** setting).
 
 - **Blue:** every hit and every kind of harm lands 1.5x harder, and healing items heal half. On
   the Shore, direct sunlight slowly turns you to glass (shade stops it).
@@ -161,6 +171,7 @@ the harder one, written in red:
   a taken card is gone, anyone takes what's left).
 - **Relics:** Shared (a relic taken from a statue is offered to everyone) / **First come** (only
   whoever takes the amulet gets one).
+- **Harsh suns:** Shore only / **Every biome** (each sun's Shore lesson follows you all the way up).
 
 Most of this can be tuned or turned off in the BepInEx config file (`rey.PeakRoguelike.cfg`).
 The host can also press **F8** in game to check which build each player has.

@@ -18,7 +18,7 @@ namespace PeakRoguelike;
 /// Design-data export: writes every item's rarity, spawn pools, weight, uses and all
 /// serialized gameplay values (actions, afflictions, components) to
 /// BepInEx/PeakRoguelike/items.json, plus icons and the crates seen in each level.
-/// Runs automatically once per game launch; F9 re-runs it.
+/// Runs automatically once per game launch (F9 used to re-run it, but F9 is the fly key: a 2.5s hitch).
 /// </summary>
 internal class ItemDump : MonoBehaviour
 {
@@ -41,15 +41,6 @@ internal class ItemDump : MonoBehaviour
         yield return new WaitForSeconds(3f);
         if (!dumpedItems) TryDumpItems();
         TryDumpCrates();
-    }
-
-    private void Update()
-    {
-        if (Keyboard.current != null && Keyboard.current.f9Key.wasPressedThisFrame)
-        {
-            TryDumpItems();
-            TryDumpCrates();
-        }
     }
 
     private void TryDumpItems()

@@ -12,7 +12,7 @@ namespace PeakRoguelike;
 /// ending, the last balloon popping, a jetpack / rocket burn ending - after at least a second on it.
 ///
 /// Placed tools belong to whoever placed them: anyone who lets go of one also gets the
-/// placer's movement relics (the placer pays their glass, the user takes theirs).
+/// placer's movement relics (the user takes the glass; the placer pays nothing - see Relics.Fire).
 /// Ropes know their creator; pitons and beanstalks are room objects, so their placers are
 /// shared as positions (Net.Placed).
 /// </summary>

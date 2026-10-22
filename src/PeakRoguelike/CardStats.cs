@@ -225,15 +225,23 @@ internal static class CardStats
 
             case TreeId.Food:
             {
-                // Each snack also gives every snack below it (Stacking).
-                var chain = new List<Item>();
-                for (int i = 1; i <= lv; i++)
-                    if (Trees.Get(TreeId.Food)?.At(i, 0) is { Grants: { } role } && Items.Find(role) is { } it) chain.Add(it);
-                float hunger = chain.Sum(i => i.GetComponents<Action_RestoreHunger>().Sum(a => a.restorationAmount));
-                float stam = chain.Sum(i => i.GetComponents<Action_GiveExtraStamina>().Sum(a => a.amount));
-                if (hunger > 0f) l.Add($"Fills {Amount.Of(hunger, "your hunger")}.");
-                if (stam > 0f) l.Add($"+{Amount.Bars(stam, "bonus stamina")}.");
-                if (lv > 1) l.Add("Includes every snack before it.");
+                // Its own share by step, plus a full trail mix inside a granola bar (Stacking); exact
+                // percentages - food steps are small, so no "sliver".
+                float share = Stats.FoodShare(p, lv);
+                float hunger = p.GetComponents<Action_RestoreHunger>().Sum(a => a.restorationAmount) * share;
+                float stam = p.GetComponents<Action_GiveExtraStamina>().Sum(a => a.amount) * share;
+                if (Stats.IsGranola(p) && Items.Find("TrailMix") is { } mix)
+                {
+                    hunger += mix.GetComponents<Action_RestoreHunger>().Sum(a => a.restorationAmount);
+                    stam += mix.GetComponents<Action_GiveExtraStamina>().Sum(a => a.amount);
+                }
+                if (hunger > 0f) l.Add($"Fills {hunger * 100f:0}% of your hunger.");
+                if (stam > 0f) l.Add($"+{stam * 100f:0}% bonus stamina.");
+                var (heal, glass) = Stats.FoodMend(p, lv);
+                if (heal > 0f) l.Add($"Heals {heal * 100f:0}% of your injury.");
+                if (glass > 0) l.Add($"Removes {glass} glass.");
+                if (Stats.IsGranola(p)) l.Add("Includes a full Trail Mix.");
+                if (Stats.IsAirlineFood(p)) l.Add("Doesn't stack.");
                 break;
             }
 
@@ -277,6 +285,7 @@ internal static class CardStats
             {
                 l.Add("Turns all of your injury into drowsiness.");
                 l.Add("Shatters your glass.");
+                if (ModConfig.TopKitHunger.Value > 0f) l.Add($"Fills {ModConfig.TopKitHunger.Value * 100f:0}% of your hunger.");
             }
             else l.Add($"Turns {Amount.Of(share, "your injury and glass")} into poison.");
             return;
@@ -287,6 +296,8 @@ internal static class CardStats
         {
             l.Add($"{Amount.Seconds(ModConfig.HolyShieldSeconds.Value)} of invincibility.");
             l.Add("A scout who passes out finds one beside them.");
+            if (ModConfig.TopKitHunger.Value > 0f) l.Add($"Fills {ModConfig.TopKitHunger.Value * 100f:0}% of your hunger.");
+            if (ModConfig.TopKitGlass.Value > 0) l.Add($"Removes {ModConfig.TopKitGlass.Value} glass.");
         }
     }
 

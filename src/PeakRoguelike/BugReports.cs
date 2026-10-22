@@ -579,8 +579,10 @@ internal static class ReportState
             }
             if (RunState.Fused.Count > 0) L("Fused: " + string.Join(", ", RunState.Fused));
             foreach (var kv in RunState.Relics)
-                L($"Relic {kv.Key}: {kv.Value.Label()}{(RunState.IsCursed(kv.Key) ? " (cursed)" : "")}{(RunState.Stacks(kv.Key) > 0 ? $" x{RunState.Stacks(kv.Key) + 1}" : "")}");
+                L($"Relic {kv.Key}: {string.Join(" + ", RunState.Variants(kv.Key).Select(t => t.Label()))}{(RunState.IsCursed(kv.Key) ? " (cursed)" : "")}"
+                    + $"{(RunState.IsComplete(kv.Key) ? " (complete)" : "")}{(RunState.Stacks(kv.Key) > 0 ? $" x{RunState.Stacks(kv.Key) + 1}" : "")}");
             if (RunState.Relics.Count == 0) L("No relics");
+            if (RunState.Unread > 0) L($"Unread amulets: {RunState.Unread}");
         });
         Part("Players", () =>
         {

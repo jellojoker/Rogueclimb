@@ -404,7 +404,7 @@ internal static class LuggagePatches
             perk.ReleaseLock();
         }
         else if (perk == null) luggage.photonView.RPC(nameof(PerkLuggage.RPC_PerkOpen), RpcTarget.All);
-        if (first < 0) Xp.Crate($"claimed from {luggage.displayName}");
+        if (first < 0) { Xp.Crate($"claimed from {luggage.displayName}"); RunReport.Crate(); }
         if (!bonus) GlobalEvents.TriggerLuggageOpened(luggage, me);
         // Host spawns the item at our hip and immediately picks it up for us
         // (if our pockets are full it drops at our feet, same as the game's own give-item path).

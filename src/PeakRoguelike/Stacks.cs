@@ -60,7 +60,8 @@ internal class Stacks : MonoBehaviourPunCallbacks
         if (prefab == null) return StackKind.None;
         if (kinds.TryGetValue(prefab.itemID, out var k)) return k;
         k = StackKind.None;
-        if (prefab is Backpack || prefab.GetComponent<Flare>()) k = StackKind.None;
+        // Airline Food is too good to carry three of: one per pocket.
+        if (prefab is Backpack || prefab.GetComponent<Flare>() || Stats.IsAirlineFood(prefab)) k = StackKind.None;
         else if (prefab.GetComponent<Glider>()) k = StackKind.Glider;
         else if (prefab.GetComponent<ClimbingSpikeComponent>() || prefab.GetComponent<RopeSpool>() || prefab.GetComponent<Lantern>()
                  || prefab.GetComponent<Action_Consume>() || prefab.GetComponent<Action_ConsumeAndSpawn>()

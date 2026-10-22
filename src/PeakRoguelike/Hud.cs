@@ -158,6 +158,8 @@ internal class Hud : MonoBehaviour
             var def = Relics.Get(kv.Key, kv.Value);
             bool cursedCopy = RunState.IsCursed(kv.Key);
             int stack = RunState.Stacks(kv.Key);
+            var variants = RunState.Variants(kv.Key);
+            bool complete = RunState.IsComplete(kv.Key);
             // A cursed copy is a darker, bruised version of the gem.
             Color c = cursedCopy ? Color.Lerp(Relics.GemColor(kv.Key), new Color(0.25f, 0.05f, 0.3f), 0.55f) : Relics.GemColor(kv.Key);
             var m = new Medallion();
@@ -165,6 +167,13 @@ internal class Hud : MonoBehaviour
             // Only shows when the relic fires (Pulse).
             m.Glow = Ui.Image(m.Rect, "Glow", UiArt.Radial(128, 0.2f, 1.6f), new Color(c.r, c.g, c.b, 0.0f));
             m.Glow.rectTransform.sizeDelta = new Vector2(150, 150);
+            // A complete colour wears a gold ring.
+            if (complete)
+            {
+                var ring = Ui.Image(m.Rect, "Complete", UiArt.Ring(128, 0.78f), Trees.Gold);
+                ring.rectTransform.sizeDelta = new Vector2(84, 84);
+                ring.raycastTarget = false;
+            }
             // The real amulet's icon; the mockup gem only if the amulet can't be found.
             if (Items.Icon(Relics.Amulet(kv.Key)) is { } icon)
             {
@@ -176,16 +185,19 @@ internal class Hud : MonoBehaviour
                 var gem = Ui.Image(m.Rect, "Gem", UiArt.Embedded($"gem_{kv.Key.ToString().ToLowerInvariant()}"), Color.white);
                 gem.rectTransform.sizeDelta = new Vector2(72, 72);
             }
-            TrayName(m.Rect, def.Name.ToUpperInvariant() + (stack > 0 ? $"  x{stack + 1}" : ""), Color.Lerp(c, Color.white, 0.55f));
+            TrayName(m.Rect, def.Name.ToUpperInvariant() + (variants.Count > 1 ? $"  +{variants.Count - 1}" : "") + (stack > 0 ? $"  x{stack + 1}" : ""),
+                complete ? Color.Lerp(Trees.Gold, Color.white, 0.3f) : Color.Lerp(c, Color.white, 0.55f));
             medallions[kv.Key] = m;
-            // The hover card says what its relic card said - a reminder, never more.
-            var foot = new List<string> { $"Fires on: {kv.Value.Label()}" };
+            // The hover card says what its relic cards said - a reminder, never more.
+            var foot = new List<string> { $"Fires on: {string.Join(", ", variants.Select(t => t.Label()))}" };
             if (stack > 0) foot.Add($"x{stack + 1}: recharges faster");
             if (cursedCopy) foot.Add("Shatters if you die");
             tips.Add((m.Rect, new Tip
             {
-                Title = def.Name, Kind = cursedCopy ? $"Cursed copy · {Relics.GemName(kv.Key)}" : Relics.GemName(kv.Key),
-                Body = def.Desc, Foot = string.Join("  ·  ", foot), Color = c,
+                Title = def.Name,
+                Kind = cursedCopy ? $"Cursed copy · {Relics.GemName(kv.Key)}" : complete ? $"{Relics.GemName(kv.Key)} · Complete" : Relics.GemName(kv.Key),
+                Body = string.Join("\n", variants.Select(t => Relics.Get(kv.Key, t).Desc)),
+                Foot = string.Join("  ·  ", foot), Color = complete ? Trees.Gold : c,
             }));
             i++;
         }
@@ -283,13 +295,13 @@ internal class Hud : MonoBehaviour
         return t;
     }
 
-    /// <summary>While the pause menu is up (the cursor is free), hovering a tray relic shows what it does.</summary>
+    /// <summary>While the pause menu or the end screen is up (the cursor is free), hovering a tray relic shows what it does.</summary>
     private void UpdateTip()
     {
         if (tipPanel == null) return;
         Tip? over = null;
         RectTransform? slot = null;
-        if (GUIManager.InPauseMenu && UnityEngine.InputSystem.Mouse.current is { } mouse)
+        if ((GUIManager.InPauseMenu || RunReportPage.Open) && UnityEngine.InputSystem.Mouse.current is { } mouse)
         {
             var pos = mouse.position.ReadValue();
             foreach (var (rect, tip) in tips)
@@ -676,7 +688,8 @@ internal class Hud : MonoBehaviour
         {
             Color c = dark ? (Color)new Color32(0x9A, 0x6B, 0xC8, 0xFF) : Relics.GemColor(waiting!.Value);
             relicGlow.color = new Color(c.r * 0.8f, c.g * 0.8f, c.b * 0.8f, 0.75f);
-            relicLabel.text = $"{(dark ? "GIFT WAITING" : "RELIC WAITING")}  <color=#{ColorUtility.ToHtmlStringRGB(Color.Lerp(c, Color.white, 0.55f))}>[{ModConfig.RelicKey.Value}]</color>";
+            string what = dark ? "GIFT WAITING" : Relics.WaitingUnread ? "RELIC UNREAD" : "RELIC WAITING";
+            relicLabel.text = $"{what}  <color=#{ColorUtility.ToHtmlStringRGB(Color.Lerp(c, Color.white, 0.55f))}>[{ModConfig.RelicKey.Value}]</color>";
         }
         relicPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight - 44f * fusionAlpha - 44f * stackAlpha);
     }

@@ -78,11 +78,8 @@ internal class Relics : MonoBehaviour
     public static string GemName(RelicGem g) => $"Relic of {g}";
 
     private static Relics? instance;
-    /// <summary>Amulets you chose to keep (by instance). Forgotten once the amulet leaves your pockets.</summary>
-    private readonly HashSet<System.Guid> declined = new();
-    private readonly HashSet<System.Guid> warnedTaken = new();
-    /// <summary>When each of my relics last fired on each scout (by actor number): the cooldown is per scout.</summary>
-    private readonly Dictionary<(RelicGem, int), float> lastTrigger = new();
+    /// <summary>When each of my relics (each variant) last fired on each scout (by actor number): the cooldown is per scout.</summary>
+    private readonly Dictionary<(RelicGem, RelicTrigger, int), float> lastTrigger = new();
     private float nextScan;
     private bool wasDead;
 
@@ -107,6 +104,8 @@ internal class Relics : MonoBehaviour
         // The Void: no relics at all - nothing binds, nothing waits to be offered.
         if (VoidRun.Active)
         {
+            unread.Clear();
+            RunState.SetUnread(0);
             laterShared.Clear();
             randomOffers.Clear();
             while (sharedOffers.Count > 0) { sharedOffers.Dequeue(); Net.SharedDone(); }
@@ -125,8 +124,25 @@ internal class Relics : MonoBehaviour
             return;
         }
 
+        // Reading a statue amulet: click with it in hand, or the relic key for the first one carried.
+        if (!ChoiceScreen.IsOpen && !me.data.dead && !me.data.passedOut)
+        {
+            ItemSlot? toRead = null;
+            if (IsStatueAmulet(me.data.currentItem) && me.input.usePrimaryWasPressed && me.refs.items.currentSelectedSlot.IsSome)
+                toRead = p.GetItemSlot(me.refs.items.currentSelectedSlot.Value);
+            else if (unread.Count > 0 && Keyboard.current != null && Keyboard.current[ModConfig.RelicKey.Value].wasPressedThisFrame)
+                toRead = StatueAmulets(p).FirstOrDefault(s => Teaches(Items.AmuletGem(s.prefab)!.Value).Count > 0);
+            if (toRead != null && !toRead.IsEmpty() && IsStatueAmulet(toRead.prefab))
+            {
+                Read(toRead);
+                return;
+            }
+        }
+
         if (Time.time < nextScan) return;
         nextScan = Time.time + 0.5f;
+        Explain(p);
+        ScanUnread(me, p);
 
         if (me.data.dead && !wasDead) { deathAt = Time.time; DropOnDeath(me); }
         // Raised by the Book of Bones after dying to a dark rite (your own skull, or someone's dagger):
@@ -156,46 +172,83 @@ internal class Relics : MonoBehaviour
         }
         else offerFlatSince = -1f;
 
-        // With all three pockets full, a picked-up item rides in your hand (tempFullSlot) - an
-        // amulet there never offered its relic until you juggled it into a pocket.
-        var amulets = Slots(p)
-            .Where(s => s != null && !s.IsEmpty() && s.prefab != null && Items.IsAmulet(s.prefab) && Items.AmuletGem(s.prefab) != null)
-            .ToList();
-        // Drop an amulet and pick it up again, and it asks again.
-        var inPockets = amulets.Select(s => s.data?.guid ?? System.Guid.Empty).ToList();
-        declined.IntersectWith(inPockets);
-        warnedTaken.IntersectWith(inPockets);
-        Explain(p);
-
-        foreach (ItemSlot slot in amulets)
+        // A fallen scout's relic: you get exactly that one, no choice, no moon.
+        foreach (ItemSlot slot in StatueAmulets(p))
         {
             RelicGem gem = Items.AmuletGem(slot.prefab)!.Value;
-            var guid = slot.data?.guid ?? System.Guid.Empty;
-            if (RunState.Relics.ContainsKey(gem) && !RunState.IsCursed(gem))
-            {
-                // Already have this relic: it stays a normal amulet. (A cursed copy can be traded up for the real one.)
-                warnedTaken.Add(guid);
-                continue;
-            }
-            // A fallen scout's relic: you get exactly that one, no choice.
-            if (RelicDrops.TryGet(gem, out var dropped))
-            {
-                Bind(slot.itemSlotID, slot.prefab.itemID, Get(gem, dropped), recovered: true);
-                return;
-            }
-            if (declined.Contains(guid)) continue;
-            // One of each colour per scout: someone else holding it doesn't stop you.
-            Offer(slot, gem, guid);
+            if (!RelicDrops.TryGet(gem, out var dropped)) continue;
+            Bind(slot.itemSlotID, slot.prefab.itemID, Get(gem, dropped), recovered: true);
             return;
         }
     }
 
-    private readonly HashSet<System.Guid> logged = new();
+    // --- unread amulets: taken (the moon rises), read later ------------------------------------
 
-    /// <summary>Log every amulet-like item that lands in your pockets, and what the relic scan makes of it.</summary>
+    /// <summary>Statue amulets in our pockets that still have something to teach us (refreshed every scan).</summary>
+    private static readonly List<RelicGem> unread = new();
+
+    /// <summary>Statue amulets in the pockets - and in the hand when the pockets are full (tempFullSlot).</summary>
+    private static List<ItemSlot> StatueAmulets(Player p) => Slots(p)
+        .Where(s => s != null && !s.IsEmpty() && s.prefab != null && IsStatueAmulet(s.prefab))
+        .ToList();
+
+    internal static bool IsStatueAmulet(Item? item) => item != null && Items.IsAmulet(item) && Items.AmuletGem(item) != null;
+
+    /// <summary>The cards an amulet of this colour still holds for us (none = we know every variant).</summary>
+    private static List<RelicDef> Teaches(RelicGem gem)
+    {
+        var all = All.Where(r => r.Gem == gem).ToList();
+        // A cursed or shared copy is traded up for the real thing: every card.
+        if (!RunState.Relics.ContainsKey(gem) || RunState.IsCursed(gem) || RunState.IsShared(gem)) return all;
+        var held = RunState.Variants(gem);
+        return all.Where(r => !held.Contains(r.Trigger)).ToList();
+    }
+
+    /// <summary>
+    /// Count the unread amulets we carry (they're relics to the moon and the hunters), and raise
+    /// the moon for any freshly taken one - once per amulet, whoever carries it after.
+    /// </summary>
+    private static void ScanUnread(Character me, Player p)
+    {
+        unread.Clear();
+        if (!me.data.dead)
+            foreach (ItemSlot slot in StatueAmulets(p))
+            {
+                RelicGem gem = Items.AmuletGem(slot.prefab)!.Value;
+                if (RelicDrops.TryGet(gem, out _) || Teaches(gem).Count == 0) continue;
+                unread.Add(gem);
+                var guid = slot.data?.guid ?? System.Guid.Empty;
+                if (Cursed(gem) && AmuletMoons.Take(guid))
+                {
+                    Plugin.Log.LogInfo($"Took the {GemName(gem)} amulet (unread) - the moon rises.");
+                    Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", gem);
+                }
+            }
+        RunState.SetUnread(unread.Count);
+    }
+
+    /// <summary>Read an amulet: its cards (the variants we don't hold yet), or it crumbles when there's nothing left.</summary>
+    private static void Read(ItemSlot slot)
+    {
+        RelicGem gem = Items.AmuletGem(slot.prefab)!.Value;
+        if (RelicDrops.TryGet(gem, out var dropped)) { Bind(slot.itemSlotID, slot.prefab.itemID, Get(gem, dropped), recovered: true); return; }
+        var options = Teaches(gem);
+        if (options.Count > 0) { Offer(slot, gem, options); return; }
+        // Every variant known: nothing left to learn.
+        Character me = Character.localCharacter;
+        bool held = me.refs.items.currentSelectedSlot.IsSome && me.refs.items.currentSelectedSlot.Value == slot.itemSlotID;
+        Player.localPlayer.EmptySlot(Optionable<byte>.Some(slot.itemSlotID));
+        if (held) me.refs.items.EquipSlot(Optionable<byte>.None);
+        Hud.Banner("THE AMULET CRUMBLES", GemName(gem), GemColor(gem));
+        Plugin.Log.LogInfo($"Read a {gem} amulet with every variant known - it crumbled.");
+    }
+
     private static IEnumerable<ItemSlot> Slots(Player p) =>
         p.tempFullSlot != null ? p.itemSlots.Append(p.tempFullSlot) : p.itemSlots;
 
+    private readonly HashSet<System.Guid> logged = new();
+
+    /// <summary>Log every amulet-like item that lands in your pockets, and what the relic scan makes of it.</summary>
     private void Explain(Player p)
     {
         foreach (var s in Slots(p))
@@ -205,10 +258,10 @@ internal class Relics : MonoBehaviour
             if (!logged.Add(guid)) continue;
             var gem = Items.AmuletGem(s.prefab);
             string verdict = !Items.IsAmulet(s.prefab) ? "not a relic amulet"
-                : RunState.Relics.ContainsKey(gem!.Value) && !RunState.IsCursed(gem.Value) ? "relic already held"
-                : RelicDrops.TryGet(gem.Value, out _) ? "recovering a dropped relic"
-                : declined.Contains(guid) ? "declined earlier"
-                : "offering the relic choice";
+                : RelicDrops.TryGet(gem!.Value, out _) ? "recovering a dropped relic"
+                : Teaches(gem.Value).Count == 0 ? "every variant known (crumbles when read)"
+                : RunState.Relics.ContainsKey(gem.Value) && !RunState.IsCursed(gem.Value) ? "unread - teaches another variant"
+                : "unread";
             Plugin.Log.LogInfo($"Amulet in pockets: {s.prefab.gameObject.name} -> {(gem?.ToString() ?? "no gem")}: {verdict}.");
         }
     }
@@ -224,19 +277,20 @@ internal class Relics : MonoBehaviour
         if (!ModConfig.RelicDrops.Value || RunState.Relics.Count == 0) return;
         // The host lays the amulets where we last stood on solid ground (not off a ledge or mid-air).
         var gems = new List<int>();
-        foreach (var kv in RunState.Relics.ToList())
+        // Every variant drops as its own amulet: a full set falls as three.
+        var dropped = RunState.AllVariants().ToList();
+        foreach (var (gem, trigger) in dropped)
         {
-            gems.Add((int)kv.Key);
-            RelicDrops.Add(kv.Key, kv.Value);
-            RunState.RemoveRelic(kv.Key);
-            Plugin.Log.LogInfo($"Dropped relic {Get(kv.Key, kv.Value).Name} on death.");
+            gems.Add((int)gem);
+            Plugin.Log.LogInfo($"Dropped relic {Get(gem, trigger).Name} on death.");
         }
+        RelicDrops.Add(dropped); // one write: the room property may not echo back between several
+        foreach (var gem in RunState.Relics.Keys.ToList()) RunState.RemoveRelic(gem);
         if (gems.Count > 0) Net.DeathDrop(gems.ToArray());
     }
 
-    private void Offer(ItemSlot slot, RelicGem gem, System.Guid guid)
+    private static void Offer(ItemSlot slot, RelicGem gem, List<RelicDef> options)
     {
-        var options = All.Where(r => r.Gem == gem).ToList();
         byte slotId = slot.itemSlotID;
         ushort amuletId = slot.prefab.itemID;
         ChoiceScreen.Show(new ScreenSpec
@@ -245,7 +299,7 @@ internal class Relics : MonoBehaviour
             Subtitle = GemName(gem),
             Warning = ModConfig.BloodMoon.Value && ModConfig.BmWarning.Value ? "The moon remembers who takes it." : "",
             Confirm = "BIND",
-            BackHint = "Keep the amulet",
+            BackHint = "Not yet",
             Cards = options.Select(o => new CardSpec
             {
                 Style = CardStyle.Relic,
@@ -258,11 +312,8 @@ internal class Relics : MonoBehaviour
             }).ToList(),
             StillValid = () => Player.localPlayer != null && !slot.IsEmpty() && slot.prefab != null && slot.prefab.itemID == amuletId,
             OnConfirm = i => Bind(slotId, amuletId, options[i], recovered: false),
-            OnBack = () =>
-            {
-                declined.Add(guid);
-            },
-            // Dropped it, got knocked out...: not a choice. It asks again next scan.
+            // Not yet: it stays unread, the click or the relic key opens it again.
+            OnBack = () => { },
             OnCancelled = () => { },
         });
     }
@@ -275,10 +326,14 @@ internal class Relics : MonoBehaviour
     private static float offerFlatSince = -1f;
 
     /// <summary>A shared relic is waiting for the relic key (the HUD pill), and its colour.</summary>
-    internal static RelicGem? Waiting => laterShared.Count > 0 ? laterShared[0] : null;
+    internal static RelicGem? Waiting => laterShared.Count > 0 ? laterShared[0] : unread.Count > 0 ? unread[0] : null;
+    /// <summary>What's waiting is a statue amulet not read yet (not a shared relic put off).</summary>
+    internal static bool WaitingUnread => laterShared.Count == 0 && unread.Count > 0;
 
     internal static void ResetOffers()
     {
+        unread.Clear();
+        AmuletMoons.Clear();
         sharedOffers.Clear();
         laterShared.Clear();
         randomOffers.Clear();
@@ -409,19 +464,30 @@ internal class Relics : MonoBehaviour
         p.EmptySlot(Optionable<byte>.Some(slotId));
         if (held) me.refs.items.EquipSlot(Optionable<byte>.None);
 
-        RunState.SetRelic(relic.Gem, relic.Trigger);
+        // A real relic of this colour already held: this is another of its variants.
+        RelicGem gem = relic.Gem;
+        bool learning = RunState.Relics.ContainsKey(gem) && !RunState.IsCursed(gem) && !RunState.IsShared(gem);
+        if (learning) RunState.AddVariant(gem, relic.Trigger);
+        else RunState.SetRelic(gem, relic.Trigger);
+        unread.Remove(gem);
+        RunState.SetUnread(unread.Count);
         if (recovered)
         {
-            RelicDrops.Take(relic.Gem);
-            Hud.Banner("RELIC RECOVERED", relic.Name, GemColor(relic.Gem));
+            RelicDrops.Take(gem, relic.Trigger);
+            Hud.Banner("RELIC RECOVERED", relic.Name, GemColor(gem));
             Plugin.Log.LogInfo($"Recovered dropped relic {relic.Name}.");
-            return;
         }
-        Hud.Banner(GemName(relic.Gem).ToUpperInvariant(), relic.Name, GemColor(relic.Gem));
-        Plugin.Log.LogInfo($"Bound relic {relic.Name}.");
-        // The price of power: a blood moon rises (or restarts at the new tier). Without blood
-        // moons it's the old minute of the Scoutmaster hunting the whole team.
-        if (Cursed(relic.Gem)) Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", relic.Gem);
+        else
+        {
+            // The moon already rose when the amulet was taken (ScanUnread): reading it is free.
+            Hud.Banner(GemName(gem).ToUpperInvariant(), relic.Name, GemColor(gem));
+            Plugin.Log.LogInfo($"Bound relic {relic.Name}{(learning ? " (another variant)" : "")}.");
+        }
+        if (learning && RunState.IsComplete(gem))
+        {
+            Hud.Banner($"{GemName(gem).ToUpperInvariant()} · COMPLETE", relic.Name, Trees.Gold);
+            Plugin.Log.LogInfo($"{GemName(gem)} complete: its triggers cost no glass.");
+        }
     }
 
     // --- triggers -----------------------------------------------------------------------
@@ -448,6 +514,7 @@ internal class Relics : MonoBehaviour
 
         try { Xp.Used(item, character); }
         catch (System.Exception e) { Plugin.Log.LogWarning($"XP use hook failed: {e.Message}"); }
+        RunReport.ItemUsed();
 
         FireConsumeRelics(item, "Consumed");
     }
@@ -664,7 +731,7 @@ internal class Relics : MonoBehaviour
 
     /// <summary>
     /// Fire my relics of this kind: on me, and/or shared onto another scout (they get the
-    /// effect and the glass on their side). I pay the glass whenever one of mine goes off.
+    /// effect and the glass on their side). I pay glass only when it goes off on me.
     /// The cooldown runs per scout, so one relic can lift a whole team in turn.
     /// </summary>
     internal static void Fire(RelicTrigger trigger, Character? other, bool onMe = true)
@@ -675,37 +742,40 @@ internal class Relics : MonoBehaviour
         int myActor = PhotonNetwork.LocalPlayer?.ActorNumber ?? -1;
         int otherActor = other != null && other != me && other.photonView?.Owner is { } o ? o.ActorNumber : 0;
 
-        foreach (var kv in RunState.Relics.ToList())
+        foreach (var (gem, variant) in RunState.AllVariants().ToList())
         {
-            if (kv.Value != trigger) continue;
-            RelicGem gem = kv.Key;
+            if (variant != trigger) continue;
             if (gem == RelicGem.Generosity) continue; // Generosity works at the crate (Relics.Generosity)
             float cooldown = Mathf.Max(0.5f, ModConfig.RelicCooldown.Value * Mathf.Pow(Mathf.Clamp(ModConfig.DaggerStackCooldown.Value, 0.1f, 1f), RunState.Stacks(gem)));
-            bool fired = false;
+            bool onSelf = false, shared = false;
 
-            if (onMe && Ready(gem, myActor, cooldown))
+            if (onMe && Ready(gem, variant, myActor, cooldown))
             {
                 // A relic always beats its sun: nothing it does is capped.
                 SunCaps.RelicFiring++;
-                try { Apply(me, gem); fired = true; }
+                try { Apply(me, gem); onSelf = true; }
                 catch (System.Exception e) { Plugin.Log.LogWarning($"Relic {gem} failed: {e.Message}"); }
                 finally { SunCaps.RelicFiring--; }
                 // Under a blood moon, a relic going off hides you from the hunters for a moment.
-                if (fired && BloodMoon.Active) Net.Veil(ModConfig.RelicVeil.Value);
+                if (onSelf && BloodMoon.Active) Net.Veil(ModConfig.RelicVeil.Value);
             }
-            if (otherActor != 0 && Ready(gem, otherActor, cooldown))
+            if (otherActor != 0 && Ready(gem, variant, otherActor, cooldown))
             {
                 Net.RelicShare(otherActor, gem);
-                fired = true;
+                shared = true;
                 Plugin.Log.LogInfo($"Our {GemName(gem)} fired on {other!.characterName}.");
             }
-            if (fired) Glass(me, gem);
+            // You pay glass for the effects you receive: a scout we shared it with pays their own
+            // (ReceiveShare), so ten scouts crossing our rope never cost us anything.
+            if (onSelf) Glass(me, gem);
+            else if (shared) Hud.Pulse(gem);
+            if (onSelf || shared) RunReport.RelicFired();
         }
     }
 
-    private static bool Ready(RelicGem gem, int actor, float cooldown)
+    private static bool Ready(RelicGem gem, RelicTrigger variant, int actor, float cooldown)
     {
-        var key = (gem, actor);
+        var key = (gem, variant, actor);
         if (instance!.lastTrigger.TryGetValue(key, out float last) && Time.time - last < cooldown) return false;
         instance.lastTrigger[key] = Time.time;
         return true;
@@ -713,7 +783,8 @@ internal class Relics : MonoBehaviour
 
     private static void Glass(Character me, RelicGem gem)
     {
-        int glass = Badges.GlassFor(ModConfig.GlassPerTrigger.Value, firingItem, firingKind);
+        // A complete colour (every variant learned) fires free.
+        int glass = RunState.IsComplete(gem) ? 0 : Badges.GlassFor(ModConfig.GlassPerTrigger.Value, firingItem, firingKind);
         if (glass > 0) me.refs.afflictions.AddPetrify(glass);
         Hud.Pulse(gem);
     }
@@ -796,63 +867,127 @@ internal class Relics : MonoBehaviour
 
 /// <summary>
 /// Relics that fell with a dead scout, shared in a room property ("Gem:Trigger;...").
-/// There's one of each colour per team, so the next amulet of that colour picked up is it.
+/// A colour can be there more than once (a scout who'd learned several of its variants drops
+/// one amulet each): the next amulet of that colour picked up is one you don't hold yet.
 /// </summary>
 internal static class RelicDrops
 {
     private const string RoomKey = "prl.drop";
 
-    private static Dictionary<RelicGem, RelicTrigger> Read()
+    private static List<(RelicGem gem, RelicTrigger trigger)> Read()
     {
-        var d = new Dictionary<RelicGem, RelicTrigger>();
+        var d = new List<(RelicGem, RelicTrigger)>();
         if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null) return d;
         if (!PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(RoomKey, out object raw) || raw is not string s) return d;
         foreach (string part in s.Split(';'))
         {
             var bits = part.Split(':');
-            if (bits.Length == 2 && System.Enum.TryParse(bits[0], out RelicGem g) && System.Enum.TryParse(bits[1], out RelicTrigger t)) d[g] = t;
+            if (bits.Length == 2 && System.Enum.TryParse(bits[0], out RelicGem g) && System.Enum.TryParse(bits[1], out RelicTrigger t)) d.Add((g, t));
         }
         return d;
     }
 
-    private static void Write(Dictionary<RelicGem, RelicTrigger> d)
+    private static void Write(List<(RelicGem gem, RelicTrigger trigger)> d)
     {
         if (!PhotonNetwork.InRoom || PhotonNetwork.CurrentRoom == null) return;
         try
         {
             PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable
             {
-                [RoomKey] = string.Join(";", d.Select(kv => $"{kv.Key}:{kv.Value}")),
+                [RoomKey] = string.Join(";", d.Select(x => $"{x.gem}:{x.trigger}")),
             });
         }
         catch (System.Exception e) { Plugin.Log.LogWarning($"Couldn't share dropped relics: {e.Message}"); }
     }
 
-    public static bool TryGet(RelicGem gem, out RelicTrigger trigger) => Read().TryGetValue(gem, out trigger);
+    /// <summary>A dropped relic of this colour we could take (one whose variant we don't hold yet).</summary>
+    public static bool TryGet(RelicGem gem, out RelicTrigger trigger)
+    {
+        var held = RunState.IsCursed(gem) ? new List<RelicTrigger>() : RunState.Variants(gem);
+        foreach (var x in Read())
+            if (x.gem == gem && !held.Contains(x.trigger)) { trigger = x.trigger; return true; }
+        trigger = default;
+        return false;
+    }
 
-    public static void Add(RelicGem gem, RelicTrigger trigger)
+    public static void Add(IEnumerable<(RelicGem gem, RelicTrigger trigger)> relics)
     {
         var d = Read();
-        d[gem] = trigger;
+        d.AddRange(relics);
         Write(d);
     }
 
-    public static void Take(RelicGem gem)
+    public static void Take(RelicGem gem, RelicTrigger trigger)
     {
         var d = Read();
-        if (d.Remove(gem)) Write(d);
+        int i = d.IndexOf((gem, trigger));
+        if (i < 0) return;
+        d.RemoveAt(i);
+        Write(d);
     }
 
     /// <summary>New run: the host wipes the list.</summary>
     public static void Clear()
     {
-        if (PhotonNetwork.IsMasterClient && Read().Count > 0) Write(new Dictionary<RelicGem, RelicTrigger>());
+        if (PhotonNetwork.IsMasterClient && Read().Count > 0) Write(new List<(RelicGem, RelicTrigger)>());
+    }
+}
+
+/// <summary>
+/// Statue amulets that have already raised their moon (a room property of item guids): an amulet
+/// raises one moon in its life, however often it's dropped, picked up again or handed on.
+/// </summary>
+internal static class AmuletMoons
+{
+    private const string RoomKey = "prl.amr";
+    // Ours before the room property echoes back.
+    private static readonly HashSet<string> local = new();
+
+    private static string Room() =>
+        PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null
+        && PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(RoomKey, out object raw) && raw is string s ? s : "";
+
+    /// <summary>True (and marked) if this amulet hasn't raised a moon yet.</summary>
+    public static bool Take(System.Guid guid)
+    {
+        if (guid == System.Guid.Empty) return false;
+        string id = guid.ToString("N");
+        string room = Room();
+        if (local.Contains(id) || room.Contains(id)) return false;
+        local.Add(id);
+        if (PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null)
+        {
+            try { PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [RoomKey] = room.Length == 0 ? id : room + "," + id }); }
+            catch (System.Exception e) { Plugin.Log.LogWarning($"Couldn't mark the amulet's moon: {e.Message}"); }
+        }
+        return true;
+    }
+
+    /// <summary>New run: forget them (the host wipes the room's list).</summary>
+    public static void Clear()
+    {
+        local.Clear();
+        if (PhotonNetwork.IsMasterClient && Room().Length > 0)
+            PhotonNetwork.CurrentRoom.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [RoomKey] = "" });
     }
 }
 
 [HarmonyPatch]
 internal static class RelicPatches
 {
+    // A statue amulet is a relic, never the game's own item: using it only opens its cards (Relics.Update).
+    [HarmonyPostfix, HarmonyPatch(typeof(Item), nameof(Item.CanUsePrimary))]
+    private static void NoAmuletUse(Item __instance, ref bool __result)
+    {
+        if (__result && ModConfig.Relics.Value && Relics.IsStatueAmulet(__instance)) __result = false;
+    }
+
+    [HarmonyPostfix, HarmonyPatch(typeof(Item), nameof(Item.CanUseSecondary))]
+    private static void NoAmuletUseSecondary(Item __instance, ref bool __result)
+    {
+        if (__result && ModConfig.Relics.Value && Relics.IsStatueAmulet(__instance)) __result = false;
+    }
+
     [HarmonyPostfix, HarmonyPatch(typeof(GlobalEvents), nameof(GlobalEvents.TriggerItemConsumed))]
     private static void ItemConsumed(Item item, Character character)
     {

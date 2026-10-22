@@ -373,6 +373,9 @@ internal class DevPanel : MonoBehaviour
         Place(t.rectTransform, 0f, cursorY, 330f, 32f);
         t.richText = true;
         t.enableWordWrapping = false;
+        t.enableAutoSizing = true;
+        t.fontSizeMin = 11f;
+        t.fontSizeMax = 17f;
         t.overflowMode = TextOverflowModes.Ellipsis;
         float x = 336f;
         Button(content!, "-", () => { minus(); Rebuild(); }, x, cursorY, 40f, 30f, ButtonColor, 20);
@@ -483,10 +486,11 @@ internal class DevPanel : MonoBehaviour
         PercentRow("Sky colour", ModConfig.SunSkyBlend);
         PercentRow("Blood moon darkness", ModConfig.BmNightDarkness);
         PercentRow("Eclipse darkness", ModConfig.BmEclipseDarkness);
-        PercentRow("Red sprint cut", ModConfig.SunRedSprintCut);
-        PercentRow("Red lunge cut", ModConfig.SunRedLungeCut);
+        // (These used to step the old RedSprintCut / RedLungeCut, unused since 0.12.25-26.)
+        PercentRow("Red sprint cut", ModConfig.SunRedSprintSpeed, cut: true);
+        PercentRow("Red lunge cut", ModConfig.SunRedLunge, cut: true);
         PercentRow("Yellow Shore drowsy per try", ModConfig.SunYellowDrowsy, 0.3f);
-        Row(Toggle("Red heavy: Shore only", ModConfig.SunRedHeavyShoreOnly));
+        Row(Toggle("Harsh suns: every biome (ticket)", ModConfig.HarshSunsEverywhere));
         Label("<color=#D9C9A3>Jackpots (next blessing / next revive)</color>", 26f);
         Row(B("Next blessing: fusion", () => { Blessing.DevJackpot = false; Hud.Toast("Next blessing: fusion jackpot", ChoiceScreen.Muted); }),
             B("Next blessing: dark", () => { Blessing.DevJackpot = true; Hud.Toast("Next blessing: dark jackpot", ChoiceScreen.Muted); }),
@@ -520,17 +524,24 @@ internal class DevPanel : MonoBehaviour
     }
 
     /// <summary>A 0-100% setting: -/+ in 10% steps, saved to the config and seen in game at once.</summary>
-    private void PercentRow(string name, BepInEx.Configuration.ConfigEntry<float> entry, float max = 1f)
+    /// <param name="cut">Show and step the setting as a cut (1 - value): a 0.7 speed reads "30%".</param>
+    private void PercentRow(string name, BepInEx.Configuration.ConfigEntry<float> entry, float max = 1f, bool cut = false)
     {
-        int pct = Mathf.RoundToInt(entry.Value * 100f);
-        var t = Ui.Text(content!, "Label", $"<b>{name}</b> {pct}%", UiArt.BodyFont, 17, ChoiceScreen.Cream, TextAlignmentOptions.Left);
-        Place(t.rectTransform, 0f, cursorY, 330f, 32f);
+        int pct = Mathf.RoundToInt((cut ? 1f - entry.Value : entry.Value) * 100f);
+        // The name shrinks to fit its own space; the value has a column of its own before the buttons.
+        var t = Ui.Text(content!, "Label", $"<b>{name}</b>", UiArt.BodyFont, 17, ChoiceScreen.Cream, TextAlignmentOptions.Left);
+        Place(t.rectTransform, 0f, cursorY, 400f, 32f);
         t.richText = true;
         t.enableWordWrapping = false;
-        float x = 336f;
+        t.enableAutoSizing = true;
+        t.fontSizeMin = 11f;
+        t.fontSizeMax = 17f;
+        var v = Ui.Text(content!, "Value", $"{pct}%", UiArt.BodyFont, 17, ChoiceScreen.Cream, TextAlignmentOptions.Right);
+        Place(v.rectTransform, 404f, cursorY, 64f, 32f);
+        float x = 478f;
         void Step(float d)
         {
-            entry.Value = Mathf.Clamp(Mathf.Round((entry.Value + d) * 10f) / 10f, 0f, max);
+            entry.Value = Mathf.Clamp(Mathf.Round((entry.Value + (cut ? -d : d)) * 10f) / 10f, 0f, max);
             Rebuild();
         }
         Button(content!, "-", () => Step(-0.1f), x, cursorY, 40f, 30f, ButtonColor, 20);

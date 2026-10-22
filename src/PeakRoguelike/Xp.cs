@@ -77,7 +77,10 @@ internal class Xp : MonoBehaviour
         Plugin.Log.LogInfo($"XP: dev +{amount:0} -> {instance.xp:0}.");
     }
 
-    private int Earned => Mathf.FloorToInt(xp / PerLevel + 0.0001f);
+    /// <summary>Levels reached this run (for the run report).</summary>
+    internal static int Level => instance == null ? 0 : instance.Earned;
+
+    private int Earned =>Mathf.FloorToInt(xp / PerLevel + 0.0001f);
     private int Pending => Mathf.Max(0, Earned - claimed);
     // The Kiln is a short climb: its climb pays more.
     private float ClimbXp => Mathf.Max(0f, ModConfig.XpClimbLevels.Value) * PerLevel

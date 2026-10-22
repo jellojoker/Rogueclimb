@@ -225,8 +225,35 @@ internal static class Stats
         return Trees.Classify(item) switch
         {
             TreeId.Bandage or TreeId.SportsDrink => (Third(lv), 1f, 1f),
+            TreeId.Food => (FoodShare(item, lv), 1f, 1f),
             _ => (1f, 1f, 1f),
         };
+    }
+
+    // --- food ----------------------------------------------------------------------------------
+
+    public static bool IsAirlineFood(Item item) => Items.Find("AirlineFood") is { } a && a.itemID == item.itemID;
+    public static bool IsGranola(Item item) => Items.Find("Granola") is { } g && g.itemID == item.itemID;
+
+    /// <summary>A snack's own step: trail mix is levels 1-3, granola 4-6 (Airline Food is just level 7).</summary>
+    public static int FoodStep(Item item, int lv) => IsAirlineFood(item) ? 3 : IsGranola(item) ? Mathf.Clamp(lv - 3, 1, 3) : Mathf.Clamp(lv, 1, 3);
+
+    /// <summary>How much of its own vanilla hunger and stamina a snack gives: 50% / 75% / 100% by step.</summary>
+    public static float FoodShare(Item item, int lv)
+    {
+        int s = FoodStep(item, lv);
+        return Ease(s <= 1 ? 0.5f : s == 2 ? 0.75f : 1f);
+    }
+
+    /// <summary>What a snack mends on top of feeding you: (injury healed, glass removed 0-100). Cooking doesn't change it.</summary>
+    public static (float heal, int glass) FoodMend(Item item, int lv)
+    {
+        if (!On) return (0f, 0);
+        if (IsAirlineFood(item)) return (Mathf.Max(0f, ModConfig.AirlineHeal.Value), Mathf.Max(0, ModConfig.AirlineGlass.Value));
+        if (!IsGranola(item)) return (0f, 0);
+        int s = FoodStep(item, lv); // 3 / 4 / 5 of the granola's 5
+        float share = (s + 2) / 5f;
+        return (Mathf.Max(0f, ModConfig.GranolaHeal.Value) * share, Mathf.RoundToInt(Mathf.Max(0, ModConfig.GranolaGlass.Value) * share));
     }
 
     /// <summary>Healing items apply at vanilla speed on every level - only the amount healed scales.</summary>
@@ -348,8 +375,7 @@ internal static class TreePatches
     [HarmonyPostfix, HarmonyPatch(typeof(Item), "Start")]
     private static void Attach(Item __instance)
     {
-        // Food-tree snacks are full-strength vanilla items: each one already *is* its level.
-        if (__instance.GetComponent<LeveledItem>() || Trees.Classify(__instance) is TreeId.None or TreeId.Food) return;
+        if (__instance.GetComponent<LeveledItem>() || Trees.Classify(__instance) is TreeId.None) return;
         __instance.gameObject.AddComponent<LeveledItem>();
     }
 
@@ -482,7 +508,7 @@ internal static class TreePatches
     {
         if (!Stats.On || item == null || SugarRush.IsMarked(item)) return (1f, 1f, 1f); // the cocktail is always full strength
         var li = item.GetComponent<LeveledItem>();
-        if (li == null || li.Tree is not (TreeId.Bandage or TreeId.SportsDrink)) return (1f, 1f, 1f);
+        if (li == null || li.Tree is not (TreeId.Bandage or TreeId.SportsDrink or TreeId.Food)) return (1f, 1f, 1f);
         var (lv, br) = Stats.For(item, li.Tree);
         return Stats.Potency(item, lv, br);
     }
@@ -502,6 +528,17 @@ internal static class TreePatches
 
     [HarmonyPostfix, HarmonyPatch(typeof(Action_ModifyStatus), nameof(Action_ModifyStatus.RunAction))]
     private static void ScaleStatusRestore(Action_ModifyStatus __instance, float __state) => __instance.changeAmount = __state;
+
+    // Snacks fill hunger by their step (the game's cooking boost is already in the amount).
+    [HarmonyPrefix, HarmonyPatch(typeof(Action_RestoreHunger), nameof(Action_RestoreHunger.RunAction))]
+    private static void ScaleHunger(Action_RestoreHunger __instance, out float __state)
+    {
+        __state = __instance.restorationAmount;
+        if (__instance.item != null) __instance.restorationAmount *= ConsumableScale(__instance.item, out _);
+    }
+
+    [HarmonyPostfix, HarmonyPatch(typeof(Action_RestoreHunger), nameof(Action_RestoreHunger.RunAction))]
+    private static void ScaleHungerRestore(Action_RestoreHunger __instance, float __state) => __instance.restorationAmount = __state;
 
     [HarmonyPrefix, HarmonyPatch(typeof(Action_GiveExtraStamina), nameof(Action_GiveExtraStamina.RunAction))]
     private static void ScaleStamina(Action_GiveExtraStamina __instance, out float __state)
@@ -551,19 +588,27 @@ internal static class TreePatches
         if (a is Affliction_FasterBoi boost) boost.drowsyOnEnd = __state[1];
     }
 
-    /// <summary>Extra effects after the local player finishes a levelled consumable (none any more: every level is its item at 33/66/100%).</summary>
-    internal static void AfterConsumed(Item item, Character consumer) { }
+    /// <summary>Extra effects after the local player finishes a levelled consumable: granola and Airline Food mend (injury and glass).</summary>
+    internal static void AfterConsumed(Item item, Character consumer)
+    {
+        if (item == null || consumer == null || !consumer.IsLocal || Trees.Classify(item) != TreeId.Food) return;
+        var (heal, glass) = Stats.FoodMend(item, Stats.For(item, TreeId.Food).level);
+        var aff = consumer.refs.afflictions;
+        if (heal > 0f) aff.SubtractStatus(CharacterAfflictions.STATUSTYPE.Injury, heal);
+        if (glass > 0 && consumer.data.petrifyAmount > 0) aff.AddPetrify(-Mathf.Min(glass, consumer.data.petrifyAmount));
+        if (heal > 0f || glass > 0) Plugin.Log.LogInfo($"{item.gameObject.name} mended {heal * 100f:0}% injury and {glass} glass.");
+    }
 }
 
 /// <summary>
 /// Evolved consumables keep the effects of everything below them in their tree: the Energy
-/// Drink still gives a full Sports Drink, Airline Food also feeds you like a Granola Bar and
-/// Trail Mix. The Sugar-Rush Cocktail is a full Energy Drink + Sports Drink + Big Lollipop.
+/// Drink still gives a full Sports Drink, a Granola Bar a full Trail Mix (Airline Food stands
+/// alone). The Sugar-Rush Cocktail is a full Energy Drink + Sports Drink + Big Lollipop.
 /// The lower items' effects are read off their prefabs, at full strength.
 /// </summary>
 internal static class Stacking
 {
-    private static readonly string[] Food = { "TrailMix", "Granola", "AirlineFood" };
+    private static readonly string[] Food = { "TrailMix", "Granola" };
     private static readonly string[] Drink = { "SportsDrink", "EnergyDrink" };
 
     internal static void Apply(Item item, Character consumer)

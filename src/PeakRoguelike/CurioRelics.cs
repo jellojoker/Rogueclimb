@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using System.Linq;
 using System.Reflection.Emit;
 using HarmonyLib;
@@ -25,7 +25,7 @@ public enum Curio { None, Bugle, Binoculars, Compass, Frisbee, BingBong }
 [HarmonyPatch]
 internal class CurioRelics : MonoBehaviour
 {
-    private const string PropKey = "prl.cr";
+    private const string PropKey = "prl.cur"; // not "prl.cr": RunState publishes crafted levels there
     private const float M = 1f / 1.6f;
 
     internal static Curio Mine { get; private set; }
@@ -606,8 +606,10 @@ internal class Marker : MonoBehaviour
         {
             Vector2 c = size / 2f, d = p - c;
             if (behind && d.sqrMagnitude < 1f) d = Vector2.down;
+            if (behind) d.y = -Mathf.Abs(d.y) - 1f; // behind reads as "turn around": bottom edge, never the top
             float k = Mathf.Min((c.x - pad) / Mathf.Max(0.001f, Mathf.Abs(d.x)), (c.y - pad) / Mathf.Max(0.001f, Mathf.Abs(d.y)));
-            p = c + d * Mathf.Min(1f, k);
+            // Behind us: always pin to the edge, or a target straight behind floats mid-screen as if ahead.
+            p = c + d * (behind ? k : Mathf.Min(1f, k));
         }
         m.box.anchoredPosition = p;
     }

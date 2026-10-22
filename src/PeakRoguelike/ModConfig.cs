@@ -39,6 +39,9 @@ internal static class ModConfig
 
     // --- item trees ----------------------------------------------------------------------
     public static ConfigEntry<float> TreePower = null!, BalloonAirControl = null!, BalloonPopJump = null!;
+    public static ConfigEntry<float> AirlineHeal = null!, GranolaHeal = null!;
+    public static ConfigEntry<int> AirlineGlass = null!, GranolaGlass = null!, TopKitGlass = null!;
+    public static ConfigEntry<float> TopKitHunger = null!;
     public static ConfigEntry<string> BalloonFlightSeconds = null!;
     public static ConfigEntry<float> BalloonRiseSpeed = null!;
     public static ConfigEntry<bool> TintItems = null!;
@@ -67,7 +70,7 @@ internal static class ModConfig
     public static ConfigEntry<float> BmMeteorRate = null!;
     public static ConfigEntry<float> BmMoonLight = null!, BmNightDarkness = null!, BmEclipseDarkness = null!, BmMeteorHitGrace = null!;
     public static ConfigEntry<float> BmMusicVolume = null!;
-    public static ConfigEntry<bool> BmMusicLoop = null!;
+    public static ConfigEntry<bool> BmMusicLoop = null!, BmRelayTornadoFromBase = null!;
     public static ConfigEntry<float> BmScoutmasterSpawnMin = null!, BmScoutmasterSpawnMax = null!, BmScoutmasterSpawnHeight = null!,
         BmScoutmasterStuck = null!, BmScoutmasterRecover = null!;
     public static ConfigEntry<float> BmZombieNear = null!;
@@ -86,11 +89,11 @@ internal static class ModConfig
     public static ConfigEntry<bool> Suns = null!, SunFlareTint = null!, SunBlueFreeze = null!, SunBlueWear = null!, SunBlueBreaks = null!;
     public static ConfigEntry<float> SunSky = null!, SunYellowDrain = null!, SunGreenHunger = null!,
         SunRedJump = null!, GenerosityShare = null!,
-        SunRedGravity = null!, SunRedSprintCut = null!, SunRedLungeCut = null!, SunYellowStumble = null!, SunGreenRainEvery = null!,
+        SunRedGravity = null!, SunYellowStumble = null!, SunGreenRainEvery = null!,
         SunSkyBlend = null!, SunLight = null!, SunBrightness = null!, SunShade = null!, SunGreenBite = null!,
         SunGreenShowerSeconds = null!, SunGreenFoodLife = null!, SunFadeSeconds = null!, MaxedTreeWeight = null!, SunscreenWeight = null!,
         SunBlueHealCap = null!, SunYellowRushCap = null!, SunGreenFoodCap = null!, SunRedMoveCap = null!;
-    public static ConfigEntry<bool> SafeZones = null!, SunRedHeavyShoreOnly = null!;
+    public static ConfigEntry<bool> SafeZones = null!, HarshSunsEverywhere = null!;
     public static ConfigEntry<float> SunRedSprintSpeed = null!, SunRedJumpHeight = null!, SunRedJetpackBurn = null!, SunRedItemPower = null!, SunRedLunge = null!, SunRedShoreJump = null!, SunBlueGlassSeconds = null!, ParasolShieldSeconds = null!;
     public static ConfigEntry<float> SummitRadius = null!, SpawnRadius = null!;
     public static ConfigEntry<int> SunGreenRainCount = null!;
@@ -135,7 +138,8 @@ internal static class ModConfig
         BmWaveLength = cfg.Bind("BloodMoon", "WaveLength", 60f, "How long a tier 1 blood moon lasts (s).");
         BmRelay = cfg.Bind("BloodMoon", "Relay", true, "The airport ticket's Blood moons setting. On = relay: the hazards take turns in the shuffled order, RelaySeconds each, every one at its hardest (the Kiln / Citadel tornado stays the small one). Off = stacked (harder): every hazard the tier brings rises together for the whole moon.");
         BmRelaySeconds = cfg.Bind("BloodMoon", "RelaySeconds", 30f, "Relay moons: how long each hazard gets. A relay moon lasts tier x this.");
-        BmRelayTornadoBack = cfg.Bind("BloodMoon", "RelayTornadoBack", 100f, "Relay moons: the tornado rises this many metres back down the mountain from the lowest scout, in plain sight (the Kiln / Citadel and the Void keep their own spots).");
+        BmRelayTornadoFromBase = cfg.Bind("BloodMoon", "RelayTornadoFromBase", true, "Relay moons: the tornado rises at the base, where the squad came into this section (like a stacked moon's), and rushes up at TornadoApproachSpeed until it's near. Off = the old way: RelayTornadoBack metres down the mountain from the lowest scout.");
+        BmRelayTornadoBack = cfg.Bind("BloodMoon", "RelayTornadoBack", 100f, "Relay moons with RelayTornadoFromBase off: the tornado rises this many metres back down the mountain from the lowest scout, in plain sight (the Kiln / Citadel and the Void keep their own spots).");
         BmZombieAhead = cfg.Bind("BloodMoon", "ZombieAhead", 8f, "Blood moon zombies rise this many metres (+-25%) ahead of their scout on the way up, a little above.");
         BmZombieLeash = cfg.Bind("BloodMoon", "ZombieLeash", 50f, "A scout this many metres from every zombie of their pack finds it rising right beside them again.");
         BmRelicAura = cfg.Bind("BloodMoon", "RelicAura", 24f, "The Scoutmaster and the tornado go after relic holders and anyone within this many metres of one (24 = vanilla's buddy distance). A holder with someone this close is 'grouped' (the tornado slows).");
@@ -274,9 +278,7 @@ internal static class ModConfig
         SunFadeSeconds = cfg.Bind("Suns", "FadeSeconds", 5f, "Seconds for a sun's colour to fade in or out.");
         SunRedJump = cfg.Bind("Suns", "RedJumpLaunch", 0.7f, "Unused since 0.12.25 (see RedJumpHeight).");
         SunRedGravity = cfg.Bind("Suns", "RedGravity", 1.6f, "Red sun on the Shore: gravity multiplier - you drop faster and land harder (jumps are launched to still reach RedShoreJumpHeight).");
-        SunRedSprintCut = cfg.Bind("Suns", "RedSprintCut", 0.6f, "Unused since 0.12.25 (see RedSprintSpeed).");
-        SunRedLungeCut = cfg.Bind("Suns", "RedLungeCut", 0.5f, "Unused since 0.12.26 (see RedLungeLength).");
-        SunRedHeavyShoreOnly = cfg.Bind("Suns", "RedHeavyShoreOnly", true, "Unused since 0.12.25 (red works the same everywhere).");
+        HarshSunsEverywhere = cfg.Bind("Suns", "HarshSunsEverywhere", false, "The airport ticket's Harsh suns setting (host). Off = Shore only: each sun's lesson (blue light turns you to glass, red gravity and low jumps, yellow drowsiness when out of stamina, a withered green crate card) happens on the Shore. On = every biome (harder).");
         SunRedSprintSpeed = cfg.Bind("Suns", "RedSprintSpeed", 0.75f, "Red sun: sprinting runs at this share of its vanilla speed (never slower than walking).");
         SunRedJumpHeight = cfg.Bind("Suns", "RedJumpHeight", 0.75f, "Unused (see RedShoreJumpHeight: off the Shore red leaves jumps alone).");
         SunRedShoreJump = cfg.Bind("Suns", "RedShoreJumpHeight", 0.5f, "Red sun on the Shore: jumps peak at this share of their vanilla height (the heavier gravity included).");
@@ -362,6 +364,12 @@ internal static class ModConfig
         RelicVeil = cfg.Bind("Relics", "RelicVeilSeconds", 5f, "Under a blood moon, a relic firing hides you from the Scoutmaster, zombies and tornado for this long (meteors still fall; 0 = off).");
 
         TreePower = cfg.Bind("ItemTrees", "PowerScale", 1f, "Scales how far below vanilla low-level items start (1 = as designed, 0 = no penalty).");
+        AirlineHeal = cfg.Bind("ItemTrees", "AirlineFoodHeal", 0.1f, "Food tree: injury Airline Food heals on top of its vanilla meal (0-1 of the bar; cooking doesn't change it).");
+        AirlineGlass = cfg.Bind("ItemTrees", "AirlineFoodGlass", 10, "Food tree: glass (0-100) Airline Food removes.");
+        GranolaHeal = cfg.Bind("ItemTrees", "GranolaHeal", 0.05f, "Food tree: injury a full Granola Bar (level 6) heals; levels 4 / 5 give 3/5 and 4/5 of it.");
+        GranolaGlass = cfg.Bind("ItemTrees", "GranolaGlass", 5, "Food tree: glass (0-100) a full Granola Bar removes; levels 4 / 5 give 3 / 4.");
+        TopKitHunger = cfg.Bind("ItemTrees", "TopKitHunger", 0.05f, "Bandage tree: hunger (0-1 of the bar) the level-6 Radiant Health Pack and Abyssal Medkit also fill.");
+        TopKitGlass = cfg.Bind("ItemTrees", "TopKitGlass", 5, "Bandage tree: glass (0-100) the level-6 Radiant Health Pack also removes (the Abyssal Medkit shatters all of it anyway).");
         BalloonFlightSeconds = cfg.Bind("ItemTrees", "BalloonFlightSeconds", "0, 2.5, 4, 6, 8, 10", "Seconds of flight per balloon level: three single-balloon levels, then three bunch levels (0 = vanilla floating). Every flight climbs at BalloonRiseSpeed: at 2 m/s that is 5 / 8 / 12 / 16 / 20m.");
         BalloonRiseSpeed = cfg.Bind("ItemTrees", "BalloonRiseSpeed", 2f, "How fast a balloon flight climbs (m/s).");
         BalloonAirControl = cfg.Bind("ItemTrees", "BalloonAirControl", 2f, "Steering multiplier while a balloon flies you.");
