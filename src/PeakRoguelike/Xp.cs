@@ -482,17 +482,6 @@ internal class Xp : MonoBehaviour
             cards.Add(Fusion.ItemCard(r, "Fusion unlocked"));
             picks.Add(() => Done(() => { Fusion.Give(r); Hud.Banner("FUSION", r.Name, ChoiceScreen.FusionGlow); }));
         }
-        // Luck from the second campfire: a finished fusion takes the last card's place.
-        if (Luck.LuckyCard is { } lucky && cards.Count > 0)
-        {
-            cards[cards.Count - 1] = Fusion.ItemCard(lucky, "A lucky find");
-            picks[picks.Count - 1] = () => Done(() =>
-            {
-                Luck.LuckyClaimed();
-                Fusion.Give(lucky);
-                Hud.Banner("FUSION", lucky.Name, ChoiceScreen.FusionGlow);
-            });
-        }
 
         bool shown = ChoiceScreen.Show(new ScreenSpec
         {
@@ -506,8 +495,7 @@ internal class Xp : MonoBehaviour
             OnCancelled = Later,
         });
         if (shown) Hud.LevelUpSound();
-        if (shown) Plugin.Log.LogInfo($"XP: level-up pick ({string.Join(", ", levels.Select(o => $"{o.Tree!.Name} {o.Level}").Concat(rolled.Select(r => r.gameObject.name)))}"
-            + (Luck.LuckyCard != null ? $" + lucky {Luck.LuckyCard.Name}" : "") + ").");
+        if (shown) Plugin.Log.LogInfo($"XP: level-up pick ({string.Join(", ", levels.Select(o => $"{o.Tree!.Name} {o.Level}").Concat(rolled.Select(r => r.gameObject.name)))}).");
         else Later();
     }
 

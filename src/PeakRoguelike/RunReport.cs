@@ -451,7 +451,7 @@ internal class RunReportPage : MonoBehaviour
 
         // Heading, then the squad's line (on every page).
         float y = 0f;
-        var head = Line(area, "RUN REPORT", 46f * u, ref y, 62f * u, FontStyles.Bold);
+        var head = Line(area, "RUN REPORT", 46f * u, ref y, 62f * u);
         head.characterSpacing = 4f;
         var far = cards.Where(x => x.card != null).Select(x => x.card!).OrderByDescending(x => x.Furthest).FirstOrDefault();
         var squad = new List<string>();
@@ -474,7 +474,7 @@ internal class RunReportPage : MonoBehaviour
         foot.anchorMax = new Vector2(1f, 0f);
         foot.pivot = new Vector2(0.5f, 0f);
         foot.sizeDelta = new Vector2(0f, footH * u);
-        counter = Text(foot, "", 22f * u, TextAlignmentOptions.Center, FontStyles.Bold);
+        counter = Text(foot, "", 22f * u, TextAlignmentOptions.Center, FontStyles.Normal);
         Ui.Stretch(counter.rectTransform);
         counter.textWrappingMode = TextWrappingModes.NoWrap;
         if (cards.Count > 1)
@@ -516,7 +516,7 @@ internal class RunReportPage : MonoBehaviour
         var rt = img.rectTransform;
         rt.anchorMin = rt.anchorMax = rt.pivot = new Vector2(at, 0.5f);
         rt.sizeDelta = new Vector2(70f * u, 44f * u);
-        var label = Text(rt, glyph, 40f * u, TextAlignmentOptions.Center, FontStyles.Bold);
+        var label = Text(rt, glyph, 40f * u, TextAlignmentOptions.Center, FontStyles.Normal);
         label.richText = false; // a lone "<" is not a tag
         Ui.Stretch(label.rectTransform);
         label.textWrappingMode = TextWrappingModes.NoWrap;
@@ -553,11 +553,11 @@ internal class RunReportPage : MonoBehaviour
         Color pc = c.refs.customization.PlayerColor;
         var strip = Ui.Image(box, "Strip", null, new Color(pc.r, pc.g, pc.b, 0.3f));
         Top(strip.rectTransform, 0f, 50f * u);
-        var name = Text(strip.rectTransform, c.characterName, 32f * u, TextAlignmentOptions.MidlineLeft, FontStyles.Bold | (c.IsLocal ? FontStyles.Underline : 0));
+        var name = Text(strip.rectTransform, c.characterName, 32f * u, TextAlignmentOptions.MidlineLeft, c.IsLocal ? FontStyles.Underline : FontStyles.Normal);
         Ui.Stretch(name.rectTransform);
         name.rectTransform.offsetMin = new Vector2(12f * u, 0f);
         name.textWrappingMode = TextWrappingModes.NoWrap;
-        var level = Text(strip.rectTransform, card == null ? "NO MOD" : $"LEVEL {card.Level}", 26f * u, TextAlignmentOptions.MidlineRight, FontStyles.Bold);
+        var level = Text(strip.rectTransform, card == null ? "NO MOD" : $"LEVEL {card.Level}", 26f * u, TextAlignmentOptions.MidlineRight, FontStyles.Normal);
         Ui.Stretch(level.rectTransform);
         level.rectTransform.offsetMax = new Vector2(-12f * u, 0f);
         level.textWrappingMode = TextWrappingModes.NoWrap;
@@ -577,7 +577,7 @@ internal class RunReportPage : MonoBehaviour
         foreach (var b in card.Badges)
             if (Badges.Icon(b) is { } bt) { var d = Badges.Get(b); icons.Add((bt, Color.white, d.Name, "Badge relic", d.Name, d.Desc)); }
 
-        float icon = 62f * u, cell = 82f * u, labelH = 18f * u, rowH = icon + labelH + 8f * u, rowTop = 60f * u;
+        float icon = 62f * u, cell = 82f * u, labelH = 28f * u, rowH = icon + labelH + 8f * u, rowTop = 60f * u;
         float width = box.rect.width > 1f ? box.rect.width : 570f * u;
         int perRow = Mathf.Max(1, Mathf.FloorToInt(width / cell));
         var shown = icons.Take(perRow * 2).ToList(); // two rows at most
@@ -595,12 +595,12 @@ internal class RunReportPage : MonoBehaviour
             pic.texture = tex;
             pic.color = tint;
             pic.raycastTarget = false;
-            var name2 = Text(slot, label.ToUpperInvariant(), 12f * u, TextAlignmentOptions.Center, FontStyles.Bold);
+            var name2 = Text(slot, label.ToUpperInvariant(), 12f * u, TextAlignmentOptions.Center, FontStyles.Normal);
             var nrt = name2.rectTransform;
             nrt.anchorMin = nrt.anchorMax = nrt.pivot = new Vector2(0.5f, 1f);
-            nrt.sizeDelta = new Vector2(cell, labelH);
+            nrt.sizeDelta = new Vector2(cell - 4f * u, labelH);
             nrt.anchoredPosition = new Vector2(0f, -icon - 2f * u);
-            name2.textWrappingMode = TextWrappingModes.NoWrap;
+            name2.textWrappingMode = TextWrappingModes.Normal;
             name2.enableAutoSizing = true;
             name2.fontSizeMin = 7f * u;
             name2.fontSizeMax = 12f * u;
@@ -610,19 +610,19 @@ internal class RunReportPage : MonoBehaviour
         float textTop = rowTop + rows * rowH + 10f * u;
 
         // Two columns: best items (and fusions) on the left, the run's counts on the right.
-        var itemLines = new List<string> { "<b>BEST ITEMS</b>" };
+        var itemLines = new List<string> { "BEST ITEMS" };
         if (card.Items.Count == 0) itemLines.Add("<alpha=#99>none");
         itemLines.AddRange(card.Items.Select(i => $"{i.name}  <alpha=#99>Lv {i.level}<alpha=#FF>"));
-        if (card.Fusions.Count > 0) { itemLines.Add(""); itemLines.Add("<b>FUSED</b>"); itemLines.AddRange(card.Fusions); }
+        if (card.Fusions.Count > 0) { itemLines.Add(""); itemLines.Add("FUSED"); itemLines.AddRange(card.Fusions); }
 
         var countLines = new List<string>
         {
-            "<b>THE CLIMB</b>",
-            $"Crates opened  <b>{card.Crates}</b>",
-            $"Items used  <b>{card.Used}</b>",
-            $"Relic fires  <b>{card.Fires}</b>",
-            $"Moons survived  <b>{card.Moons}</b>" + (card.TopTier > 0 ? $"  <alpha=#99>tier {card.TopTier}" : ""),
-            $"Peak glass  <b>{card.Glass}%</b>",
+            "THE CLIMB",
+            $"Crates opened  {card.Crates}",
+            $"Items used  {card.Used}",
+            $"Relic fires  {card.Fires}",
+            $"Moons survived  {card.Moons}" + (card.TopTier > 0 ? $"  <alpha=#99>tier {card.TopTier}" : ""),
+            $"Peak glass  {card.Glass}%",
         };
 
         float colH = box.rect.height > 1f ? box.rect.height - textTop : 200f * u;

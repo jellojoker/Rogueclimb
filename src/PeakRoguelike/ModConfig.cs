@@ -77,7 +77,7 @@ internal static class ModConfig
     public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmZombiesSoloCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
-    public static ConfigEntry<float> BmTornadoKilnWidth = null!, BmTornadoKilnPull = null!, BmTornadoKilnCatch = null!;
+    public static ConfigEntry<float> BmTornadoKilnWidth = null!, BmTornadoKilnPull = null!, BmTornadoKilnCatch = null!, BmTornadoSpawnPoint = null!;
     public static ConfigEntry<int> StoveGlass = null!;
     public static ConfigEntry<float> BmMeteorAimedEvery = null!, BmMeteorAimedEveryShared = null!, BmMeteorNearShare = null!, BmMeteorNearShareShared = null!;
     public static ConfigEntry<int> BmSurviveGlassHeal = null!;
@@ -123,7 +123,7 @@ internal static class ModConfig
     public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!,
         XpLandingXp = null!, XpLandingSpacing = null!, XpLandingCap = null!, XpLandingFloor = null!;
     public static ConfigEntry<int> XpLevelCards = null!;
-    public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckFusionChance = null!;
+    public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckCampfireFusion = null!;
     public static ConfigEntry<int> LuckLateFrom = null!;
     public static ConfigEntry<bool> LuckGuarantee = null!;
     public static ConfigEntry<Key> FlyKey = null!;
@@ -210,7 +210,7 @@ internal static class ModConfig
         LuckPullLate = cfg.Bind("Luck", "IngredientPullLate", 3f, "...and this much more often from LateFromSegment on.");
         LuckLateFrom = cfg.Bind("Luck", "LateFromSegment", 3, "Map segment where the late luck starts (0 Shore, 1 Tropics/Roots, 2 Alpine/Mesa, 3 Caldera/Gloom, 4 Kiln) - once the squad is past the third biome's campfire.");
         LuckStatueIngredientLate = cfg.Bind("Luck", "StatueIngredientLate", 0.3f, "Late luck: statue / Ancient Luggage chance of the missing ingredient (early = [Fusion] StatueIngredientChance).");
-        LuckFusionChance = cfg.Bind("Luck", "LuckyFusionChance", 0.1f, "Reaching the second biome's campfire: chance per SQUAD that a scout's next level-up offers a finished fusion (each scout rolls this divided by the squad size).");
+        LuckCampfireFusion = cfg.Bind("Luck", "CampfireFusionChance", 0.02f, "Peak campfires: chance (per scout, per campfire) that the blessing's last card is a random finished fusion. One per scout per run (~8% a run over 4 campfires).");
         LuckGuarantee = cfg.Bind("Luck", "SquadGuarantee", true, "Reaching the campfire before the Kiln (Caldera / Gloom) with no fusion made by anyone: one scout (the closest to a fusion) is offered a guaranteed one.");
         XpBarScale = cfg.Bind("Xp", "BarScale", 0.75f, "Size of the XP bar (a copy of the stamina bar).");
         XpBarX = cfg.Bind("Xp", "BarOffsetX", 0f, "Nudge the XP bar right (+) / left (-), in UI pixels.");
@@ -226,6 +226,7 @@ internal static class ModConfig
         BmTornadoSharedPull = cfg.Bind("BloodMoon", "TornadoSharedPull", 0.75f, "Moon tier 2+: its pull and spin strength as a share of vanilla (the upward lift stays vanilla).");
         BmTornadoKilnWidth = cfg.Bind("BloodMoon", "TornadoKilnWidth", 0.35f, "In the Kiln / Citadel (any tier) the tornado rises in the middle of the room at this share of the game's width.");
         BmTornadoKilnPull = cfg.Bind("BloodMoon", "TornadoKilnPull", 0.3f, "In the Kiln / Citadel: its pull and spin strength as a share of vanilla.");
+        BmTornadoSpawnPoint = cfg.Bind("BloodMoon", "TornadoSpawnPoint", 0.5f, "Where the tornado rises, between the section's starting campfire (0) and the campfire at its top (1), measured across the map and dropped to the ground below. Not in the Kiln / Void.");
         BmTornadoKilnCatch = cfg.Bind("BloodMoon", "TornadoKilnCatch", 6f, "In the Kiln / Citadel: how close (m) to its middle you must get to be caught (the game's is 10m at full width, 3.5m at the Kiln's).");
         BmMeteorAimedEvery = cfg.Bind("BloodMoon", "MeteorAimedSeconds", 2.5f, "Meteors at moon tier 1: one rock aimed at where each scout stands, about every this many seconds (it takes 4s to land - keep moving).");
         BmMeteorAimedEveryShared = cfg.Bind("BloodMoon", "MeteorAimedSecondsShared", 4.5f, "Meteors at moon tier 2+ (sharing the moon): seconds between rocks aimed at each scout.");

@@ -407,8 +407,9 @@ internal class BloodTornado : MonoBehaviour
         Biome.BiomeType biome;
         try { biome = MapHandler.CurrentMapSegment.biome; }
         catch { biome = Biome.BiomeType.Shore; }
-        if (seg is Segment.Caldera or Segment.TheKiln || biome == Biome.BiomeType.Volcano) return Look.Fire;
+        // Gloom and the Citadel share the Caldera / Kiln section numbers: their biome decides first.
         if (biome is Biome.BiomeType.Swamp or Biome.BiomeType.Temple) return Look.Gloom;
+        if (seg is Segment.Caldera or Segment.TheKiln || biome == Biome.BiomeType.Volcano) return Look.Fire;
         if (biome == Biome.BiomeType.Mesa) return Look.Sand;
         return Look.Snow;
     }
@@ -422,7 +423,7 @@ internal class BloodTornado : MonoBehaviour
         // Relay: it rises at the base too and rushes up (Speed); the old way (switch off) put it just
         // down the mountain from the squad.
         Vector3? back = BloodMoon.Relay && !kiln && !VoidRun.Active && !ModConfig.BmRelayTornadoFromBase.Value ? DownMountain(alive) : null;
-        Vector3 pos = back ?? (EntrySpot(alive) is { } entry ? Squad.GroundNear(entry, 6f, 16f, 30f) ?? entry : FarFallback(alive));
+        Vector3 pos = back ?? (kiln ? TowerMiddle(alive) ?? TowerHere(alive) : MidSpot(alive)) ?? (EntrySpot(alive) is { } entry ? Squad.GroundNear(entry, 6f, 16f, 30f) ?? entry : FarFallback(alive));
         Look look = LookHere();
         float width = kiln ? Mathf.Clamp(ModConfig.BmTornadoKilnWidth.Value, 0.1f, 3f)
             : alone ? 1f : Mathf.Clamp(ModConfig.BmTornadoSharedWidth.Value, 0.2f, 3f);
@@ -477,6 +478,61 @@ internal class BloodTornado : MonoBehaviour
             Plugin.Log.LogWarning($"Blood tornado: no entry spot: {e.Message}");
             return null;
         }
+    }
+
+    /// <summary>
+    /// Between the section's starting campfire (the crash-site fire on the Shore) and the one at its
+    /// top, measured across the map, dropped onto the ground below - the low ground of the section.
+    /// Null in the Void, without both fires, or when the ground there stands above the top fire.
+    /// </summary>
+    private static Vector3? MidSpot(List<Character> alive)
+    {
+        if (VoidRun.Active) return null;
+        try
+        {
+            var map = Zorro.Core.Singleton<MapHandler>.Instance;
+            int i = (int)MapHandler.CurrentSegmentNumber;
+            if (map == null || i >= map.segments.Length) return null;
+            Vector3? start = i > 0 ? FirePos(map.segments[i - 1].segmentCampfire) : CrashFire(map);
+            Vector3? end = FirePos(map.segments[i].segmentCampfire);
+            if (start is not { } a || end is not { } b || a.sqrMagnitude < 1f || b.sqrMagnitude < 1f)
+            {
+                Plugin.Log.LogInfo($"Blood tornado: no midpoint (start {(start != null ? "found" : "missing")}, top {(end != null ? "found" : "missing")}) - its usual spot.");
+                return null;
+            }
+            var mid = Vector3.Lerp(a, b, Mathf.Clamp01(ModConfig.BmTornadoSpawnPoint.Value));
+            var from = new Vector3(mid.x, Mathf.Max(a.y, b.y) + 100f * Squad.M, mid.z);
+            if (!Physics.Raycast(from, Vector3.down, out var hit, 800f * Squad.M, HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore))
+            {
+                Plugin.Log.LogInfo("Blood tornado: no ground at the midpoint - its usual spot.");
+                return null;
+            }
+            if (hit.point.y > b.y + 2f)
+            {
+                Plugin.Log.LogInfo($"Blood tornado: the midpoint lands on high ground ({(hit.point.y - b.y) / Squad.M:0}m above the top fire) - its usual spot.");
+                return null;
+            }
+            float near = alive.Count > 0 ? alive.Min(c => Vector3.Distance(c.Center, hit.point)) : 0f;
+            Plugin.Log.LogInfo($"Blood tornado: midpoint {Vector3.Distance(a, hit.point) / Squad.M:0}m from the starting fire, {Vector3.Distance(b, hit.point) / Squad.M:0}m from the top fire, {near / Squad.M:0}m from the nearest scout.");
+            return hit.point;
+        }
+        catch (System.Exception e)
+        {
+            Plugin.Log.LogWarning($"Blood tornado: midpoint failed: {e.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>The Shore's crash-site fire: the campfire nearest the beach spawn that isn't a section's top fire (else the spawn itself).</summary>
+    private static Vector3? CrashFire(MapHandler map)
+    {
+        if (map.segments.Length == 0 || map.segments[0].reconnectSpawnPos is not { } rs) return null;
+        var tops = map.segments.Where(s => s.segmentCampfire != null).Select(s => s.segmentCampfire.transform).ToList();
+        var fire = Object.FindObjectsByType<Campfire>(FindObjectsSortMode.None)
+            .Where(f => f != null && !tops.Any(t => f.transform.IsChildOf(t)))
+            .OrderBy(f => Vector3.Distance(f.transform.position, rs.position))
+            .FirstOrDefault();
+        return fire != null ? fire.transform.position : rs.position;
     }
 
     /// <summary>A section campfire's real spot: its Campfire piece (the object itself can sit at the origin).</summary>
@@ -648,11 +704,15 @@ internal class BloodTornado : MonoBehaviour
         if (alive.Count == 0) return;
         var low = alive.OrderBy(c => c.Center.y).First().Center;
         var from = new Vector3(transform.position.x, low.y + 0.5f, transform.position.z);
-        if ((TowerScan(from) ?? TowerScan(low + Vector3.up * 0.5f)) is { } scan)
+        // The lowest scouts room first: once theyre through the hallway into the tower, it follows them in.
+        var atScout = TowerScan(low + Vector3.up * 0.5f);
+        var scan = atScout is { } s && s.radius >= MinTowerRadius ? atScout : TowerScan(from) ?? atScout;
+        if (scan is { } sc)
         {
-            if (towerCentre == null) Plugin.Log.LogInfo($"Blood tornado (tower): middle {scan.centre}, {scan.radius * 2f / Squad.M:0}m across.");
-            towerCentre = scan.centre;
-            towerRadius = scan.radius;
+            if (towerCentre == null || Vector3.Distance(towerCentre.Value, sc.centre) > 10f * Squad.M)
+                Plugin.Log.LogInfo($"Blood tornado (tower): middle {sc.centre}, {sc.radius * 2f / Squad.M:0}m across{(atScout == null ? "" : $" (the lowest scouts room {atScout.Value.radius * 2f / Squad.M:0}m across)")}.");
+            towerCentre = sc.centre;
+            towerRadius = sc.radius;
         }
         Vector3 mid = towerCentre ?? from;
         Vector2 here = new(transform.position.x, transform.position.z);
@@ -663,6 +723,36 @@ internal class BloodTornado : MonoBehaviour
             nextRoam = Time.time + 12f;
         }
         Net.TornadoTarget(tornado.view.ViewID, new Vector3(roam.x, low.y, roam.y));
+    }
+
+    /// <summary>A room at least this wide (radius) counts as the tower, not the hallway into it.</summary>
+    private const float MinTowerRadius = 10f * Squad.M;
+
+    /// <summary>
+    /// Kiln / Citadel: the middle of the tower, wherever the squad is - straight below the summit at the
+    /// lowest scouts height, centred between the walls the rays find there. Null without a summit or walls.
+    /// </summary>
+    private static Vector3? TowerMiddle(List<Character> alive)
+    {
+        if (Squad.UpMountain(true) is not { } top) return null;
+        var low = alive.OrderBy(c => c.Center.y).First().Center;
+        var under = new Vector3(top.x, low.y + 0.5f, top.z);
+        if (TowerScan(under) is not { } scan)
+        {
+            Plugin.Log.LogInfo("Blood tornado (tower): no walls around the spot below the summit - trying the scouts room.");
+            return null;
+        }
+        Plugin.Log.LogInfo($"Blood tornado (tower): rising in the middle of the tower ({scan.radius * 2f / Squad.M:0}m across), {Vector3.Distance(scan.centre, low) / Squad.M:0}m from the lowest scout.");
+        return scan.centre;
+    }
+
+    /// <summary>Kiln / Citadel: the middle of the tower when the lowest scout is already in it (else null - it rises at the way in).</summary>
+    private static Vector3? TowerHere(List<Character> alive)
+    {
+        var low = alive.OrderBy(c => c.Center.y).First().Center;
+        var scan = TowerScan(low + Vector3.up * 0.5f);
+        Plugin.Log.LogInfo($"Blood tornado (tower): the lowest scouts room is {(scan is { } r ? $"{r.radius * 2f / Squad.M:0}m across" : "not enclosed")}.");
+        return scan is { } s && s.radius >= MinTowerRadius ? s.centre : null;
     }
 
     /// <summary>Rays out to the walls in a full circle: the middle of what they hit and its radius. Null when too few hit (not inside a tower).</summary>

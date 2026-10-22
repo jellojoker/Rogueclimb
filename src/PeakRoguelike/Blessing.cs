@@ -4,6 +4,7 @@ using System.Linq;
 using HarmonyLib;
 using Photon.Pun;
 using UnityEngine;
+using Zorro.Core;
 
 namespace PeakRoguelike;
 
@@ -45,6 +46,7 @@ internal class Blessing : MonoBehaviour
         blessedStatues.Clear();
         revivedStatues.Clear();
         firesBlessed.Clear();
+        luckyFrom = 0;
         pending = false;
         darkTaken = darkLater = false;
         darkFlat = -1f;
@@ -99,6 +101,19 @@ internal class Blessing : MonoBehaviour
 
     private static int FireId(Campfire f) => f.GetComponent<PhotonView>() is { ViewID: > 0 } v ? v.ViewID : f.GetInstanceID();
 
+    private static readonly HashSet<int> firesSkipped = new();
+
+    /// <summary>Only the campfires at the top of a biome bless (not the one by the wreck).</summary>
+    private static bool IsPeakFire(Campfire f)
+    {
+        var map = Singleton<MapHandler>.Instance;
+        if (map == null) return true;
+        foreach (var seg in map.segments)
+            if (seg.segmentCampfire != null && f.transform.IsChildOf(seg.segmentCampfire.transform)) return true;
+        if (firesSkipped.Add(FireId(f))) Plugin.Log.LogInfo($"Campfire blessing: '{f.name}' isn't at the top of a biome - no blessing.");
+        return false;
+    }
+
     /// <summary>
     /// Each scout, at each lit campfire: once on flat ground beside it for a second, the four build
     /// cards at +1 (the top one sometimes the missing fusion ingredient). Lighting the fire is the
@@ -115,7 +130,7 @@ internal class Blessing : MonoBehaviour
             fireScan = Time.time + 1f;
             litNear = FindObjectsByType<Campfire>(FindObjectsSortMode.None)
                 .FirstOrDefault(f => f != null && f.state == Campfire.FireState.Lit && !firesBlessed.Contains(FireId(f))
-                    && Vector3.Distance(f.transform.position, me.Center) <= 10f * Squad.M);
+                    && Vector3.Distance(f.transform.position, me.Center) <= 10f * Squad.M && IsPeakFire(f));
         }
         if (litNear == null || !Xp.OnFlatGround(me)) { fireFlat = -1f; return; }
         if (fireFlat < 0f) fireFlat = Time.time;
@@ -201,9 +216,23 @@ internal class Blessing : MonoBehaviour
     /// <summary>F8: the next blessing's jackpot is forced (true = dark item, false = fusion).</summary>
     internal static bool? DevJackpot;
 
+    /// <summary>The blessing BuildOptions is dealing (its seed), and the fire that dealt this run's lucky fusion (0 = none yet).</summary>
+    private static int dealing, luckyFrom;
+
+    /// <summary>Any finished fusion, except ones already in your pockets.</summary>
+    private static Recipe? RandomFusion()
+    {
+        var p = Player.localPlayer;
+        var carried = p == null ? new HashSet<ushort>()
+            : new HashSet<ushort>(p.itemSlots.Where(s => s != null && !s.IsEmpty() && s.prefab != null).Select(s => s.prefab.itemID));
+        return Fusion.Recipes.Where(r => r.Result != null && r.Unlocked() && Items.Find(r.Result) is { } made && !carried.Contains(made.itemID))
+            .OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
+    }
+
     private static bool Show(string subtitle, int source, Action onTaken, Action onBack, Func<bool>? stillValid, Source from = Source.Statue)
     {
         building = from;
+        dealing = source;
         List<Option> options;
         try { options = Seeded(source, BuildOptions); }
         finally { DevJackpot = null; }
@@ -295,11 +324,23 @@ internal class Blessing : MonoBehaviour
         if (ModConfig.Fusion.Value && list.Count > 0)
         {
             int at = Mathf.Max(0, list.FindIndex(o => o is TreeOption { Role: "Specialize" }));
-            // The campfire never hits a jackpot - steady growth only (the ingredient still can).
-            float jackpotChance = building == Source.Campfire ? 0f : Mathf.Clamp01(building == Source.Ancient ? ModConfig.AncientJackpotChance.Value : ModConfig.StatueJackpotChance.Value);
+            // The campfire's jackpot: a random fusion on the last card, once per run (the fire that
+            // dealt it keeps dealing it, so "Decide later" brings the same cards back).
+            bool fire = building == Source.Campfire;
+            float jackpotChance = Mathf.Clamp01(fire ? ModConfig.LuckCampfireFusion.Value : building == Source.Ancient ? ModConfig.AncientJackpotChance.Value : ModConfig.StatueJackpotChance.Value);
             float roll = UnityEngine.Random.value;
             Option? jackpot = null;
-            if (roll < jackpotChance || DevJackpot != null)
+            if (fire && (luckyFrom == 0 || luckyFrom == dealing))
+            {
+                if (roll < jackpotChance && RandomFusion() is { } lucky)
+                {
+                    jackpot = new GiftOption(lucky, lucky: true);
+                    at = list.Count - 1;
+                    luckyFrom = dealing;
+                }
+                Plugin.Log.LogInfo($"Blessing (Campfire): lucky fusion roll {roll:0.000} vs {jackpotChance:0.000}" + (jackpot != null ? $" -> {jackpot.Card().Title}." : "."));
+            }
+            else if (!fire && (roll < jackpotChance || DevJackpot != null))
             {
                 bool dark = DevJackpot ?? (UnityEngine.Random.value < Mathf.Clamp01(ModConfig.JackpotDarkShare.Value));
                 var fusion = Fusion.Recipes.Where(r => r.Result != null && Items.Find(r.Result) != null).OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
@@ -498,19 +539,20 @@ internal class Blessing : MonoBehaviour
         }
     }
 
-    /// <summary>The statue's jackpot: a finished fusion item, no ingredients needed.</summary>
+    /// <summary>The statue's jackpot (or a campfire's lucky find): a finished fusion item, no ingredients needed.</summary>
     private sealed class GiftOption : Option
     {
         private readonly Recipe recipe;
+        private readonly bool lucky;
 
-        public GiftOption(Recipe recipe) => this.recipe = recipe;
+        public GiftOption(Recipe recipe, bool lucky = false) { this.recipe = recipe; this.lucky = lucky; }
 
-        public override CardSpec Card() => Fusion.ItemCard(recipe, "A gift from the statue");
+        public override CardSpec Card() => Fusion.ItemCard(recipe, lucky ? "A lucky find" : "A gift from the statue");
 
         public override void Take(Action<bool> done)
         {
             Fusion.Give(recipe);
-            Hud.Banner("THE STATUE GIVES", recipe.Name, ChoiceScreen.FusionGlow);
+            Hud.Banner(lucky ? "FUSION" : "THE STATUE GIVES", recipe.Name, ChoiceScreen.FusionGlow);
             done(true);
         }
     }

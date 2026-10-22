@@ -181,6 +181,8 @@ The host can also press **F8** in game to check which build each player has.
 - Music: "It's In The Fog" by Darren Curtis (@DarrenCurtisMusic)
 - Meteor showers and the darkness of lights out: built with reference to True Final Ascent by
   CptPICHU - thank you!
+- Playtesting: yuston, Pon the wizard, sea ottar, and Kyu - thank you for all the help testing!
+- And thanks to everyone else who jumped in and tested along the way.
 
 ## AI disclosure
 

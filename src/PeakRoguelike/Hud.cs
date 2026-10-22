@@ -663,10 +663,10 @@ internal class Hud : MonoBehaviour
         UpdateRopeMeter();
 
         // Fusion prompt.
-        bool show = Fusion.Ready && !ChoiceScreen.IsOpen;
+        bool show = (Fusion.Ready || Luck.Saved) && !ChoiceScreen.IsOpen;
         fusionAlpha = Mathf.MoveTowards(fusionAlpha, show ? 1f : 0f, Time.unscaledDeltaTime * 4f);
         fusionPrompt.alpha = fusionAlpha * (0.75f + 0.25f * Mathf.Sin(now * 3f));
-        if (show) fusionLabel.text = $"FUSION READY  <color=#E2CCFF>[{ModConfig.FusionKey.Value}]</color>";
+        if (show) fusionLabel.text = $"{(Fusion.Ready ? "FUSION READY" : "THE MOUNTAIN PROVIDES")}  <color=#E2CCFF>[{ModConfig.FusionKey.Value}]</color>";
         float trayHeight = medallions.Count > 0 ? 0f : 92f;
         fusionPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight);
 

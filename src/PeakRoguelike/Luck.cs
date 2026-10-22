@@ -12,8 +12,8 @@ namespace PeakRoguelike;
 ///   ingredient pull - crates roll the one ingredient a maxed item of yours is missing more often
 ///                     (a little early on, a lot once the squad is past the third biome);
 ///   statues         - the missing-ingredient / finished-fusion odds rise at the same point;
-///   lucky fusion    - reaching the second biome's campfire, about one squad in ten finds a
-///                     finished fusion on someone's next level-up;
+///   lucky fusion    - a peak campfire's blessing sometimes turns its last card into a finished
+///                     fusion (Blessing, [Luck] CampfireFusionChance);
 ///   guarantee       - reaching the campfire before the Kiln with no fusion made by anyone, one scout (the
 ///                     closest to a fusion) is offered one. Leaving it passes it to the next scout.
 /// </summary>
@@ -26,8 +26,10 @@ internal class Luck : MonoBehaviourPunCallbacks
     private const string ScoreKey = "prl.fs";     // player: how close to a fusion
 
     private static Luck? instance;
-    /// <summary>The lucky fusion waiting on our next level-up (null = none).</summary>
-    private static Recipe? lucky;
+    /// <summary>The chosen scout saved the guarantee for later (the fusion key reopens it).</summary>
+    internal static bool Saved { get; private set; }
+    /// <summary>The fusion the guarantee offers (kept, so reopening it shows the same one).</summary>
+    private static Recipe? held;
     private float nextTick, retryAt, flatSince = -1f;
     private int lastScore = -1;
 
@@ -41,7 +43,8 @@ internal class Luck : MonoBehaviourPunCallbacks
 
     internal static void Reset()
     {
-        lucky = null;
+        Saved = false;
+        held = null;
         if (instance != null) { instance.lastScore = -1; instance.retryAt = 0f; }
         if (!PhotonNetwork.InRoom) return;
         try
@@ -146,14 +149,6 @@ internal class Luck : MonoBehaviourPunCallbacks
     /// <summary>Xp: we reached biome b's campfire.</summary>
     internal static void BiomeCleared(int b)
     {
-        if (b == (int)Segment.Tropics && ModConfig.Fusion.Value && lucky == null)
-        {
-            int squad = PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null ? Mathf.Max(1, PhotonNetwork.CurrentRoom.PlayerCount) : 1;
-            float chance = Mathf.Clamp01(ModConfig.LuckFusionChance.Value) / squad;
-            float roll = Random.value;
-            if (roll < chance) lucky = FittingFusion();
-            Plugin.Log.LogInfo($"Luck: second campfire - lucky fusion roll {roll:0.000} vs {chance:0.000}" + (lucky != null ? $" -> {lucky.Name} on the next level-up." : "."));
-        }
         // The Kiln has no campfire of its own: the guarantee comes as it starts (the Caldera / Gloom campfire).
         if (b == (int)Segment.Caldera && PhotonNetwork.InRoom)
         {
@@ -161,15 +156,6 @@ internal class Luck : MonoBehaviourPunCallbacks
             catch (System.Exception e) { Plugin.Log.LogWarning($"Luck: couldn't share the campfire: {e.Message}"); }
             Plugin.Log.LogInfo("Luck: reached the campfire before the Kiln.");
         }
-    }
-
-    /// <summary>The lucky fusion for this level-up's cards (stays until claimed).</summary>
-    internal static Recipe? LuckyCard => lucky;
-
-    internal static void LuckyClaimed()
-    {
-        Plugin.Log.LogInfo($"Luck: lucky fusion {lucky?.Name} claimed.");
-        lucky = null;
     }
 
     // --- the squad guarantee --------------------------------------------------------------------
@@ -222,15 +208,25 @@ internal class Luck : MonoBehaviourPunCallbacks
     /// <summary>The chosen scout: the offer opens once they stand on flat ground.</summary>
     private void Offer()
     {
-        if (Room(FusedKey) != null || Room(ChosenKey) is not int chosen || chosen != PhotonNetwork.LocalPlayer.ActorNumber) return;
+        if (Room(FusedKey) != null || Room(ChosenKey) is not int chosen || chosen != PhotonNetwork.LocalPlayer.ActorNumber) { Saved = false; return; }
         var me = Character.localCharacter;
-        if (me == null || ChoiceScreen.IsOpen || Time.time < retryAt || !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
-        if (flatSince < 0f) flatSince = Time.time;
-        if (Time.time - flatSince < 1f) return;
-        flatSince = -1f;
+        if (Saved)
+        {
+            // Saved for later: only the fusion key brings it back.
+            if (me == null || me.data.dead || me.data.passedOut || ChoiceScreen.IsOpen) return;
+            if (UnityEngine.InputSystem.Keyboard.current is not { } kb || !kb[ModConfig.FusionKey.Value].wasPressedThisFrame) return;
+            Saved = false;
+        }
+        else
+        {
+            if (me == null || ChoiceScreen.IsOpen || Time.time < retryAt || !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
+            if (flatSince < 0f) flatSince = Time.time;
+            if (Time.time - flatSince < 1f) return;
+            flatSince = -1f;
+        }
 
         var missing = Blessing.MissingIngredient();
-        var recipe = missing?.recipe ?? FittingFusion();
+        var recipe = missing?.recipe ?? (held ??= FittingFusion());
         if (recipe == null) { retryAt = Time.time + 30f; return; }
         Item? gift = missing is { } m ? Items.Find(m.ingredient.Gift!) : null;
         CardSpec card;
@@ -249,7 +245,8 @@ internal class Luck : MonoBehaviourPunCallbacks
             Title = "THE MOUNTAIN PROVIDES",
             Subtitle = recipe.Name,
             Confirm = "ACCEPT",
-            BackHint = "Leave it",
+            BackHint = $"Later ({ModConfig.FusionKey.Value} to reopen)",
+            Extra = "PASS ON",
             Cards = new List<CardSpec> { card },
             StillValid = () => Character.localCharacter is { } c && !c.data.dead && !c.data.passedOut,
             OnConfirm = _ =>
@@ -269,7 +266,12 @@ internal class Luck : MonoBehaviourPunCallbacks
                 }
                 Plugin.Log.LogInfo($"Luck: took the guaranteed {(gift != null ? missing!.Value.ingredient.Name + " for the " : "")}{recipe.Name}.");
             },
-            OnBack = Decline,
+            OnBack = () =>
+            {
+                Saved = true;
+                Plugin.Log.LogInfo("Luck: saved the guaranteed fusion for later.");
+            },
+            OnExtra = Decline,
             OnCancelled = () => retryAt = Time.time + 20f,
         });
         if (!shown) retryAt = Time.time + 5f;
