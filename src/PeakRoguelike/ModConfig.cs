@@ -18,6 +18,12 @@ internal static class ModConfig
     // --- fusion --------------------------------------------------------------------------
     public static ConfigEntry<Key> FusionKey = null!, StackKey = null!, RelicKey = null!;
     public static ConfigEntry<Key> DevPanelKey = null!;
+    /// <summary>"Skip" on a saved-for-later card asks "are you sure?" first (each player can turn it off).</summary>
+    public static ConfigEntry<bool> ConfirmSkip = null!;
+    /// <summary>When a statue amulet's relic cards open: when it's read (default) or the moment it's picked up (before 0.12.68).</summary>
+    public static ConfigEntry<AmuletCards> AmuletCardsWhen = null!;
+    /// <summary>Any tree item that reaches your pockets puts its tree at level 1 (level-ups offer it for the rest of the run).</summary>
+    public static ConfigEntry<bool> XpPickupsCount = null!;
     public static ConfigEntry<float> SugarRushSeconds = null!;
 
     // --- bug reports ---------------------------------------------------------------------
@@ -27,7 +33,7 @@ internal static class ModConfig
 
     // --- relics --------------------------------------------------------------------------
     public static ConfigEntry<int> GlassPerTrigger = null!;
-    public static ConfigEntry<float> RelicCooldown = null!, RelicVeil = null!, DaggerStackCooldown = null!;
+    public static ConfigEntry<float> RelicCooldown = null!, RelicVeil = null!, DaggerStackCooldown = null!, GlideLandSeconds = null!, BadgeGlassScale = null!;
     public static ConfigEntry<float> JetpackFuel = null!, FaerieBoost = null!, ShoreOtherItems = null!, StatueIngredientChance = null!, StatueJackpotChance = null!, AncientJackpotChance = null!, JackpotDarkShare = null!, ReviveDarkChance = null!;
     public static ConfigEntry<int> ChainLauncherUses = null!, RescueClawUses = null!, AntiGravUses = null!;
     public static ConfigEntry<float> MedicineRadius = null!, HolyShieldSeconds = null!, PassOutKitCooldown = null!,
@@ -52,7 +58,7 @@ internal static class ModConfig
     // --- blessings / relic risks -------------------------------------------------------------
     public static ConfigEntry<bool> Blessings = null!;
     public static ConfigEntry<bool> FlareReroll = null!, FlareSupplyDrop = null!, TimedDrops = null!, EmptyHandedPicks = null!, FindCards = null!;
-    public static ConfigEntry<float> FlareAncientChance = null!, DropClusterMetres = null!;
+    public static ConfigEntry<float> FlareAncientChance = null!, DropClusterMetres = null!, DropTrappedChance = null!;
     public static ConfigEntry<string> DropSolo = null!, DropDuo = null!, DropSmall = null!, DropBig = null!;
     public static ConfigEntry<int> DropClusterScouts = null!;
     public static ConfigEntry<bool> CurioRelics = null!, CurioWakeNotice = null!, FrisbeeHitsScouts = null!;
@@ -67,7 +73,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> BloodMoon = null!, BmDarkRites = null!, BmWarning = null!, BmRelay = null!;
     public static ConfigEntry<float> BmRelaySeconds = null!, BmRelayTornadoBack = null!, BmZombieAhead = null!, BmZombieLeash = null!;
     public static ConfigEntry<bool> BmScoutmaster = null!, BmZombies = null!, BmTornado = null!, BmGlassMeteors = null!, BmMeteors = null!;
-    public static ConfigEntry<float> BmMeteorRate = null!;
+    public static ConfigEntry<float> BmMeteorRate = null!, BmMeteorSceneryBase = null!, BmMeteorSceneryPerScout = null!, BmMeteorCoverAngle = null!;
     public static ConfigEntry<float> BmMoonLight = null!, BmNightDarkness = null!, BmEclipseDarkness = null!, BmMeteorHitGrace = null!;
     public static ConfigEntry<float> BmMusicVolume = null!;
     public static ConfigEntry<bool> BmMusicLoop = null!, BmRelayTornadoFromBase = null!;
@@ -123,6 +129,7 @@ internal static class ModConfig
     public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!,
         XpLandingXp = null!, XpLandingSpacing = null!, XpLandingCap = null!, XpLandingFloor = null!;
     public static ConfigEntry<int> XpLevelCards = null!;
+    public static ConfigEntry<float> XpCatchUp = null!, BmCloseStareDistance = null!, BmCloseStareSeconds = null!, BmCloseLungeTime = null!, BmCloseLungeCooldown = null!;
     public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckCampfireFusion = null!;
     public static ConfigEntry<int> LuckLateFrom = null!;
     public static ConfigEntry<bool> LuckGuarantee = null!;
@@ -155,6 +162,9 @@ internal static class ModConfig
         BmGlassMeteors = cfg.Bind("BloodMoon", "GlassMeteors", true, "4 relics, Gloom runs (Gloom + Citadel): a shower of purple glass - a direct hit adds glass.");
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
         BmMeteorRate = cfg.Bind("BloodMoon", "MeteorRate", 1f, "Meteors per second around each scout.");
+        BmMeteorSceneryBase = cfg.Bind("BloodMoon", "MeteorSceneryBase", 2f, "Meteor showers: harmless scenery rocks a second, crashing 30-150m from every scout (no mark, can't hit). 0 = none.");
+        BmMeteorSceneryPerScout = cfg.Bind("BloodMoon", "MeteorSceneryPerScout", 1.5f, "Meteor showers: more scenery rocks a second for each scout beyond the first out in the open.");
+        BmMeteorCoverAngle = cfg.Bind("BloodMoon", "MeteorCoverAngle", 35f, "Meteor showers: a rock blocked overhead still comes in at a slant up to this many degrees off straight down, if any such path is open - only cover on every side (a cave, a deep overhang) stops it. 0 = any roof stops it.");
         BmMoonLight = cfg.Bind("BloodMoon", "MoonLight", 1.6f, "Brightness of the red moonlight (a blood moon night is lit like a red-sun day; never darker than the vanilla moon).");
         BmNightDarkness = cfg.Bind("BloodMoon", "NightDarkness", 0.6f, "How dark a blood moon night is: 0 = the old bright red-day look (MoonLight), 1 = vanilla moonlight in red, a deep crimson sky and much darker shade. Tune live in F8 > World.");
         BmEclipseDarkness = cfg.Bind("BloodMoon", "EclipseDarkness", 0.6f, "How dark a blood eclipse (a blood moon by day) is: 0 = the old look (sun at 70%), 1 = sun at 20%, a near-black sky and much darker shade. Tune live in F8 > World.");
@@ -188,10 +198,16 @@ internal static class ModConfig
         BmStareAngle = cfg.Bind("BloodMoon", "StareAngle", 12f, "Tier 2: how close to the middle of your view (degrees) he must be to count as staring.");
         BmStareStatic = cfg.Bind("BloodMoon", "StareStatic", 0.9f, "Tier 2: how strong his static gets as your stare runs out (0 = none).");
         BmLungeTime = cfg.Bind("BloodMoon", "LungeTime", 8f, "Tier 2: how long a charge lasts before he gives up (it still counts as his one try).");
+        BmCloseStareDistance = cfg.Bind("BloodMoon", "CloseStareDistance", 8f, "Hunting: a scout this close (m) who stares straight at him while he's frozen draws a lunge.");
+        BmCloseStareSeconds = cfg.Bind("BloodMoon", "CloseStareSeconds", 2f, "Hunting: seconds of staring from up close before he lunges.");
+        BmCloseLungeTime = cfg.Bind("BloodMoon", "CloseLungeTime", 2f, "Hunting: how long a close-stare lunge lasts before he gives up.");
+        BmCloseLungeCooldown = cfg.Bind("BloodMoon", "CloseLungeCooldown", 10f, "Hunting: seconds after a close-stare lunge before staring can draw another.");
         Xp = cfg.Bind("Xp", "Enabled", true, "A gold XP bar: per biome, climbing (new height only), crates and using up crate items each fill up to 2 levels; reaching camp adds the fast-clear bonus and 100. Each level opens a crate card pick once you stand on flat ground.");
         XpBiomeMinutes = cfg.Bind("Xp", "BiomeMinutes", 20f, "The fast-clear bonus drains to nothing over this many minutes (starts when you leave camp).");
         XpClimbLevels = cfg.Bind("Xp", "ClimbLevels", 2.5f, "Levels a whole biome's climb is worth (bottom to campfire).");
-        XpLevelCards = cfg.Bind("Xp", "LevelCards", 4, "Cards on a level-up: items you carry and trees you found before this run (those come with a copy).");
+        XpLevelCards = cfg.Bind("Xp", "LevelCards", 4, "Cards on a level-up: items you carry and trees you found before this run (those come with a copy). At least one is a tree you're not carrying, when you have one.");
+        XpPickupsCount = cfg.Bind("Xp", "PickupsCount", true, "Any tree item that reaches your pockets (off the ground, from a scout) puts its tree at level 1 if it was lower, whatever level the item itself is - so level-ups keep offering it after it's gone. Off = only crate and level-up picks count.");
+        XpCatchUp = cfg.Bind("Xp", "CatchUpMultiplier", 2f, "A scout who joined after the run began earns XP this many times faster while below the lowest level of the others (1 = off).");
         XpLandingXp = cfg.Bind("Xp", "LandingXp", 125f, "Caldera / Gloom (flat biomes): XP for landing on new ground instead of climbing...");
         XpLandingSpacing = cfg.Bind("Xp", "LandingSpacing", 15f, "...at least this many metres from every spot you've landed on in that biome...");
         XpLandingCap = cfg.Bind("Xp", "LandingLevels", 3f, "...up to this many levels...");
@@ -327,7 +343,9 @@ internal static class ModConfig
 
         FusionKey = cfg.Bind("Fusion", "OpenFusionKey", Key.J, "Re-open the fusion screen after choosing 'Not now'.");
         StackKey = cfg.Bind("Storage", "StackLevelUpKey", Key.K, "Re-open the stack level-up pop-up (3 copies in one pocket) after choosing 'Later'.");
-        RelicKey = cfg.Bind("Relics", "SharedRelicKey", Key.L, "Re-open a shared relic choice after choosing 'Later'.");
+        RelicKey = cfg.Bind("Relics", "SharedRelicKey", Key.L, "Re-open anything saved for later (level-ups, relics, statue gifts...), one at a time, and read an unread amulet.");
+        ConfirmSkip = cfg.Bind("Choices", "ConfirmSkip", true, "'Skip' on a card that didn't come from a crate asks 'are you sure?' first. The pop-up's 'Don't ask again' box turns this off.");
+        AmuletCardsWhen = cfg.Bind("Relics", "AmuletCards", AmuletCards.OnRead, "When a statue amulet's relic cards open. OnRead: taking it raises the moon, its cards wait until you click it in your hand or press the relic key. OnPickup: its cards open as soon as it's in your pockets, and the moon rises when you bind it (the pre-0.12.68 way). Either way, other scouts' shared cards wait until it's bound.");
         DevPanelKey = cfg.Bind("Dev", "BuildPanelKey", Key.F8, "Show which build of the mod every player in the lobby is running.");
         BugReportKey = cfg.Bind("BugReports", "Key", Key.F7, "Save a bug report (screenshot, recent log, run state, config) on every modded player's PC. Saved in BepInEx/BugReports.");
         BugReportOnError = cfg.Bind("BugReports", "AutoOnError", true, "Save a report by itself the first time the mod hits an error in a run.");
@@ -359,6 +377,9 @@ internal static class ModConfig
         GlassPerTrigger = cfg.Bind("Relics", "GlassPerTrigger", 5, "Petrification ('glass', 0-100) added every time a relic triggers.");
         StoveGlass = cfg.Bind("Relics", "StoveFoodGlass", 5, "Glass (0-100) healed by eating food cooked on a Portable Stove (split across its bites; 0 = off).");
         RelicCooldown = cfg.Bind("Relics", "TriggerCooldown", 2f, "Seconds before the same relic can fire on the same scout again (each dagger stack shortens it, down to 0.5s).");
+        // (New key: the old GlideLandSeconds = 1 in existing configs would keep the limit on.)
+        GlideLandSeconds = cfg.Bind("Relics", "GlideRelicLandSeconds", 0f, "0 = every glide fires your relics (closing and reopening mid-air too). Above 0: after a glide fires them, the next only counts once you've stood on the ground this many seconds.");
+        BadgeGlassScale = cfg.Bind("Relics", "BadgeGlassScale", 0.5f, "Glass a badge leaves on its tools' relics (0 = free, 0.5 = half, 1 = full cost).");
         SunscreenWeight = cfg.Bind("Loot", "SunscreenWeight", 0.25f, "Crates outside the Mesa: Sunscreen's weight as a share of one tree item's (then scaled by the rarity curve - rarer early, less rare late).");
         MaxedTreeWeight = cfg.Bind("Loot", "MaxedTreeWeight", 0.25f, "Crates: a tree the rolling scout has maxed comes up this much as often (1 = no change).");
         AuraRadius = cfg.Bind("Relics", "GenerosityMealRadius", 12f, "Range (m) of the Generosity relic's meal sharing.");
@@ -391,6 +412,7 @@ internal static class ModConfig
         DropClusterScouts = cfg.Bind("Supply", "GroupDropsFrom", 5, "With at least this many scouts, every group more than GroupDistance apart gets its own supply crate (picks for that group only). Fewer scouts: one crate for the whole squad.");
         DropClusterMetres = cfg.Bind("Supply", "GroupDistance", 100f, "Supply drop groups: everyone in a group is within this many metres of everyone else in it.");
         EmptyHandedPicks = cfg.Bind("Supply", "EmptyHandedPicks", true, "Opening a supply crate with empty pockets lets you take two cards.");
+        DropTrappedChance = cfg.Bind("Supply", "TrappedChance", 0.12f, "Chance a supply crate carries the level's own crate trap (the Citadel's sleep gas). Only where the level has one; 0 = never.");
         FindCards = cfg.Bind("Systems", "FindCards", true, "Flare and Lantern show a card the first time you pick each up in a run.");
         CurioRelics = cfg.Bind("Curios", "StartingRelics", true, "Bugle, Binoculars, Compass, Frisbee and Bing Bong offer a starting relic (one per scout, never raises a blood moon).");
         CurioWakeNotice = cfg.Bind("Curios", "WakeNotice", true, "Waking at the crash site shows \"Something survived the crash\" (once per run, only while you have no starting relic).");
@@ -502,3 +524,6 @@ internal static class ModConfig
         }
     }
 }
+
+/// <summary>When a statue amulet's relic cards open (see [Relics] AmuletCards).</summary>
+internal enum AmuletCards { OnRead, OnPickup }

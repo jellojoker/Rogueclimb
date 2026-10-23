@@ -97,6 +97,8 @@ internal class Relics : MonoBehaviour
 
     private void Update()
     {
+        // The relic key reopens anything saved for later first (relics on or off), then reads an amulet.
+        if (SavedPicks.Tick()) return;
         if (!ModConfig.Relics.Value) return;
         Character me = Character.localCharacter;
         Player p = Player.localPlayer;
@@ -106,21 +108,9 @@ internal class Relics : MonoBehaviour
         {
             unread.Clear();
             RunState.SetUnread(0);
-            laterShared.Clear();
             randomOffers.Clear();
             while (sharedOffers.Count > 0) { sharedOffers.Dequeue(); Net.SharedDone(); }
             offerFlatSince = -1f;
-            return;
-        }
-
-        // The relic key reopens a shared relic left for later - anywhere, any time.
-        laterShared.RemoveAll(g => RunState.Relics.ContainsKey(g) && !RunState.IsCursed(g));
-        if (laterShared.Count > 0 && !ChoiceScreen.IsOpen && !me.data.dead && !me.data.passedOut
-            && Keyboard.current != null && Keyboard.current[ModConfig.RelicKey.Value].wasPressedThisFrame)
-        {
-            var gem = laterShared[0];
-            laterShared.RemoveAt(0);
-            OfferShared(gem, later: true);
             return;
         }
 
@@ -180,6 +170,14 @@ internal class Relics : MonoBehaviour
             Bind(slot.itemSlotID, slot.prefab.itemID, Get(gem, dropped), recovered: true);
             return;
         }
+
+        // Read on pickup: a fresh amulet's cards open as soon as it's in the pockets ("Not yet" keeps it unread).
+        if (pickupFresh is { } fresh && !fresh.IsEmpty() && IsStatueAmulet(fresh.prefab))
+        {
+            pickupOpened.Add(fresh.data?.guid ?? System.Guid.Empty);
+            pickupFresh = null;
+            Read(fresh);
+        }
     }
 
     // --- unread amulets: taken (the moon rises), read later ------------------------------------
@@ -204,13 +202,22 @@ internal class Relics : MonoBehaviour
         return all.Where(r => !held.Contains(r.Trigger)).ToList();
     }
 
+    /// <summary>Amulets read on pickup ([Relics] AmuletCards = OnPickup): the ones in our pockets that already opened their cards.</summary>
+    private static readonly HashSet<System.Guid> pickupOpened = new();
+    /// <summary>OnPickup: a freshly taken amulet whose cards open on this scan.</summary>
+    private static ItemSlot? pickupFresh;
+
     /// <summary>
     /// Count the unread amulets we carry (they're relics to the moon and the hunters), and raise
-    /// the moon for any freshly taken one - once per amulet, whoever carries it after.
+    /// the moon for any freshly taken one - once per amulet, whoever carries it after. Read on
+    /// pickup instead: its cards open at once, and the moon waits for the bind.
     /// </summary>
     private static void ScanUnread(Character me, Player p)
     {
         unread.Clear();
+        pickupFresh = null;
+        bool onPickup = ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup;
+        var held = new HashSet<System.Guid>();
         if (!me.data.dead)
             foreach (ItemSlot slot in StatueAmulets(p))
             {
@@ -218,12 +225,20 @@ internal class Relics : MonoBehaviour
                 if (RelicDrops.TryGet(gem, out _) || Teaches(gem).Count == 0) continue;
                 unread.Add(gem);
                 var guid = slot.data?.guid ?? System.Guid.Empty;
-                if (Cursed(gem) && AmuletMoons.Take(guid))
+                held.Add(guid);
+                if (onPickup)
                 {
+                    // Its cards open once; drop it and pick it up again, and they open again.
+                    if (pickupFresh == null && !pickupOpened.Contains(guid)) pickupFresh = slot;
+                }
+                else if (Cursed(gem) && AmuletMoons.Take(guid))
+                {
+                    // Taken: the moon rises now. The other scouts' shared cards wait until it's read and bound.
                     Plugin.Log.LogInfo($"Took the {GemName(gem)} amulet (unread) - the moon rises.");
-                    Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", gem);
+                    Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", gem, share: false, moon: true);
                 }
             }
+        pickupOpened.IntersectWith(held);
         RunState.SetUnread(unread.Count);
     }
 
@@ -321,21 +336,17 @@ internal class Relics : MonoBehaviour
     // --- testing: shared relic pickups ------------------------------------------------------
 
     private static readonly Queue<RelicGem> sharedOffers = new();
-    /// <summary>Shared relics closed with "Later": the relic key brings them back.</summary>
-    private static readonly List<RelicGem> laterShared = new();
     private static float offerFlatSince = -1f;
 
-    /// <summary>A shared relic is waiting for the relic key (the HUD pill), and its colour.</summary>
-    internal static RelicGem? Waiting => laterShared.Count > 0 ? laterShared[0] : unread.Count > 0 ? unread[0] : null;
-    /// <summary>What's waiting is a statue amulet not read yet (not a shared relic put off).</summary>
-    internal static bool WaitingUnread => laterShared.Count == 0 && unread.Count > 0;
+    /// <summary>An unread statue amulet waiting for the relic key (the HUD pill), and its colour.</summary>
+    internal static RelicGem? Unread => unread.Count > 0 ? unread[0] : null;
 
     internal static void ResetOffers()
     {
         unread.Clear();
         AmuletMoons.Clear();
         sharedOffers.Clear();
-        laterShared.Clear();
+        pickupOpened.Clear();
         randomOffers.Clear();
         offerFlatSince = -1f;
     }
@@ -378,7 +389,6 @@ internal class Relics : MonoBehaviour
             Subtitle = offer.subtitle,
             Warning = ModConfig.BloodMoon.Value && ModConfig.BmWarning.Value ? "The moon remembers who takes it." : "",
             Confirm = "BIND",
-            BackHint = "Not yet",
             Cards = new List<CardSpec>
             {
                 new CardSpec
@@ -401,8 +411,9 @@ internal class Relics : MonoBehaviour
                 Hud.Banner(GemName(relic.Gem).ToUpperInvariant(), relic.Name, GemColor(relic.Gem));
                 Plugin.Log.LogInfo($"{offer.title}: bound cursed {relic.Name}.");
             },
-            // There's no refusing it: it asks again.
-            OnBack = () => randomOffers.Enqueue(offer),
+            OnBack = () => SavedPicks.Save($"random:{relic.Gem}", $"{offer.title} ({relic.Name})", () => OfferRandom(offer), valid: () => !VoidRun.Active),
+            OnSkip = () => Plugin.Log.LogInfo($"{offer.title}: skipped the cursed {relic.Name}."),
+            SkipName = $"Cursed {relic.Name}",
             OnCancelled = () => randomOffers.Enqueue(offer),
         });
     }
@@ -420,7 +431,6 @@ internal class Relics : MonoBehaviour
             Subtitle = GemName(gem),
             Warning = ModConfig.BloodMoon.Value && ModConfig.BmWarning.Value ? "The moon remembers who takes it." : "",
             Confirm = "BIND",
-            BackHint = $"Later ({ModConfig.RelicKey.Value} to reopen)",
             Cards = options.Select(o => new CardSpec
             {
                 Style = CardStyle.Relic,
@@ -440,17 +450,26 @@ internal class Relics : MonoBehaviour
                 Plugin.Log.LogInfo($"Bound shared relic {relic.Name}{(later ? " (reopened)" : "")}.");
                 if (!later) Net.SharedDone();
             },
-            // "Later": the moon goes on without waiting; the relic key brings the choice back.
+            // Saved for later: the moon goes on without waiting; the relic key brings the choice back.
             OnBack = () =>
             {
-                if (!laterShared.Contains(gem)) laterShared.Add(gem);
-                Plugin.Log.LogInfo($"Shared relic {GemName(gem)} left for later.");
+                SaveShared(gem);
                 if (!later) Net.SharedDone();
             },
+            OnSkip = () =>
+            {
+                Plugin.Log.LogInfo($"Shared relic {GemName(gem)} skipped.");
+                if (!later) Net.SharedDone();
+            },
+            SkipName = $"{GemName(gem)} relic",
             // Knocked out, screen closed by the game...: not a choice. It asks again on flat ground.
-            OnCancelled = () => { if (later) laterShared.Insert(0, gem); else sharedOffers.Enqueue(gem); },
+            OnCancelled = () => { if (later) SaveShared(gem); else sharedOffers.Enqueue(gem); },
         });
     }
+
+    private void SaveShared(RelicGem gem) =>
+        SavedPicks.Save($"shared:{gem}", $"{GemName(gem)} relic", () => OfferShared(gem, later: true),
+            valid: () => !VoidRun.Active && !(RunState.Relics.ContainsKey(gem) && !RunState.IsCursed(gem)));
 
     private static void Bind(byte slotId, ushort amuletId, RelicDef relic, bool recovered)
     {
@@ -461,6 +480,7 @@ internal class Relics : MonoBehaviour
         if (slot == null || slot.IsEmpty() || slot.prefab.itemID != amuletId) return;
 
         bool held = me.refs.items.currentSelectedSlot.IsSome && me.refs.items.currentSelectedSlot.Value == slotId;
+        var guid = slot.data?.guid ?? System.Guid.Empty;
         p.EmptySlot(Optionable<byte>.Some(slotId));
         if (held) me.refs.items.EquipSlot(Optionable<byte>.None);
 
@@ -479,9 +499,12 @@ internal class Relics : MonoBehaviour
         }
         else
         {
-            // The moon already rose when the amulet was taken (ScanUnread): reading it is free.
             Hud.Banner(GemName(gem).ToUpperInvariant(), relic.Name, GemColor(gem));
-            Plugin.Log.LogInfo($"Bound relic {relic.Name}{(learning ? " (another variant)" : "")}.");
+            // Read on taking (default): the moon already rose then (ScanUnread). Read on pickup: it
+            // rises now. Either way the other scouts' shared cards open only now it's bound.
+            bool moon = Cursed(gem) && AmuletMoons.Take(guid);
+            Plugin.Log.LogInfo($"Bound relic {relic.Name}{(learning ? " (another variant)" : "")}{(moon ? " - the moon rises" : "")}.");
+            Net.RelicTaken(ModConfig.HuntSeconds.Value, me.characterName ?? "A scout", gem, share: true, moon: moon);
         }
         if (learning && RunState.IsComplete(gem))
         {

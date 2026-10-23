@@ -663,10 +663,10 @@ internal class Hud : MonoBehaviour
         UpdateRopeMeter();
 
         // Fusion prompt.
-        bool show = (Fusion.Ready || Luck.Saved) && !ChoiceScreen.IsOpen;
+        bool show = Fusion.Prompt && !ChoiceScreen.IsOpen;
         fusionAlpha = Mathf.MoveTowards(fusionAlpha, show ? 1f : 0f, Time.unscaledDeltaTime * 4f);
         fusionPrompt.alpha = fusionAlpha * (0.75f + 0.25f * Mathf.Sin(now * 3f));
-        if (show) fusionLabel.text = $"{(Fusion.Ready ? "FUSION READY" : "THE MOUNTAIN PROVIDES")}  <color=#E2CCFF>[{ModConfig.FusionKey.Value}]</color>";
+        if (show) fusionLabel.text = $"FUSION READY  <color=#E2CCFF>[{ModConfig.FusionKey.Value}]</color>";
         float trayHeight = medallions.Count > 0 ? 0f : 92f;
         fusionPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight);
 
@@ -677,18 +677,18 @@ internal class Hud : MonoBehaviour
         if (stack) stackLabel.text = $"STACK READY  <color=#FFE3A0>[{ModConfig.StackKey.Value}]</color>";
         stackPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight - 44f * fusionAlpha);
 
-        // Shared relic left for later: below the fusion and stack pills.
-        // (Or the statue's dark gift, put off - same key, the relic goes first.)
-        var waiting = Relics.Waiting;
-        bool dark = waiting == null && Blessing.DarkWaiting;
-        bool relic = (waiting != null || dark) && !ChoiceScreen.IsOpen;
+        // Picks saved for later (gold), else an unread amulet (its colour): below the fusion and stack pills.
+        // Same key for both - the saved picks go first.
+        int saved = SavedPicks.Count;
+        var unreadGem = saved == 0 ? Relics.Unread : null;
+        bool relic = (saved > 0 || unreadGem != null) && !ChoiceScreen.IsOpen;
         relicAlpha = Mathf.MoveTowards(relicAlpha, relic ? 1f : 0f, Time.unscaledDeltaTime * 4f);
         relicPrompt.alpha = relicAlpha * (0.75f + 0.25f * Mathf.Sin(now * 3f));
         if (relic)
         {
-            Color c = dark ? (Color)new Color32(0x9A, 0x6B, 0xC8, 0xFF) : Relics.GemColor(waiting!.Value);
+            Color c = saved > 0 ? ChoiceScreen.LevelGold : Relics.GemColor(unreadGem!.Value);
             relicGlow.color = new Color(c.r * 0.8f, c.g * 0.8f, c.b * 0.8f, 0.75f);
-            string what = dark ? "GIFT WAITING" : Relics.WaitingUnread ? "RELIC UNREAD" : "RELIC WAITING";
+            string what = saved > 1 ? $"{saved} SAVED" : saved == 1 ? "SAVED" : "RELIC UNREAD";
             relicLabel.text = $"{what}  <color=#{ColorUtility.ToHtmlStringRGB(Color.Lerp(c, Color.white, 0.55f))}>[{ModConfig.RelicKey.Value}]</color>";
         }
         relicPrompt.GetComponent<RectTransform>().anchoredPosition = new Vector2(30, -128 + trayHeight - 44f * fusionAlpha - 44f * stackAlpha);

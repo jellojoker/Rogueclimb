@@ -26,8 +26,10 @@ internal class Luck : MonoBehaviourPunCallbacks
     private const string ScoreKey = "prl.fs";     // player: how close to a fusion
 
     private static Luck? instance;
-    /// <summary>The chosen scout saved the guarantee for later (the fusion key reopens it).</summary>
+    /// <summary>The chosen scout saved the guarantee for later (the relic key reopens it - SavedPicks).</summary>
     internal static bool Saved { get; private set; }
+    /// <summary>The relic key asked for it back: it opens on the next tick, wherever we stand.</summary>
+    private static bool reopen;
     /// <summary>The fusion the guarantee offers (kept, so reopening it shows the same one).</summary>
     private static Recipe? held;
     private float nextTick, retryAt, flatSince = -1f;
@@ -43,7 +45,7 @@ internal class Luck : MonoBehaviourPunCallbacks
 
     internal static void Reset()
     {
-        Saved = false;
+        Saved = reopen = false;
         held = null;
         if (instance != null) { instance.lastScore = -1; instance.retryAt = 0f; }
         if (!PhotonNetwork.InRoom) return;
@@ -212,9 +214,9 @@ internal class Luck : MonoBehaviourPunCallbacks
         var me = Character.localCharacter;
         if (Saved)
         {
-            // Saved for later: only the fusion key brings it back.
-            if (me == null || me.data.dead || me.data.passedOut || ChoiceScreen.IsOpen) return;
-            if (UnityEngine.InputSystem.Keyboard.current is not { } kb || !kb[ModConfig.FusionKey.Value].wasPressedThisFrame) return;
+            // Saved for later: only the relic key brings it back (SavedPicks sets reopen).
+            if (!reopen || me == null || me.data.dead || me.data.passedOut || ChoiceScreen.IsOpen) return;
+            reopen = false;
             Saved = false;
         }
         else
@@ -245,8 +247,6 @@ internal class Luck : MonoBehaviourPunCallbacks
             Title = "THE MOUNTAIN PROVIDES",
             Subtitle = recipe.Name,
             Confirm = "ACCEPT",
-            BackHint = $"Later ({ModConfig.FusionKey.Value} to reopen)",
-            Extra = "PASS ON",
             Cards = new List<CardSpec> { card },
             StillValid = () => Character.localCharacter is { } c && !c.data.dead && !c.data.passedOut,
             OnConfirm = _ =>
@@ -269,9 +269,11 @@ internal class Luck : MonoBehaviourPunCallbacks
             OnBack = () =>
             {
                 Saved = true;
-                Plugin.Log.LogInfo("Luck: saved the guaranteed fusion for later.");
+                SavedPicks.Save("luck", "The Mountain Provides", () => reopen = true, valid: () => Saved);
             },
-            OnExtra = Decline,
+            // Skip passes it on to another scout (it used to be "Pass on").
+            OnSkip = Decline,
+            SkipName = recipe.Name,
             OnCancelled = () => retryAt = Time.time + 20f,
         });
         if (!shown) retryAt = Time.time + 5f;

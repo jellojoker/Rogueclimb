@@ -95,14 +95,19 @@ internal class Stacks : MonoBehaviourPunCallbacks
     // --- the green sun: nothing new joins a stack ------------------------------------------------
 
     /// <summary>
-    /// The green sun is on and this player doesn't carry Generosity: nothing new stacks. Safe ground
-    /// doesn't spare it (picking things up at a campfire would dodge it).
+    /// The green sun is on and this player doesn't carry Generosity: nothing new stacks. Sunscreen and
+    /// an open parasol with shade left spare it, as they do every sun. Safe ground doesn't (picking
+    /// things up at a campfire would dodge it).
     /// </summary>
     internal static bool GreenBlocks(Player? p)
     {
         if (p == null || !ModConfig.Suns.Value || !ModConfig.SunGreenNoStack.Value || Suns.Current != RelicGem.Generosity) return false;
         var owner = p.photonView != null ? p.photonView.Owner : null;
-        return !(ModConfig.Relics.Value && owner != null && RunState.RelicsOf(owner).Any(r => r.gem == RelicGem.Generosity));
+        if (ModConfig.Relics.Value && owner != null && RunState.RelicsOf(owner).Any(r => r.gem == RelicGem.Generosity)) return false;
+        Character? c = null;
+        try { c = p.character; }
+        catch { /* no character yet */ }
+        return !(c != null && (c.data.wearingSunscreen || Suns.ParasolShade(c)));
     }
 
     private bool wasGreen;
@@ -381,6 +386,41 @@ internal class Stacks : MonoBehaviourPunCallbacks
         hammering = null;
         try { return !Spend(h.prefab, h.data, h.prefab, "hammered in"); }
         catch { return true; }
+    }
+
+    private static byte? placing;
+    private static bool placedOne;
+
+    /// <summary>Placed things (Scout Cannon, flag, effigy): building one from a stack keeps the pocket.</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(Constructable), nameof(Constructable.FinishConstruction))]
+    private static void PlaceStart(Constructable __instance)
+    {
+        placing = null;
+        placedOne = false;
+        var me = Character.localCharacter;
+        if (!On || me == null || me.data.currentItem != __instance.item || me.refs.items.currentSelectedSlot.IsNone) return;
+        placing = me.refs.items.currentSelectedSlot.Value;
+    }
+
+    [HarmonyFinalizer, HarmonyPatch(typeof(Constructable), nameof(Constructable.FinishConstruction))]
+    private static void PlaceEnd()
+    {
+        var slot = placing;
+        placing = null;
+        if (slot == null || !placedOne) return;
+        placedOne = false;
+        if (Character.localCharacter is { } me) instance?.StartCoroutine(Reequip(me, slot.Value));
+    }
+
+    [HarmonyPrefix, HarmonyPatch(typeof(Player), nameof(Player.EmptySlot))]
+    private static bool KeepPlaced(Player __instance, Optionable<byte> slot)
+    {
+        if (placing is not { } p || slot.IsNone || slot.Value != p || __instance != Player.localPlayer) return true;
+        var s = __instance.GetItemSlot(p);
+        if (s == null || s.IsEmpty() || s.prefab == null) return true;
+        try { placedOne = Spend(s.prefab, s.data, null, "placed"); }
+        catch { placedOne = false; }
+        return !placedOne;
     }
 
     /// <summary>Rope spools: running out of rope with spools left starts the next one.</summary>

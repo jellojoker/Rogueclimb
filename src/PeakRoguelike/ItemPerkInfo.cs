@@ -421,7 +421,35 @@ internal static class Offers
         if (list.Count <= 1) return list;
         int Left(Offer o) => o.Tree!.MaxFor(o.Branch) - (o.Level - 1);
         var first = (carried > 0 ? list.Take(carried) : list).OrderBy(Left).ThenBy(_ => Random.value).First();
-        return new[] { first }.Concat(list.Where(o => o != first).OrderBy(_ => Random.value).Take(cards - 1)).ToList();
+        var picked = new List<Offer> { first };
+        // At least one tree you're not carrying (when you have one): the one you've levelled furthest.
+        if (cards >= 2 && !first.Fresh && list.Where(o => o.Fresh).OrderByDescending(o => o.Level).ThenBy(_ => Random.value).FirstOrDefault() is { } past)
+            picked.Add(past);
+        picked.AddRange(list.Where(o => !picked.Contains(o)).OrderBy(_ => Random.value).Take(cards - picked.Count));
+        return picked;
+    }
+
+    private static float nextPickupScan;
+
+    /// <summary>
+    /// [Xp] PickupsCount: any tree item in your pockets puts its tree at level 1 if it was lower -
+    /// whatever level the item itself is (a max-level Airline Food still starts the food tree at 1).
+    /// Then level-ups keep offering that tree after the item is gone.
+    /// </summary>
+    internal static void NotePickups()
+    {
+        if (!ModConfig.Leveling.Value || !ModConfig.XpPickupsCount.Value || Time.time < nextPickupScan) return;
+        nextPickupScan = Time.time + 0.5f;
+        var p = Player.localPlayer;
+        if (p == null || GameUtils.instance == null || GameUtils.instance.m_inAirport) return;
+        foreach (var s in p.itemSlots.Append(p.tempFullSlot))
+        {
+            if (s == null || s.IsEmpty() || s.prefab == null || SugarRush.IsMarked(s.data)) continue;
+            var tree = Trees.Get(Trees.Classify(s.prefab));
+            if (tree == null || RunState.Level(tree.Id) >= 1) continue;
+            RunState.SetLevel(tree.Id, 1, 0);
+            Plugin.Log.LogInfo($"Found {tree.Name} ({s.prefab.gameObject.name}): its tree starts at level 1.");
+        }
     }
 
     /// <summary>
@@ -550,11 +578,13 @@ internal static class CrateCards
             card.Body = $"Your {Stacks.Limit} {tree.Name.ToLowerInvariant()}s and this one become one, level {o.Level}.\n"
                 + string.Join("  or  ", Offers.Paths(tree, o.Level).Select(x => x.Name)) + " - choose on claim.";
             card.Footer = $"{tree.Name}{Dot}trade up{Arrow}level {o.Level}";
+            card.TradeUp = true;
             return card;
         }
         var trade = ForStack(o);
         trade.Title = $"Trade up: {trade.Title}";
         trade.Footer = $"{o.Tree!.Name}{Dot}your {Stacks.Limit} + this{Arrow}level {o.Level}";
+        trade.TradeUp = true;
         return trade;
     }
 

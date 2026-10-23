@@ -62,7 +62,13 @@ internal class SupplyDrop : IPunPrefabPool
         }
         var lug = go.GetComponent<Luggage>();
         lug.state = Luggage.LuggageState.Closed;
-        if (lug.activateOnOpen != null) lug.activateOnOpen.SetActive(false);
+        // Whatever the copied crate set off when opened (the Citadel's sleep gas) stays behind:
+        // a trapped drop gets its own gas when it arrives (SkyDrop.OnPhotonInstantiate).
+        if (lug.activateOnOpen != null)
+        {
+            if (lug.activateOnOpen.transform.IsChildOf(go.transform)) Object.Destroy(lug.activateOnOpen);
+            lug.activateOnOpen = null;
+        }
         go.AddComponent<SkyDrop>();
         Plugin.Log.LogInfo($"Supply drop: built from {template.displayName} ({template.gameObject.name}).");
         return go;
@@ -164,9 +170,32 @@ internal class SupplyDrop : IPunPrefabPool
     private static void Spawn(DropKind kind, DropStyle style, Vector3 ground, string caller, int[]? pickers = null)
     {
         var rot = Quaternion.Euler(0f, Random.Range(0f, 360f), 0f);
+        bool trapped = GasSource(ground) != null && Random.value < ModConfig.DropTrappedChance.Value;
         PhotonNetwork.InstantiateRoomObject(Prefix + kind, ground, rot, 0,
-            new object[] { PhotonNetwork.Time + SkyDrop.PlaneLead, caller ?? "", (int)style, (int)kind, pickers ?? new int[0] });
-        Plugin.Log.LogInfo($"Supply drop: {kind} ({style}) for {(string.IsNullOrEmpty(caller) ? "the squad" : caller)} at {ground}.");
+            new object[] { PhotonNetwork.Time + SkyDrop.PlaneLead, caller ?? "", (int)style, (int)kind, pickers ?? new int[0], trapped });
+        Plugin.Log.LogInfo($"Supply drop: {kind} ({style}) for {(string.IsNullOrEmpty(caller) ? "the squad" : caller)} at {ground}{(trapped ? " - trapped (sleep gas)" : "")}.");
+    }
+
+    private static string gasScene = "";
+
+    /// <summary>
+    /// The level's own crate trap to copy (the Citadel's sleep gas): the nearest plain crate that
+    /// sets something off when opened. None = no trapped drops here.
+    /// </summary>
+    internal static Luggage? GasSource(Vector3 near)
+    {
+        var all = Object.FindObjectsOfType<Luggage>(true)
+            .Where(l => l != null && l.GetType() == typeof(Luggage) && l.GetComponent<SkyDrop>() == null && l.activateOnOpen != null)
+            .ToList();
+        string scene = SceneManager.GetActiveScene().name;
+        if (scene != gasScene)
+        {
+            gasScene = scene;
+            Plugin.Log.LogInfo(all.Count > 0
+                ? $"Supply: {all.Count} crate(s) here set something off when opened ({string.Join(", ", all.Select(l => l.activateOnOpen.name).Distinct())})."
+                : "Supply: no crates here set anything off when opened - no trapped drops.");
+        }
+        return all.OrderBy(l => Vector3.Distance(l.transform.position, near)).FirstOrDefault();
     }
 
     // --- the timed drop --------------------------------------------------------------------------
@@ -388,6 +417,22 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
         return p.itemSlots.All(s => s == null || s.IsEmpty()) && (p.tempFullSlot == null || p.tempFullSlot.IsEmpty());
     }
 
+    /// <summary>A trapped drop: a copy of the level's own crate trap, set off when it's opened.</summary>
+    private void Trap()
+    {
+        var source = SupplyDrop.GasSource(transform.position);
+        if (source == null || luggage == null) { Plugin.Log.LogInfo("Supply drop: trapped, but no trap to copy here."); return; }
+        var gas = source.activateOnOpen;
+        bool was = gas.activeSelf;
+        if (was) gas.SetActive(false);
+        var copy = Object.Instantiate(gas, transform.position + (gas.transform.position - source.transform.position), gas.transform.rotation, transform);
+        if (was) gas.SetActive(true);
+        foreach (var v in copy.GetComponentsInChildren<PhotonView>(true)) Object.Destroy(v);
+        copy.SetActive(false);
+        luggage.activateOnOpen = copy;
+        Plugin.Log.LogInfo($"Supply drop: trapped with {gas.name} (parts [{string.Join(", ", copy.GetComponentsInChildren<Component>(true).Select(c => c.GetType().Name).Distinct().Take(20))}]).");
+    }
+
     public void OnPhotonInstantiate(PhotonMessageInfo info)
     {
         luggage = GetComponent<Luggage>();
@@ -399,7 +444,8 @@ public class SkyDrop : MonoBehaviour, IPunInstantiateMagicCallback
         style = data is { Length: > 2 } && data[2] is int st ? (DropStyle)st : DropStyle.Slam;
         kind = data is { Length: > 3 } && data[3] is int k ? (DropKind)k : DropKind.Plain;
         Pickers = data is { Length: > 4 } && data[4] is int[] who && who.Length > 0 ? who : null;
-        height = style == DropStyle.Float ? 45f * M : 60f * M;
+        if (data is { Length: > 5 } && data[5] is true) Trap();
+        height =style == DropStyle.Float ? 45f * M : 60f * M;
         seconds = style == DropStyle.Float ? 9f : 3.5f;
         var r = GetComponentsInChildren<Renderer>().Where(x => x.enabled).ToList();
         if (r.Count > 0) top = r.Select(x => x.bounds.max.y).Max() - ground.y;

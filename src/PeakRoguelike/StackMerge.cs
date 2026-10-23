@@ -73,19 +73,20 @@ internal class StackMerge : MonoBehaviour
         var tree = o.Tree!;
         string key = Key(o);
         string name = Player.localPlayer?.GetItemSlot(o.Slot)?.prefab is { } prefab ? Items.DisplayName(prefab) : tree.Name;
-        string later = "Keep them";
         if (o.Kind == OfferKind.Fork)
         {
             var options = Offers.Paths(tree, o.Level);
             ChoiceScreen.Show(new ScreenSpec
             {
                 Title = "TRADE UP YOUR STACK",
+                TitleColor = ChoiceScreen.TradeSilver,
                 Subtitle = $"{Stacks.Limit + 1}× {name} → Lv {o.Level} · choose your path",
                 Confirm = "TRADE UP",
-                BackHint = later,
-                Cards = options.Select(x => CrateCards.ForPath(tree, o.Level, x, o.CrateItem)).ToList(),
+                Cards = options.Select(x => Trade(CrateCards.ForPath(tree, o.Level, x, o.CrateItem))).ToList(),
                 OnConfirm = i => Merge(o, options[i].Branch, Offers.Grant(options[i], o.CrateItem)),
-                OnBack = () => snoozed = key,
+                OnBack = () => Save(key, name),
+                OnSkip = () => snoozed = key,
+                SkipFree = true, // your stack stays as it is
                 OnCancelled = () => snoozed = key,
             });
             return;
@@ -93,14 +94,26 @@ internal class StackMerge : MonoBehaviour
         ChoiceScreen.Show(new ScreenSpec
         {
             Title = "TRADE UP YOUR STACK",
+            TitleColor = ChoiceScreen.TradeSilver,
             Subtitle = $"{Stacks.Limit + 1}× {name} → Lv {o.Level}",
             Confirm = "TRADE UP",
-            BackHint = later,
-            Cards = new() { CrateCards.ForStack(o) },
+            Cards = new() { Trade(CrateCards.ForStack(o)) },
             OnConfirm = _ => Merge(o, o.Branch, o.Grant),
-            OnBack = () => snoozed = key,
+            OnBack = () => Save(key, name),
+            OnSkip = () => snoozed = key,
+            SkipFree = true,
             OnCancelled = () => snoozed = key,
         });
+    }
+
+    private static CardSpec Trade(CardSpec card) { card.TradeUp = true; return card; }
+
+    /// <summary>Saved for later: it stops asking, and the relic key (or the stack key) brings it back while the stack is unchanged.</summary>
+    private void Save(string key, string name)
+    {
+        snoozed = key;
+        SavedPicks.Save($"stack:{key}", $"{name} trade-up", () => { if (Offers.ForStack() is { } o) Show(o); },
+            valid: () => Offers.ForStack() is { } o && Key(o) == key);
     }
 
     private void Merge(Offer o, int branch, Item grant)

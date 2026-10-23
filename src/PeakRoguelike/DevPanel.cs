@@ -471,6 +471,13 @@ internal class DevPanel : MonoBehaviour
             Toggle("Moon on pickup", ModConfig.DevMoonOnPickup));
         Row(B($"Relic order: {RelicShuffle.Label(ModConfig.StatueOrder.Value)}", () => { RelicShuffle.Cycle(1); Rebuild(); },
             ModConfig.StatueOrder.Value == StatueOrder.Off ? ButtonColor : RedColor));
+        Row(B($"Amulet cards: {(ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup ? "on pickup (old)" : "on read")}", () =>
+            {
+                ModConfig.AmuletCardsWhen.Value = ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup ? AmuletCards.OnRead : AmuletCards.OnPickup;
+                Rebuild();
+            }, ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup ? RedColor : ButtonColor),
+            Toggle("Skip asks first", ModConfig.ConfirmSkip),
+            Toggle("Pickups start trees", ModConfig.XpPickupsCount));
         Label("<color=#FFD86A>XP (gold bar)</color>", 26f);
         Row(B("+1 level", () => { if (InGame(true)) Xp.DevAdd(1000f); }), B("+250 XP", () => { if (InGame(true)) Xp.DevAdd(250f); }));
         MusicRow();
@@ -502,6 +509,7 @@ internal class DevPanel : MonoBehaviour
             B("Random badge", () => { if (InGame()) { Badges.GiveRandom(); Rebuild(); } }));
         Label($"<color=#D9C9A3>Void{(VoidRun.Active ? $" (sun now: {(Suns.Current is { } vs ? Suns.ColorName(vs) : "none")})" : "")}</color>", 26f);
         Row(B("Give Scout's Honor (use it = Void)", () => { if (InGame()) VoidRun.DevGiveHonor(); }),
+            B("Fill statue", () => { if (InGame()) VoidRun.DevFillStatue(); }),
             B("Next Void sun", () => { if (InGame(true)) { VoidRun.DevNextSun(); Rebuild(); } }),
             B("Next Void moon", () => { if (InGame(true)) { VoidRun.DevNextMoon(); Rebuild(); } }));
         cursorY += 8f;

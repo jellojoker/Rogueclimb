@@ -20,7 +20,9 @@ internal class ToolRelics : MonoBehaviour
 {
     private const float MinUse = 1f;
     private const float GlideMin = 0.5f, GlideGrace = 0.3f;
-    private float glideGap;
+    private float glideGap, landedFor;
+    /// <summary>A glide fired our relics: with GlideRelicLandSeconds above 0, the next one waits until we've landed that long.</summary>
+    private bool glideSpent;
 
     internal static void Install()
     {
@@ -133,6 +135,10 @@ internal class ToolRelics : MonoBehaviour
         // Gliding. The glide state can flicker off for a frame or two (brushing terrain): a gap
         // under GlideGrace is still the same glide.
         bool gliding = me.data.currentItem != null && me.data.currentItem.GetComponentInChildren<Glider>() is { } g && g._gliding;
+        // GlideRelicLandSeconds 0 (default): every glide counts. Above 0, closing and reopening the
+        // glider mid-air is the same trip: only landing starts a new one.
+        landedFor = me.data.isGrounded && !gliding ? landedFor + dt : 0f;
+        if (glideSpent && (ModConfig.GlideLandSeconds.Value <= 0f || landedFor >= ModConfig.GlideLandSeconds.Value)) glideSpent = false;
         if (gliding) { glideTime += dt; glideGap = 0f; }
         else if (glideTime > 0f)
         {
@@ -140,7 +146,8 @@ internal class ToolRelics : MonoBehaviour
             if (glideGap >= GlideGrace)
             {
                 Plugin.Log.LogInfo($"Tool relics: glide ended after {glideTime:0.0}s{(glideTime < GlideMin ? " (too short to count)" : "")}.");
-                if (glideTime >= GlideMin) Dismount("glide", 0, always: true);
+                if (glideTime >= GlideMin && glideSpent) Plugin.Log.LogInfo("Tool relics: glide skipped (no landing since the last one).");
+                else if (glideTime >= GlideMin) { Dismount("glide", 0, always: true); glideSpent = true; }
                 glideTime = glideGap = 0f;
             }
         }

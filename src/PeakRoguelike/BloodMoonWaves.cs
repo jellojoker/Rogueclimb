@@ -756,7 +756,7 @@ internal class BloodTornado : MonoBehaviour
     }
 
     /// <summary>Rays out to the walls in a full circle: the middle of what they hit and its radius. Null when too few hit (not inside a tower).</summary>
-    private static (Vector3 centre, float radius)? TowerScan(Vector3 from)
+    internal static (Vector3 centre, float radius)? TowerScan(Vector3 from)
     {
         const int Rays = 16;
         float reach = 150f * Squad.M;

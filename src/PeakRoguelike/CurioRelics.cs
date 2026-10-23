@@ -16,7 +16,7 @@ public enum Curio { None, Bugle, Binoculars, Compass, Frisbee, BingBong }
 /// <summary>
 /// Starting relics: the crash-site curios. Each scout binds one (the curio stays where it lies, so
 /// everyone can pick from all of them). Normal relics: they never raise or add to a blood moon.
-///   Bugle      - helping hand reaches twice as far, pulls (and is pulled) twice as hard, carried scouts weigh half, more healing in crates
+///   Bugle      - helping hand reaches 1.5x as far, pulls (and is pulled) 1.5x as hard, carried scouts weigh half, marks the nearest scout, more healing in crates
 ///   Binoculars - pings the nearest item lying in the world, more food in crates
 ///   Compass    - pings the nearest unopened crate, more tools in crates (the Pirate Compass too)
 ///   Frisbee    - everything you throw knocks back what it hits
@@ -88,7 +88,7 @@ internal class CurioRelics : MonoBehaviour
 
     internal static string Desc(Curio c) => c switch
     {
-        Curio.Bugle => "Your helping hand reaches twice as far and pulls twice as hard.\nHelping hands pull you up twice as hard.\nScouts you carry weigh half as much.\nMore healing in your crates.",
+        Curio.Bugle => "Your helping hand reaches half again as far and pulls half again as hard.\nHelping hands pull you up half again as hard.\nScouts you carry weigh half as much.\nYou always sense the nearest scout.\nMore healing in your crates.",
         Curio.Binoculars => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest useful thing lying out in the world.\nMore food in your crates.",
         Curio.Compass => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest unopened crate.\nMore tools in your crates.",
         Curio.Frisbee => "Everything you throw knocks back whatever it hits.",
@@ -118,7 +118,7 @@ internal class CurioRelics : MonoBehaviour
     /// <summary>A badge relic just gave you a starting relic's effects: its clocks start now.</summary>
     internal static void BadgeBound(Curio c)
     {
-        nextCratePing = nextItemPing = Time.time + 1f;
+        nextCratePing = nextItemPing = nextScoutPing = Time.time + 1f;
         if (c == Curio.BingBong) nextPrank = Time.time + Random.Range(ModConfig.BingBongMinSeconds.Value, ModConfig.BingBongMaxSeconds.Value);
     }
 
@@ -157,7 +157,7 @@ internal class CurioRelics : MonoBehaviour
         Mine = c;
         Publish();
         RunState.Touch();
-        nextCratePing = nextItemPing = Time.time + 1f;
+        nextCratePing = nextItemPing = nextScoutPing = Time.time + 1f;
         nextPrank = Time.time + Random.Range(ModConfig.BingBongMinSeconds.Value, ModConfig.BingBongMaxSeconds.Value);
         Hud.Banner("STARTING RELIC", Name(c), ChoiceScreen.Cream);
         Plugin.Log.LogInfo($"Curio relic: bound the {Name(c)}.");
@@ -259,31 +259,50 @@ internal class CurioRelics : MonoBehaviour
 
     /// <summary>
     /// A scout who never stood on the Shore this run (joined late) gets every starting relic on one
-    /// screen, once on flat ground. Back puts it off to the next biome.
+    /// screen, once on flat ground (see ShowLatePick for saving and skipping it).
     /// </summary>
     private static void LatePick(Character? me)
     {
         if (!ModConfig.CurioRelics.Value || Mine != Curio.None || sawShore || ChoiceScreen.IsOpen || VoidRun.Active) { flatSince = -1f; return; }
         if (me == null || !MapHandler.Exists || LoadingScreenHandler.loading) { flatSince = -1f; return; }
         int seg = Singleton<MapHandler>.Instance.currentSegment;
-        if (seg == 0 || seg == declinedAt || !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
+        if (seg == 0 || seg == declinedAt || declinedAt == int.MaxValue || !Xp.OnFlatGround(me)) { flatSince = -1f; return; }
         if (flatSince < 0f) flatSince = Time.time;
         if (Time.time - flatSince < 1f) return;
         flatSince = -1f;
+        if (ShowLatePick()) Plugin.Log.LogInfo($"Curio relic: late-join pick shown (biome {seg}).");
+        else declinedAt = seg;
+    }
+
+    /// <summary>
+    /// The late joiner's starting relic screen. Saved for later, it stops asking (the relic key
+    /// brings it back); knocked over, it asks again next biome. Skipped, it's gone for the run.
+    /// </summary>
+    private static bool ShowLatePick()
+    {
         var kinds = new[] { Curio.Bugle, Curio.Binoculars, Curio.Compass, Curio.Frisbee, Curio.BingBong };
-        bool shown = ChoiceScreen.Show(new ScreenSpec
+        int seg = MapHandler.Exists ? Singleton<MapHandler>.Instance.currentSegment : 0;
+        return ChoiceScreen.Show(new ScreenSpec
         {
             Title = "STARTING RELIC",
             Subtitle = "Choose one",
             Confirm = "BIND",
-            BackHint = "Later",
             Cards = kinds.Select(k => Card(k, Items.Icon(ItemOf(k)))).ToList(),
             StillValid = () => Mine == Curio.None,
             OnConfirm = i => { if (Mine == Curio.None) Bind(kinds[i]); },
-            OnBack = () => declinedAt = seg,
+            OnBack = () =>
+            {
+                declinedAt = int.MaxValue; // no more asking: it waits for the relic key
+                SavedPicks.Save("curio", "Starting relic", () => ShowLatePick(), valid: () => Mine == Curio.None);
+            },
+            OnSkip = () =>
+            {
+                declinedAt = int.MaxValue;
+                Plugin.Log.LogInfo("Curio relic: late-join pick skipped.");
+            },
+            SkipName = "Starting relic",
             OnCancelled = () => declinedAt = seg,
         });
-        if (shown) Plugin.Log.LogInfo($"Curio relic: late-join pick shown (biome {seg}).");
     }
 
     private void Update()
@@ -303,6 +322,7 @@ internal class CurioRelics : MonoBehaviour
             // The Compass and the Binoculars each keep their own marker - both show if you have both.
             TickCompass(me);
             TickBinoculars(me);
+            TickBugle(me);
             if (Has(Curio.BingBong) && Time.time >= nextPrank) BingBongPranks.Tick(me, ref nextPrank);
         }
         catch (System.Exception e)
@@ -372,6 +392,30 @@ internal class CurioRelics : MonoBehaviour
         Show(me, Marker.FindMark, ok ? markedItem!.Center() : null, markedName, Curio.Binoculars, new Color(0.6f, 0.95f, 0.55f));
     }
 
+    private static float nextScoutPing;
+    private static Character? markedScout;
+
+    /// <summary>The Bugle (own or a badge's): the nearest scout - anyone down first - on its own marker.</summary>
+    private static void TickBugle(Character me)
+    {
+        if (!Has(Curio.Bugle)) { Marker.Hide(Marker.ScoutMark); return; }
+        bool still = markedScout != null && !markedScout.data.dead && InRange(me, markedScout.Center, Curio.Bugle);
+        if (Time.time >= nextScoutPing || !still)
+        {
+            nextScoutPing = Time.time + Mathf.Max(2f, ModConfig.CurioPingSeconds.Value);
+            var before = markedScout;
+            markedScout = Squad.Alive()
+                .Where(c => c != me && InRange(me, c.Center, Curio.Bugle))
+                .OrderBy(c => c.data.passedOut || c.data.fullyPassedOut ? 0 : 1)
+                .ThenBy(c => Vector3.Distance(c.Center, me.Center))
+                .FirstOrDefault();
+            if (markedScout != before && markedScout != null)
+                Plugin.Log.LogInfo($"Bugle: marked {markedScout.characterName} at {MetresTo(me, markedScout.Center):0}m{(markedScout.data.passedOut || markedScout.data.fullyPassedOut ? " (down)" : "")}.");
+        }
+        bool ok = markedScout != null && !markedScout.data.dead;
+        Show(me, Marker.ScoutMark, ok ? markedScout!.Center : null, ok ? markedScout!.characterName : "", Curio.Bugle, new Color(1f, 0.84f, 0.45f));
+    }
+
     private static void Show(Character me, int slot, Vector3? at, string name, Curio kind, Color colour)
     {
         if (at == null || ChoiceScreen.IsOpen || !InRange(me, at.Value, kind)) { Marker.Hide(slot); return; }
@@ -407,7 +451,7 @@ internal class CurioRelics : MonoBehaviour
     // --- Bugle: longer, stronger helping hand, lighter carries ----------------------------------
 
     internal static float ReachFor(CharacterGrabbing g) =>
-        ModConfig.CurioRelics.Value && Holds(g.character, Curio.Bugle) ? 8f : 4f;
+        ModConfig.CurioRelics.Value && Holds(g.character, Curio.Bugle) ? 6f : 4f;
 
     /// <summary>Whose helping hand is pulling right now (set around CharacterGrabbing.Reach).</summary>
     private static Character? helping;
@@ -419,7 +463,7 @@ internal class CurioRelics : MonoBehaviour
     [HarmonyFinalizer, HarmonyPatch(typeof(CharacterGrabbing), "Reach")]
     private static void ReachEnd() => helping = null;
 
-    /// <summary>A Bugle on either end of the helping hand pulls twice as hard.</summary>
+    /// <summary>A Bugle on either end of the helping hand pulls half again as hard.</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(Character), "DragTowards")]
     private static void StrongerPull(Character __instance, ref float force)
     {
@@ -427,7 +471,7 @@ internal class CurioRelics : MonoBehaviour
         if (helper == null || !ModConfig.CurioRelics.Value) return;
         bool helperHas = Holds(helper, Curio.Bugle), pulledHas = Holds(__instance, Curio.Bugle);
         if (!helperHas && !pulledHas) return;
-        force *= 2f;
+        force *= 1.5f;
         if (Time.time < nextPullLog) return;
         nextPullLog = Time.time + 3f;
         float d = Vector3.Distance(helper.Center, __instance.Center);
@@ -439,7 +483,7 @@ internal class CurioRelics : MonoBehaviour
         AccessTools.FieldRefAccess<CharacterAnimations, Character>("character");
 
     internal static float HelpArmFor(CharacterAnimations a) =>
-        ModConfig.CurioRelics.Value && Holds(AnimChar(a), Curio.Bugle) ? 7.5f : 3.5f;
+        ModConfig.CurioRelics.Value && Holds(AnimChar(a), Curio.Bugle) ? 5.5f : 3.5f;
 
     /// <summary>The help pose shows out to the Bugle's full reach (vanilla shows it within 3.5u).</summary>
     [HarmonyTranspiler, HarmonyPatch(typeof(CharacterAnimations), "Update")]
@@ -524,9 +568,9 @@ internal class CurioRelics : MonoBehaviour
 /// </summary>
 internal class Marker : MonoBehaviour
 {
-    /// <summary>Marker slots: the Compass's crate and the Binoculars' find can both show at once.</summary>
-    internal const int CrateMark = 0, FindMark = 1;
-    private static readonly Marker?[] instances = new Marker?[2];
+    /// <summary>Marker slots: the Compass's crate, the Binoculars' find and the Bugle's scout can all show at once.</summary>
+    internal const int CrateMark = 0, FindMark = 1, ScoutMark = 2;
+    private static readonly Marker?[] instances = new Marker?[3];
     private RectTransform root = null!, box = null!;
     private TextMeshProUGUI label = null!;
     private Image dot = null!;

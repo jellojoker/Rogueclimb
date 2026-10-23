@@ -40,8 +40,13 @@ public class CardSpec
     public string Footer = "";       // Perk only
     public Texture? Icon;            // Perk: medallion. Fusion: the result.
     public Texture?[] Ingredients = new Texture?[0]; // Fusion
-    /// <summary>An XP level-up pick: gold glow (always faintly on), gold edge and gold sparkles.</summary>
+    /// <summary>An XP level-up pick: gold glow (always on), a shimmering gold edge and gold sparkles.</summary>
     public bool LevelUp;
+    /// <summary>A trade-up (a full stack and one more copy, a jump in level): the level-up look in silver.</summary>
+    public bool TradeUp;
+    /// <summary>Level-ups and trade-ups: always-on glow, a shimmering rim, sparkles and rising arrows.</summary>
+    public bool Shines => LevelUp || TradeUp;
+    public Color ShineColor => TradeUp ? ChoiceScreen.TradeSilver : ChoiceScreen.LevelGold;
     /// <summary>Relic: a cursed copy - dark, slow sparkles.</summary>
     public bool Cursed;
     /// <summary>Withered by the green sun: greyed out, tinted green, can't be picked.</summary>
@@ -55,6 +60,8 @@ public class ScreenSpec
 {
     public string Title = "CHOOSE YOUR PERK";
     public string Subtitle = "";
+    /// <summary>The header's colour (cream unless set): gold level-ups, silver trade-ups, purple fusions.</summary>
+    public Color? TitleColor;
     /// <summary>A red line under the header, above the cards (the relic screen's omen).</summary>
     public string Warning = "";
     public string Confirm = "CLAIM";
@@ -71,6 +78,15 @@ public class ScreenSpec
     public Action? OnExtra;
     /// <summary>The world closed the screen (item dropped, knocked out...) - not the player's choice.</summary>
     public Action? OnCancelled;
+    /// <summary>
+    /// A pick that didn't come from a crate: Back becomes "Save for later" (OnBack keeps it) and a
+    /// Skip button throws it away - after an "are you sure?" unless the player turned that off.
+    /// </summary>
+    public Action? OnSkip;
+    /// <summary>What the "are you sure?" names ("Level 4", "Green relic"); the subtitle, else the title, when empty.</summary>
+    public string SkipName = "";
+    /// <summary>Skipping loses nothing (a fusion or stack the pockets still hold): no "are you sure?".</summary>
+    public bool SkipFree;
 }
 
 /// <summary>
@@ -88,6 +104,7 @@ public class ChoiceScreen : MonoBehaviour
     internal static readonly Color Muted = new Color32(0xD9, 0xC9, 0xA3, 0xFF);
     internal static readonly Color FusionGlow = new Color32(0xC9, 0x9C, 0xFF, 0xFF);
     internal static readonly Color LevelGold = new Color32(0xFF, 0xD8, 0x6A, 0xFF); // the XP bar's gold
+    internal static readonly Color TradeSilver = new Color32(0xD8, 0xDE, 0xE8, 0xFF);
     internal static readonly Color EvolveWhite = new Color32(0xFF, 0xFC, 0xF0, 0xFF);
 
     internal static Color ThemeGlow(PerkTheme t) => t switch
@@ -109,6 +126,8 @@ public class ChoiceScreen : MonoBehaviour
     private bool claimOnClose;
     private bool cancelled;
     private bool extraOnClose;
+    private bool skipOnClose;
+    private SkipConfirm? confirmSkip;
 
     public static bool Show(ScreenSpec spec)
     {
@@ -196,7 +215,7 @@ public class ChoiceScreen : MonoBehaviour
         header.anchoredPosition = new Vector2(0, -95);
         header.sizeDelta = new Vector2(1200, 150);
 
-        var title = Ui.Text(header, "Title", spec.Title, UiArt.TitleFont, 66, Cream, TextAlignmentOptions.Center);
+        var title = Ui.Text(header, "Title", spec.Title, UiArt.TitleFont, 66, spec.TitleColor ?? Cream, TextAlignmentOptions.Center);
         title.rectTransform.anchoredPosition = new Vector2(0, 18);
         title.rectTransform.sizeDelta = new Vector2(1400, 80);
         title.characterSpacing = 4;
@@ -240,6 +259,25 @@ public class ChoiceScreen : MonoBehaviour
         bar.anchoredPosition = new Vector2(0, 112);
 
         bool extra = !string.IsNullOrEmpty(spec.Extra);
+        if (spec.OnSkip != null)
+        {
+            // Saved-for-later picks: mouse buttons only - Skip, Save for later, the pick (and its extra).
+            var blank = UiArt.Embedded("button_blank");
+            var skip = MenuButtonView.Create(bar, "Skip", blank, 1.35f, "SKIP", AskSkip, fullLabel: true);
+            skip.Rect.anchoredPosition = new Vector2(extra ? -400 : -256, 0);
+            var save = MenuButtonView.Create(bar, "Save", blank, 1.35f, "SAVE FOR LATER", Back, fullLabel: true);
+            save.Rect.anchoredPosition = new Vector2(extra ? -175 : -31, 0);
+            confirmButton = MenuButtonView.Create(bar, "Confirm", UiArt.Embedded("button_confirm"), 1.35f, spec.Confirm, Confirm);
+            confirmButton.Rect.anchoredPosition = new Vector2(extra ? 80 : 224, 0);
+            confirmButton.Interactable = false;
+            if (extra)
+            {
+                var x = MenuButtonView.Create(bar, "Extra", UiArt.Embedded("button_confirm"), 1.35f, spec.Extra, Extra);
+                x.Rect.anchoredPosition = new Vector2(355, 0);
+            }
+            return;
+        }
+
         var back = MenuButtonView.Create(bar, "Back", UiArt.Embedded("button_back"), 1.35f, null, Back);
         back.Rect.anchoredPosition = new Vector2(extra ? -340 : -190, 0);
 
@@ -324,6 +362,24 @@ public class ChoiceScreen : MonoBehaviour
     internal void Back()
     {
         if (closing) return;
+        // Esc with the "are you sure?" up: back to the cards, nothing lost.
+        if (confirmSkip != null && !cancelled) { confirmSkip.Close(); return; }
+        BeginClose();
+    }
+
+    /// <summary>The Skip button: straight away when nothing is lost (or the player said don't ask), else "are you sure?".</summary>
+    private void AskSkip()
+    {
+        if (closing || spec.OnSkip == null || confirmSkip != null) return;
+        if (spec.SkipFree || !ModConfig.ConfirmSkip.Value) { Skip(); return; }
+        string what = !string.IsNullOrEmpty(spec.SkipName) ? spec.SkipName : !string.IsNullOrEmpty(spec.Subtitle) ? spec.Subtitle : spec.Title;
+        confirmSkip = SkipConfirm.Open((RectTransform)transform, what, Skip, () => confirmSkip = null);
+    }
+
+    private void Skip()
+    {
+        if (closing) return;
+        skipOnClose = true;
         BeginClose();
     }
 
@@ -361,7 +417,7 @@ public class ChoiceScreen : MonoBehaviour
         }
 
         var kb = Keyboard.current;
-        if (kb == null) return;
+        if (kb == null || confirmSkip != null) return; // the "are you sure?" is mouse only (Esc = go back)
         for (int i = 0; i < cards.Count && i < 10; i++)
         {
             // 1-9, then 0 for the tenth card.
@@ -385,6 +441,7 @@ public class ChoiceScreen : MonoBehaviour
         {
             if (pick >= 0) spec.OnConfirm?.Invoke(pick);
             else if (extraOnClose && spec.OnExtra != null) spec.OnExtra();
+            else if (skipOnClose && spec.OnSkip != null) spec.OnSkip();
             else if (cancelled && spec.OnCancelled != null) spec.OnCancelled();
             else spec.OnBack?.Invoke();
         }
@@ -444,6 +501,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
     private int index;
     private CanvasGroup group = null!;
     private Image glow = null!, art = null!;
+    private Image? goldEdge;
     private Image? iconLight;
     private RawImage? icon;
     private Vector2 iconHome;
@@ -470,11 +528,10 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         {
             CardStyle.Relic => Relics.GemColor(spec.Gem),
             CardStyle.Fusion => ChoiceScreen.FusionGlow,
-            _ when spec.LevelUp => ChoiceScreen.LevelGold,
+            _ when spec.Shines => spec.ShineColor,
             _ => ChoiceScreen.ThemeGlow(spec.Theme),
         };
         view.BuildFrame();
-        view.BuildSparkles();
         switch (spec.Style)
         {
             case CardStyle.Relic: view.BuildRelic(); break;
@@ -482,6 +539,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
             default: view.BuildPerk(); break;
         }
         view.BuildKey();
+        view.BuildSparkles(); // last: they drift over the art, not hidden behind it
         return view;
     }
 
@@ -498,7 +556,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         glow.raycastTarget = false;
     }
 
-    // Plain item cards stay quiet; everything special sparkles behind the frame.
+    // Plain item cards stay quiet; everything special sparkles over the frame.
     private readonly List<Sparkles> sparkles = new();
 
     private void BuildSparkles()
@@ -506,20 +564,20 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         switch (Spec.Style)
         {
             case CardStyle.Relic when Spec.Cursed:
-                sparkles.Add(Sparkles.Add(Rect, Color.Lerp(Relics.GemColor(Spec.Gem), Color.black, 0.6f), rate: 3f, speed: 16f, size: 26f, alpha: 0.9f));
+                sparkles.Add(Sparkles.Add(Rect, Color.Lerp(Relics.GemColor(Spec.Gem), Color.black, 0.6f), rate: 3f, speed: 16f, size: 30f, alpha: 1f));
                 break;
             case CardStyle.Relic:
-                sparkles.Add(Sparkles.Add(Rect, Relics.GemColor(Spec.Gem), rate: 6f, speed: 34f, size: 20f, alpha: 0.8f));
+                sparkles.Add(Sparkles.Add(Rect, Relics.GemColor(Spec.Gem), rate: 6f, speed: 34f, size: 26f, alpha: 1f));
                 break;
             case CardStyle.Fusion:
-                sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.FusionGlow, rate: 6f, speed: 34f, size: 20f, alpha: 0.8f));
+                sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.FusionGlow, rate: 6f, speed: 34f, size: 26f, alpha: 1f));
                 break;
             default:
-                if (Spec.LevelUp) sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.LevelGold, rate: 6f, speed: 34f, size: 20f, alpha: 0.8f));
+                if (Spec.Shines) sparkles.Add(Sparkles.Add(Rect, Spec.ShineColor, rate: 8f, speed: 34f, size: 28f, alpha: 1f, arrows: true));
                 break;
         }
         // Evolutions sparkle white, brighter and faster - on top of any gold.
-        if (Spec.Evolves) sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.EvolveWhite, rate: 10f, speed: 60f, size: 18f, alpha: 1f));
+        if (Spec.Evolves) sparkles.Add(Sparkles.Add(Rect, ChoiceScreen.EvolveWhite, rate: 10f, speed: 60f, size: 22f, alpha: 1f));
         // Withered: a slow drift of dull green, like the cursed relic's dark motes.
         if (Spec.Withered) sparkles.Add(Sparkles.Add(Rect, WitherGreen, rate: 3f, speed: 14f, size: 24f, alpha: 0.7f));
     }
@@ -614,14 +672,13 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         Sprite sprite = UiArt.CardSprite(Spec.Theme);
         Vector2 artSize = new(sprite.rect.width, sprite.rect.height);
         Vector2 artPos = P(origin.x - offset + sprite.rect.width / 2f, origin.y + sprite.rect.height / 2f);
-        if (Spec.LevelUp)
+        if (Spec.Shines)
         {
-            // A thin gold rim: the card's own shape, a touch bigger, behind the art.
-            var edge = Ui.Image(Rect, "GoldEdge", Silhouette(sprite), ChoiceScreen.LevelGold);
-            edge.rectTransform.sizeDelta = artSize + new Vector2(10, 10);
-            edge.rectTransform.anchoredPosition = artPos;
-            edge.raycastTarget = false;
-            dimmable.Add((edge, edge.color));
+            // A gold (trade-up: silver) rim: the card's own shape, a touch bigger, behind the art. It shimmers (Update).
+            goldEdge = Ui.Image(Rect, "GoldEdge", Silhouette(sprite), Spec.ShineColor);
+            goldEdge.rectTransform.sizeDelta = artSize + new Vector2(16, 16);
+            goldEdge.rectTransform.anchoredPosition = artPos;
+            goldEdge.raycastTarget = false;
         }
         AddArt(sprite, artSize, artPos);
 
@@ -726,7 +783,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
 
         AddArt(sprite, new Vector2(w, h) * s, Vector2.zero);
 
-        var title = AddText("Title", Spec.Title.ToUpperInvariant(), UiArt.TitleFont, 30, new Color32(0xF4, 0xEC, 0xFF, 0xFF), Local(234.5f, 60), new Vector2(370, 34) * s, 12);
+        var title = AddText("Title", Spec.Title.ToUpperInvariant(), UiArt.TitleFont, 30, ChoiceScreen.FusionGlow, Local(234.5f, 60), new Vector2(370, 34) * s, 12);
         title.textWrappingMode = TextWrappingModes.NoWrap;
         title.characterSpacing = 3;
 
@@ -813,7 +870,7 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         float targetScale = isSelected ? 1.07f : hovered ? 1.045f : otherSelected ? 0.95f : 1f;
         float targetLift = isSelected ? 22f : hovered ? 14f : 0f;
         float pulse = 0.5f + 0.5f * Mathf.Sin(now * 3.2f);
-        float targetGlow = isSelected ? 0.75f + 0.25f * pulse : hovered ? 0.5f : Spec.LevelUp ? 0.18f + 0.06f * pulse : 0f;
+        float targetGlow = isSelected ? 0.75f + 0.25f * pulse : hovered ? (Spec.Shines ? 0.68f : 0.5f) : Spec.Shines ? 0.4f + 0.1f * pulse : 0f; // level-ups glow gold even untouched
         float targetDim = otherSelected && !hovered ? 0.42f : 0f;
 
         scale = Mathf.Lerp(scale, targetScale, k);
@@ -837,6 +894,13 @@ public class CardView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler
         glow.color = new Color(glowColor.r, glowColor.g, glowColor.b, glowAlpha);
         float b = 1f - dim;
         foreach (var (g, c) in dimmable) if (g != null) g.color = Spec.Withered ? Wither(c) : new Color(c.r * b, c.g * b, c.b * b, c.a);
+        if (goldEdge != null)
+        {
+            // A slow shimmer, brighter when hovered or picked.
+            float shine = (0.78f + 0.22f * Mathf.Sin(now * 2.4f)) * Mathf.Lerp(1f, 1.15f, glowAlpha) * b;
+            var gold = Spec.ShineColor;
+            goldEdge.color = new Color(Mathf.Min(1f, gold.r * shine), Mathf.Min(1f, gold.g * shine), Mathf.Min(1f, gold.b * shine), 1f);
+        }
         if (icon != null)
         {
             icon.color = icon.texture != null ? (Spec.Withered ? Wither(Color.white) : new Color(b, b, b, 1f)) : Color.clear;
@@ -862,21 +926,64 @@ internal class Sparkles : MonoBehaviour
 {
     public float Boost, Dim = 1f;
     private Color color;
-    private float rate, speed, size, alpha, spawn;
-    private const int Max = 28;
+    private float rate, speed, size, alpha, spawn, arrowSpawn;
+    private bool arrows;
+    private const int Max = 28, MaxArrows = 8;
     private const float W = 470f, H = 620f;
 
     private class Mote { public Image Dot = null!; public Image? Flare; public Vector2 Pos, Vel; public float Age, Life, Size, Phase; public bool Live; }
     private readonly List<Mote> motes = new();
+    // Level-ups and trade-ups: up-arrows rising bottom to top through the sparkles, straight, no sway.
+    private readonly List<Mote> arrowMotes = new();
 
-    public static Sparkles Add(RectTransform card, Color color, float rate, float speed, float size, float alpha)
+    public static Sparkles Add(RectTransform card, Color color, float rate, float speed, float size, float alpha, bool arrows = false)
     {
         var rt = Ui.Rect(card, "Sparkles");
         rt.sizeDelta = new Vector2(W, H);
         var s = rt.gameObject.AddComponent<Sparkles>();
-        s.color = color; s.rate = rate; s.speed = speed; s.size = size; s.alpha = alpha;
+        s.color = color; s.rate = rate; s.speed = speed; s.size = size; s.alpha = alpha; s.arrows = arrows;
         s.spawn = UnityEngine.Random.value * 2f; // a few motes are already up when the card arrives
+        s.arrowSpawn = UnityEngine.Random.value;
         return s;
+    }
+
+    private Mote FreeArrow()
+    {
+        foreach (var m in arrowMotes) if (!m.Live) return m;
+        var mote = new Mote { Dot = Ui.Image((RectTransform)transform, "Arrow", UiArt.Chevron(64), Color.clear) };
+        mote.Dot.raycastTarget = false;
+        arrowMotes.Add(mote);
+        return mote;
+    }
+
+    private void UpdateArrows(float dt, float strength)
+    {
+        arrowSpawn += dt * rate * 0.4f * (1f + Boost);
+        while (arrowSpawn >= 1f)
+        {
+            arrowSpawn -= 1f;
+            if (arrowMotes.Count >= MaxArrows && !arrowMotes.Exists(a => !a.Live)) break;
+            var m = FreeArrow();
+            m.Live = true;
+            m.Age = 0f;
+            m.Size = size * UnityEngine.Random.Range(0.9f, 1.4f);
+            m.Phase = UnityEngine.Random.value * 6.3f;
+            m.Pos = new Vector2(UnityEngine.Random.Range(-W * 0.42f, W * 0.42f), UnityEngine.Random.Range(-H / 2f, -H / 4f));
+            m.Vel = new Vector2(0f, speed * UnityEngine.Random.Range(2.2f, 3f));
+            m.Life = (H * 0.4f - m.Pos.y) / m.Vel.y; // fades out near the top
+        }
+        foreach (var m in arrowMotes)
+        {
+            if (!m.Live) continue;
+            m.Age += dt;
+            if (m.Age >= m.Life) { m.Live = false; m.Dot.color = Color.clear; continue; }
+            m.Pos += m.Vel * (1f + 0.6f * Boost) * dt;
+            float fade = Mathf.Sin(Mathf.PI * m.Age / m.Life);
+            float twinkle = 0.75f + 0.25f * Mathf.Sin(m.Phase + m.Age * 7f);
+            m.Dot.color = new Color(color.r, color.g, color.b, Mathf.Clamp01(fade * twinkle * strength));
+            m.Dot.rectTransform.anchoredPosition = m.Pos;
+            m.Dot.rectTransform.sizeDelta = Vector2.one * m.Size;
+        }
     }
 
     private Mote Free()
@@ -884,9 +991,9 @@ internal class Sparkles : MonoBehaviour
         foreach (var m in motes) if (!m.Live) return m;
         var mote = new Mote { Dot = Ui.Image((RectTransform)transform, "Mote", UiArt.Radial(32, 0f, 2.4f), Color.clear) };
         mote.Dot.raycastTarget = false;
-        if (motes.Count % 3 == 0)
+        if (motes.Count % 2 == 0)
         {
-            // Every third mote twinkles: a thin cross of light over the dot.
+            // Every other mote twinkles: a thin cross of light over the dot.
             mote.Flare = Ui.Image(mote.Dot.rectTransform, "Flare", UiArt.Radial(32, 0f, 1.6f), Color.clear);
             mote.Flare.raycastTarget = false;
         }
@@ -912,7 +1019,8 @@ internal class Sparkles : MonoBehaviour
             m.Vel = new Vector2(UnityEngine.Random.Range(-8f, 8f), speed * UnityEngine.Random.Range(0.6f, 1.3f));
         }
 
-        float strength = alpha * (0.55f + 0.3f * Boost) * Dim;
+        float strength = alpha * (0.8f + 0.25f * Boost) * Dim;
+        if (arrows) UpdateArrows(dt, strength);
         foreach (var m in motes)
         {
             if (!m.Live) continue;
@@ -941,6 +1049,158 @@ internal class Sparkles : MonoBehaviour
     }
 }
 
+/// <summary>
+/// "Skip this?" over a saved-for-later pick: names what goes, Skip / Go back, and a "Don't ask
+/// again" box (saved to this player's config). The NOT COMPATIBLE pop-up's look.
+/// </summary>
+internal class SkipConfirm : MonoBehaviour
+{
+    private CanvasGroup group = null!;
+    private RectTransform panel = null!;
+    private Action onSkip = null!, onClosed = null!;
+    private Image tick = null!;
+    private TextMeshProUGUI boxLabel = null!;
+    private bool dontAsk, closing, boxHovered;
+    private float openTime;
+
+    public static SkipConfirm Open(RectTransform root, string what, Action onSkip, Action onClosed)
+    {
+        var rt = Ui.Rect(root, "Skip Confirm");
+        Ui.Stretch(rt);
+        var v = rt.gameObject.AddComponent<SkipConfirm>();
+        v.onSkip = onSkip;
+        v.onClosed = onClosed;
+        v.Build(rt, what);
+        return v;
+    }
+
+    private void Build(RectTransform rt, string what)
+    {
+        openTime = Time.unscaledTime;
+        group = gameObject.AddComponent<CanvasGroup>();
+        group.alpha = 0f;
+
+        var shade = Ui.Image(rt, "Shade", null, new Color(0.03f, 0.04f, 0.06f, 0.6f));
+        Ui.Stretch(shade.rectTransform);
+        shade.raycastTarget = true; // the cards underneath can't be clicked
+
+        panel = Ui.Rect(rt, "Panel");
+        panel.anchorMin = panel.anchorMax = new Vector2(0.5f, 0.5f);
+        panel.sizeDelta = new Vector2(660, 340);
+
+        var halo = Ui.Image(panel, "Shadow", UiArt.Glow(160, 100, 40, 30), new Color(0, 0, 0, 0.6f));
+        halo.rectTransform.sizeDelta = new Vector2(820, 480);
+        halo.raycastTarget = false;
+        var bg = Ui.Image(panel, "Background", null, new Color(ChoiceScreen.InkBrown.r, ChoiceScreen.InkBrown.g, ChoiceScreen.InkBrown.b, 0.96f));
+        Ui.Stretch(bg.rectTransform);
+        foreach (int side in new[] { 1, -1 })
+        {
+            var rule = Ui.Image(panel, "Rule", UiArt.FadeLine(), new Color(ChoiceScreen.Muted.r, ChoiceScreen.Muted.g, ChoiceScreen.Muted.b, 0.5f));
+            rule.rectTransform.sizeDelta = new Vector2(600, 2);
+            rule.rectTransform.anchoredPosition = new Vector2(0, side * 158);
+            rule.raycastTarget = false;
+        }
+
+        var title = Ui.Text(panel, "Title", "SKIP THIS?", UiArt.TitleFont, 48, ChoiceScreen.Cream, TextAlignmentOptions.Center);
+        title.rectTransform.anchoredPosition = new Vector2(0, 104);
+        title.rectTransform.sizeDelta = new Vector2(620, 64);
+        title.characterSpacing = 4;
+
+        var name = Ui.Text(panel, "What", what.ToUpperInvariant(), UiArt.BodyFont, 22, ChoiceScreen.Muted, TextAlignmentOptions.Center);
+        name.rectTransform.anchoredPosition = new Vector2(0, 52);
+        name.rectTransform.sizeDelta = new Vector2(600, 32);
+        name.characterSpacing = 10;
+        name.textWrappingMode = TextWrappingModes.NoWrap;
+        name.enableAutoSizing = true;
+        name.fontSizeMin = 14;
+        name.fontSizeMax = 22;
+
+        var gone = Ui.Text(panel, "Gone", "It won't come back.", UiArt.BodyFont, 22, ChoiceScreen.Cream, TextAlignmentOptions.Center);
+        gone.rectTransform.anchoredPosition = new Vector2(0, 12);
+        gone.rectTransform.sizeDelta = new Vector2(600, 32);
+        gone.alpha = 0.85f;
+
+        // "Don't ask again": a small box and its label, the whole row clickable.
+        var row = Ui.Image(panel, "Don't Ask Again", null, Color.clear);
+        row.rectTransform.sizeDelta = new Vector2(290, 36);
+        row.rectTransform.anchoredPosition = new Vector2(0, -38);
+        row.raycastTarget = true;
+        var click = row.gameObject.AddComponent<ClickArea>();
+        click.OnClick = ToggleBox;
+        click.OnHover = h => boxHovered = h;
+        var box = Ui.Image(row.rectTransform, "Box", null, ChoiceScreen.Muted);
+        box.rectTransform.sizeDelta = new Vector2(22, 22);
+        box.rectTransform.anchoredPosition = new Vector2(-118, 0);
+        box.raycastTarget = false;
+        var inner = Ui.Image(box.rectTransform, "Inner", null, ChoiceScreen.InkBrown);
+        inner.rectTransform.sizeDelta = new Vector2(18, 18);
+        inner.raycastTarget = false;
+        tick = Ui.Image(box.rectTransform, "Tick", null, Color.clear);
+        tick.rectTransform.sizeDelta = new Vector2(12, 12);
+        tick.raycastTarget = false;
+        boxLabel = Ui.Text(row.rectTransform, "Label", "DON'T ASK AGAIN", UiArt.BodyFont, 17, ChoiceScreen.Muted, TextAlignmentOptions.Left);
+        boxLabel.rectTransform.sizeDelta = new Vector2(230, 30);
+        boxLabel.rectTransform.anchoredPosition = new Vector2(16, 0);
+        boxLabel.characterSpacing = 5;
+        boxLabel.raycastTarget = false;
+
+        var back = MenuButtonView.Create(panel, "Go Back", UiArt.Embedded("button_blank"), 1.25f, "GO BACK", Close, fullLabel: true);
+        back.Rect.anchoredPosition = new Vector2(-125, -112);
+        var skip = MenuButtonView.Create(panel, "Skip", UiArt.Embedded("button_confirm"), 1.1f, "SKIP", Skip);
+        skip.Rect.anchoredPosition = new Vector2(135, -110);
+    }
+
+    private void ToggleBox()
+    {
+        if (closing) return;
+        dontAsk = !dontAsk;
+    }
+
+    private void Skip()
+    {
+        if (closing) return;
+        closing = true;
+        if (dontAsk)
+        {
+            ModConfig.ConfirmSkip.Value = false;
+            Plugin.Log.LogInfo("Choices: skips won't ask again ([Choices] ConfirmSkip off).");
+        }
+        onSkip();
+    }
+
+    /// <summary>Go back to the cards: nothing lost.</summary>
+    internal void Close()
+    {
+        if (closing) return;
+        closing = true;
+        onClosed();
+    }
+
+    private void Update()
+    {
+        float k = Mathf.Clamp01((Time.unscaledTime - openTime) / 0.16f);
+        if (closing)
+        {
+            group.alpha = Mathf.MoveTowards(group.alpha, 0f, Time.unscaledDeltaTime / 0.14f);
+            if (group.alpha <= 0f) Destroy(gameObject);
+        }
+        else group.alpha = Ease.OutQuad(k);
+        panel.localScale = Vector3.one * Mathf.Lerp(0.94f, 1f, Ease.OutQuad(k));
+        tick.color = dontAsk ? ChoiceScreen.Cream : Color.clear;
+        boxLabel.color = boxHovered || dontAsk ? ChoiceScreen.Cream : ChoiceScreen.Muted;
+    }
+}
+
+/// <summary>A plain clickable area (with hover) for UI that isn't a button.</summary>
+internal class ClickArea : MonoBehaviour, IPointerClickHandler, IPointerEnterHandler, IPointerExitHandler
+{
+    public Action? OnClick;
+    public Action<bool>? OnHover;
+    public void OnPointerClick(PointerEventData e) { if (e.button == PointerEventData.InputButton.Left) OnClick?.Invoke(); }
+    public void OnPointerEnter(PointerEventData e) => OnHover?.Invoke(true);
+    public void OnPointerExit(PointerEventData e) => OnHover?.Invoke(false);
+}
+
 /// <summary>Image button from the mockup art, with hover/press feedback.</summary>
 public class MenuButtonView : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler, IPointerClickHandler
 {
@@ -958,7 +1218,8 @@ public class MenuButtonView : MonoBehaviour, IPointerEnterHandler, IPointerExitH
         set => interactable = value;
     }
 
-    public static MenuButtonView Create(RectTransform parent, string name, Sprite sprite, float size, string? text, Action onClick)
+    /// <param name="fullLabel">Blank art (no mountain): the label spans the whole button.</param>
+    public static MenuButtonView Create(RectTransform parent, string name, Sprite sprite, float size, string? text, Action onClick, bool fullLabel = false)
     {
         var rt = Ui.Rect(parent, name);
         rt.sizeDelta = new Vector2(sprite.rect.width, sprite.rect.height) * size;
@@ -978,14 +1239,21 @@ public class MenuButtonView : MonoBehaviour, IPointerEnterHandler, IPointerExitH
         {
             // The confirm art has the mountain on the left; label sits in the empty right half.
             v.label = Ui.Text(rt, "Label", text, UiArt.TitleFont, 30, new Color32(0x4A, 0x16, 0x14, 0xFF), TextAlignmentOptions.Center);
-            v.label.rectTransform.anchorMin = new Vector2(0.38f, 0.12f);
-            v.label.rectTransform.anchorMax = new Vector2(0.92f, 0.92f);
+            v.label.rectTransform.anchorMin = fullLabel ? new Vector2(0.12f, 0.28f) : new Vector2(0.38f, 0.12f); // (the slab's face sits high)
+            v.label.rectTransform.anchorMax = fullLabel ? new Vector2(0.94f, 0.92f) : new Vector2(0.92f, 0.92f);
             v.label.rectTransform.offsetMin = v.label.rectTransform.offsetMax = Vector2.zero;
             v.label.fontStyle = FontStyles.Italic;
             v.label.characterSpacing = 3;
             v.label.enableAutoSizing = true;
             v.label.fontSizeMin = 14;
             v.label.fontSizeMax = 30;
+            if (fullLabel)
+            {
+                // One fixed size: side by side, SKIP and SAVE FOR LATER read alike.
+                v.label.enableAutoSizing = false;
+                v.label.fontSize = 19;
+                v.label.textWrappingMode = TextWrappingModes.NoWrap;
+            }
             v.label.raycastTarget = false;
         }
         return v;

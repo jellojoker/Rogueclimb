@@ -86,6 +86,37 @@ internal static class UiArt
         return s;
     }
 
+    /// <summary>An up-pointing chevron with a soft glow round it (the level-up sparkles' rising arrows).</summary>
+    public static Sprite Chevron(int size)
+    {
+        string key = $"chevron{size}";
+        if (cache.TryGetValue(key, out var s) && s) return s;
+        var tex = new Texture2D(size, size, TextureFormat.RGBA32, false) { wrapMode = TextureWrapMode.Clamp };
+        var px = new Color32[size * size];
+        Vector2 left = new(size * 0.2f, size * 0.32f), apex = new(size * 0.5f, size * 0.68f), right = new(size * 0.8f, size * 0.32f);
+        float half = size * 0.065f, edge = 1.5f, glow = size * 0.2f;
+        static float Seg(Vector2 p, Vector2 a, Vector2 b)
+        {
+            Vector2 ab = b - a;
+            float t = Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude);
+            return (p - (a + ab * t)).magnitude;
+        }
+        for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                var p = new Vector2(x + 0.5f, y + 0.5f);
+                float d = Mathf.Min(Seg(p, left, apex), Seg(p, apex, right));
+                float core = Mathf.Clamp01((half - d) / edge + 0.5f);
+                float halo = Mathf.Pow(1f - Mathf.Clamp01((d - half) / glow), 2f) * 0.35f;
+                px[y * size + x] = new Color32(255, 255, 255, (byte)(Mathf.Max(core, halo) * 255));
+            }
+        tex.SetPixels32(px);
+        tex.Apply();
+        s = Sprite.Create(tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f);
+        cache[key] = s;
+        return s;
+    }
+
     /// <summary>Antialiased ring; `inner` is the hole radius as a fraction of the outer radius.</summary>
     public static Sprite Ring(int size, float inner)
     {

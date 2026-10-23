@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Photon.Pun;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
@@ -36,6 +37,7 @@ internal class Xp : MonoBehaviour
     private float clockFrom = -1f;    // when we left its start (-1 = still at camp)
     private float deferUntil, flatSince = -1f;
     private int announced;            // levels already chimed
+    private bool saved;               // the pick was saved for later: only the relic key opens it (SavedPicks)
 
     internal static void Install()
     {
@@ -56,11 +58,14 @@ internal class Xp : MonoBehaviour
         instance.clockFrom = -1f;
         instance.deferUntil = 0f;
         instance.flatSince = -1f;
+        instance.saved = false;
         instance.targets.Clear();
         instance.summits.Clear();
         instance.landings.Clear();
         instance.landed = 0f;
         instance.counted = false;
+        instance.late = instance.lateChecked = instance.catching = false;
+        instance.shownLevel = -1;
         crateItems.Clear();
         expected.Clear();
         seen.Clear();
@@ -93,9 +98,57 @@ internal class Xp : MonoBehaviour
     {
         Character me = Character.localCharacter;
         bool on = ModConfig.Xp.Value && MapHandler.Exists && me != null;
-        if (on) { Track(me!); TagCrateItems(); LevelUps(me!); }
+        if (on) { CatchUpTick(); Track(me!); TagCrateItems(); Offers.NotePickups(); LevelUps(me!); }
         UpdateBar(on);
     }
+
+    // --- catching up: a late joiner earns faster until level with the others ----------------------
+
+    private const string LevelKey = "prl.xl";
+    private bool late, lateChecked, catching;
+    private int shownLevel = -1;
+    private float nextCatchCheck;
+
+    /// <summary>The lowest XP level of the other scouts running the mod (null = none).</summary>
+    private static int? OthersLowest()
+    {
+        if (!PhotonNetwork.InRoom) return null;
+        var levels = PhotonNetwork.PlayerListOthers
+            .Select(p => p.CustomProperties.TryGetValue(LevelKey, out object raw) && raw is int v ? v : -1)
+            .Where(v => v >= 0).ToList();
+        return levels.Count > 0 ? levels.Min() : null;
+    }
+
+    private void CatchUpTick()
+    {
+        if (Earned != shownLevel && PhotonNetwork.InRoom)
+        {
+            shownLevel = Earned;
+            try { PhotonNetwork.LocalPlayer.SetCustomProperties(new ExitGames.Client.Photon.Hashtable { [LevelKey] = shownLevel }); }
+            catch (System.Exception e) { Plugin.Log.LogWarning($"XP: couldn't share our level: {e.Message}"); }
+        }
+        if (Time.time < nextCatchCheck) return;
+        nextCatchCheck = Time.time + 1f;
+        // Late = the others already had levels when we first stood on this mountain.
+        if (!lateChecked)
+        {
+            lateChecked = true;
+            int start = OthersLowest() ?? 0;
+            late = start > 0 && Earned == 0;
+            if (late) Plugin.Log.LogInfo($"Catch-up: joined late (the others are level {start}+).");
+        }
+        bool now = late && ModConfig.XpCatchUp.Value > 1f && OthersLowest() is int low && Earned < low;
+        if (now != catching)
+        {
+            catching = now;
+            Plugin.Log.LogInfo(now
+                ? $"Catch-up: level {Earned}, {OthersLowest() - Earned} behind (x{ModConfig.XpCatchUp.Value:0.#} XP)."
+                : $"Catch-up: level {Earned} - caught up.");
+        }
+    }
+
+    /// <summary>XP as earned: more while catching up.</summary>
+    private float Boost(float add) => catching ? add * Mathf.Max(1f, ModConfig.XpCatchUp.Value) : add;
 
     // --- crates and crate items ------------------------------------------------------------------
 
@@ -112,7 +165,7 @@ internal class Xp : MonoBehaviour
             return;
         }
         instance.crateXp += add;
-        instance.xp += add;
+        instance.xp += instance.Boost(add);
         instance.Pop(add, "crate");
         Plugin.Log.LogInfo($"XP: {from} +{add:0} (crates {instance.crateXp:0}/{cap:0}).");
     }
@@ -160,7 +213,7 @@ internal class Xp : MonoBehaviour
             return;
         }
         itemXp += add;
-        xp += add;
+        xp += Boost(add);
         Pop(add, label);
         Plugin.Log.LogInfo($"XP: used up {what} +{add:0} (items {itemXp:0}/{cap:0}).");
     }
@@ -260,7 +313,7 @@ internal class Xp : MonoBehaviour
                 float frac = Mathf.Clamp01((pos.y - from.y) / span);
                 if (frac > best)
                 {
-                    xp += (frac - best) * ClimbXp;
+                    xp += Boost((frac - best) * ClimbXp);
                     best = frac;
                 }
             }
@@ -274,17 +327,17 @@ internal class Xp : MonoBehaviour
         {
             float floor = Mathf.Max(0f, ModConfig.XpLandingFloor.Value) * PerLevel;
             float top = Mathf.Max(0f, floor - landed);
-            xp += top;
+            xp += Boost(top);
             climbed = landed + top;
         }
         else
         {
-            xp += (1f - best) * ClimbXp;
+            xp += Boost((1f - best) * ClimbXp);
             climbed = ClimbXp;
         }
         int bonus = Mathf.RoundToInt(BonusLeft * FastXp);
         int fire = Mathf.Max(0, ModConfig.XpCampfire.Value);
-        xp += bonus + fire;
+        xp += Boost(bonus + fire);
         Plugin.Log.LogInfo($"XP: cleared biome {biome} in {(clockFrom < 0f ? 0f : Time.time - clockFrom):0}s - fast clear +{bonus}, campfire +{fire} (total {xp:0}).");
         if (bonus > 0) Pop(bonus, "fast clear", merge: false);
         if (fire > 0) Pop(fire, "campfire", merge: false);
@@ -320,7 +373,7 @@ internal class Xp : MonoBehaviour
         landings.Add(pos);
         float add = Mathf.Min(Mathf.Max(0f, ModConfig.XpLandingXp.Value), cap - landed);
         landed += add;
-        xp += add;
+        xp += Boost(add);
         Plugin.Log.LogInfo($"XP: landed on new ground +{add:0} ({landings.Count}, {landed:0}/{cap:0}).");
     }
 
@@ -444,7 +497,7 @@ internal class Xp : MonoBehaviour
             Hud.PickChime();
             Plugin.Log.LogInfo($"XP: level {announced} earned ({Pending} waiting for flat ground).");
         }
-        if (Pending == 0 || ChoiceScreen.IsOpen || Time.time < deferUntil) { flatSince = -1f; return; }
+        if (Pending == 0 || saved || ChoiceScreen.IsOpen || Time.time < deferUntil) { flatSince = -1f; return; }
         if (!OnFlatGround(me)) { flatSince = -1f; return; }
         if (flatSince < 0f) flatSince = Time.time;
         if (Time.time - flatSince < 1f) return;
@@ -486,12 +539,15 @@ internal class Xp : MonoBehaviour
         bool shown = ChoiceScreen.Show(new ScreenSpec
         {
             Title = "LEVEL UP",
+            TitleColor = ChoiceScreen.LevelGold,
             Subtitle = $"Level {claimed + 1}",
             Confirm = "CLAIM",
             Cards = LevelCards(cards),
             StillValid = Alive,
             OnConfirm = i => picks[i](),
-            OnBack = Later,
+            OnBack = SaveForLater,
+            OnSkip = () => Done(() => Plugin.Log.LogInfo($"XP: level {claimed} skipped.")),
+            SkipName = $"Level {claimed + 1}",
             OnCancelled = Later,
         });
         if (shown) Hud.LevelUpSound();
@@ -501,8 +557,15 @@ internal class Xp : MonoBehaviour
 
     private static bool Alive() => Character.localCharacter is { } me && !me.data.dead && !me.data.passedOut;
 
-    /// <summary>Backed out (or knocked over): the pick waits, same cards.</summary>
+    /// <summary>Knocked over (or the screen couldn't open): the pick asks again on flat ground, same cards.</summary>
     private void Later() => deferUntil = Time.time + 20f;
+
+    /// <summary>Saved for later: same cards, but only the relic key brings them back.</summary>
+    private void SaveForLater()
+    {
+        saved = true;
+        SavedPicks.Save("xp", $"Level {claimed + 1}", () => { saved = false; OpenPick(); }, valid: () => Pending > 0);
+    }
 
     /// <summary>A carried item goes up a level (a fork asks for the path first).</summary>
     private void PickedLevel(Offer offer)
@@ -673,7 +736,7 @@ internal class Xp : MonoBehaviour
             glow.color = c;
         }
 
-        left!.text = Pending > 0 ? "LEVEL UP" : "CLIMBER XP";
+        left!.text = (Pending > 0 ? "LEVEL UP" : "CLIMBER XP") + (catching ? $"  x{ModConfig.XpCatchUp.Value:0.#}" : "");
         left.alpha = Pending > 0 ? 0.6f + Mathf.Abs(Mathf.Sin(Time.time * 3f)) * 0.4f : 1f;
         if (biome < 0 || biome == int.MaxValue) bonusLabel.text = "";
         else

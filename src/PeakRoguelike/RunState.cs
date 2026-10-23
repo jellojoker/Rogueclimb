@@ -128,6 +128,7 @@ internal static class RunState
         CurioRelics.Reset();
         Badges.Reset();
         RunReport.Reset();
+        SavedPicks.Reset();
         PeakRoguelike.Relics.ResetOffers();
         Publish();
         Changed?.Invoke();

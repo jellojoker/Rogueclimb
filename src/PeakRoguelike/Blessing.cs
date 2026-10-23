@@ -26,7 +26,7 @@ internal class Blessing : MonoBehaviour
 
     private static Blessing? instance;
     private static readonly HashSet<int> blessedStatues = new(), revivedStatues = new();
-    /// <summary>A statue blessing waiting for its screen (another screen was open, or "Decide later").</summary>
+    /// <summary>A statue blessing waiting for its screen (another screen was open). Saved for later, it's in SavedPicks.</summary>
     private static bool pending;
     private static float pendingAt;
     private static int pendingSource;
@@ -118,7 +118,7 @@ internal class Blessing : MonoBehaviour
     /// Each scout, at each lit campfire: once on flat ground beside it for a second, the four build
     /// cards at +1 (the top one sometimes the missing fusion ingredient). Lighting the fire is the
     /// moment for everyone resting there; a scout arriving later gets it when they reach it.
-    /// "Decide later" brings it back while the fire still burns.
+    /// "Save for later" keeps it for the relic key (OfferFire).
     /// </summary>
     private static void CampfireTick()
     {
@@ -138,14 +138,26 @@ internal class Blessing : MonoBehaviour
         fireFlat = -1f;
         var fire = litNear;
         int id = FireId(fire);
-        bool shown = Show("Campfire", unchecked(id + 2000003),
-            onTaken: () => firesBlessed.Add(id),
-            onBack: () => fireRetry = Time.time + 8f,
-            stillValid: () => fire != null && fire.state == Campfire.FireState.Lit,
-            from: Source.Campfire);
+        bool shown = OfferFire(id, () => fire != null && fire.state == Campfire.FireState.Lit);
         if (!shown) fireRetry = Time.time + 2f;
         else Plugin.Log.LogInfo("Campfire blessing shown.");
     }
+
+    /// <summary>
+    /// A campfire's blessing screen. Saved for later, it no longer asks at the fire: the relic key
+    /// brings the same cards back anywhere, even after the fire burns out. Skipped, that fire is done.
+    /// </summary>
+    private static bool OfferFire(int id, Func<bool>? stillValid) =>
+        Show("Campfire", unchecked(id + 2000003),
+            onTaken: () => firesBlessed.Add(id),
+            onBack: () =>
+            {
+                firesBlessed.Add(id); // (not taken: SavedPicks holds it now)
+                SavedPicks.Save($"fire:{id}", "Campfire blessing", () => OfferFire(id, null));
+            },
+            stillValid: stillValid,
+            from: Source.Campfire,
+            onSkip: () => { firesBlessed.Add(id); Plugin.Log.LogInfo("Campfire blessing skipped."); });
 
     private void Update()
     {
@@ -157,22 +169,25 @@ internal class Blessing : MonoBehaviour
         Character me = Character.localCharacter;
         if (me == null || me.data.dead || me.data.passedOut) return;
         pending = false;
-        void Later()
-        {
-            pending = true;
-            pendingAt = Time.time + 8f;
-        }
+        OfferStatue(pendingSource);
+    }
+
+    /// <summary>A statue's blessing screen. Saved for later, the relic key brings the same cards back.</summary>
+    private static void OfferStatue(int source)
+    {
+        void Save() => SavedPicks.Save($"statue:{source}", "Statue blessing", () => OfferStatue(source));
+        void Skipped() => Plugin.Log.LogInfo("Statue blessing skipped.");
         // A blessing statue offers badge relics now - no level-ups.
         if (ModConfig.BadgeRelics.Value)
         {
-            if (!Badges.OfferPick("Blessing statue", pendingSource, onTaken: () => { }, onBack: Later))
+            if (!Badges.OfferPick("Blessing statue", source, onTaken: () => { }, onBack: Save, onSkip: Skipped))
             {
-                if (Badges.AnyLeft) Later(); // the screen couldn't open: try again shortly
+                if (Badges.AnyLeft) { pending = true; pendingSource = source; pendingAt = Time.time + 8f; } // the screen couldn't open: try again shortly
                 else Hud.Toast("The statue is silent", Trees.Gold);
             }
             return;
         }
-        Show("Revive statue", pendingSource, onTaken: () => { }, onBack: Later, stillValid: null);
+        Show("Revive statue", source, onTaken: () => { }, onBack: Save, stillValid: null, onSkip: Skipped);
     }
 
     /// <summary>Dev panel: a statue blessing for you, right now.</summary>
@@ -229,7 +244,7 @@ internal class Blessing : MonoBehaviour
             .OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
     }
 
-    private static bool Show(string subtitle, int source, Action onTaken, Action onBack, Func<bool>? stillValid, Source from = Source.Statue)
+    private static bool Show(string subtitle, int source, Action onTaken, Action onBack, Func<bool>? stillValid, Source from = Source.Statue, Action? onSkip = null)
     {
         building = from;
         dealing = source;
@@ -253,9 +268,12 @@ internal class Blessing : MonoBehaviour
             OnConfirm = i => options[i].Take(ok =>
             {
                 if (ok) onTaken();
-                else Show(subtitle, source, onTaken, onBack, stillValid, from);
+                else Show(subtitle, source, onTaken, onBack, stillValid, from, onSkip);
             }),
             OnBack = onBack,
+            // Statues and campfires (not Ancient Luggage - reopen the crate): save for later, or skip.
+            OnSkip = onSkip,
+            SkipName = $"{subtitle} blessing",
         });
     }
 
@@ -681,22 +699,13 @@ internal class Blessing : MonoBehaviour
         !darkTaken && PhotonNetwork.InRoom && PhotonNetwork.CurrentRoom != null && PhotonNetwork.LocalPlayer != null
         && PhotonNetwork.CurrentRoom.CustomProperties.TryGetValue(DarkKey, out object raw) && raw is int a && a == PhotonNetwork.LocalPlayer.ActorNumber;
 
-    /// <summary>The dark offer was put off ("Later"): the HUD's waiting pill shows it.</summary>
-    internal static bool DarkWaiting => darkLater && OfferedToMe;
-
     private static void DarkTick()
     {
         if (!OfferedToMe || ChoiceScreen.IsOpen) { darkFlat = -1f; return; }
         Character me = Character.localCharacter;
         if (me == null || me.data.dead || me.data.passedOut) { darkFlat = -1f; return; }
-        if (darkLater)
-        {
-            // Put off: the relic key reopens it (a waiting shared relic goes first).
-            darkFlat = -1f;
-            if (Relics.Waiting == null && UnityEngine.InputSystem.Keyboard.current is { } kb && kb[ModConfig.RelicKey.Value].wasPressedThisFrame)
-                ShowDark();
-            return;
-        }
+        // Saved for later: the relic key reopens it (SavedPicks).
+        if (darkLater) { darkFlat = -1f; return; }
         if (!Xp.OnFlatGround(me)) { darkFlat = -1f; return; }
         if (darkFlat < 0f) darkFlat = Time.time;
         if (Time.time - darkFlat >= 1f) { darkFlat = -1f; ShowDark(); }
@@ -711,7 +720,6 @@ internal class Blessing : MonoBehaviour
             Title = "THE STATUE REMEMBERS",
             Subtitle = "Choose one",
             Confirm = "TAKE",
-            BackHint = $"Later ({ModConfig.RelicKey.Value} to reopen)",
             Cards = items.Select(DarkCard).ToList(),
             OnConfirm = i =>
             {
@@ -721,7 +729,18 @@ internal class Blessing : MonoBehaviour
                 Hud.Banner("THE STATUE GIVES", Items.DisplayName(items[i]), ChoiceScreen.Muted);
                 Plugin.Log.LogInfo($"Revive statue: took {items[i].gameObject.name}.");
             },
-            OnBack = () => darkLater = true,
+            OnBack = () =>
+            {
+                darkLater = true;
+                SavedPicks.Save("dark", "The statue's dark gift", () => { darkLater = false; ShowDark(); }, valid: () => OfferedToMe);
+            },
+            OnSkip = () =>
+            {
+                darkTaken = true;
+                darkLater = false;
+                Plugin.Log.LogInfo("Revive statue: dark offer skipped.");
+            },
+            SkipName = "The statue's dark gift",
             OnCancelled = () => { },
         });
         if (shown) Plugin.Log.LogInfo("Revive statue: dark offer shown.");

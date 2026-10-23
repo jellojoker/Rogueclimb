@@ -96,9 +96,12 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
     /// <summary>A statue blessed the team (revive = it revived someone: everyone gets a random badge instead).</summary>
     public static void Bless(int statueViewId, bool revive = false) => Send(BlessingEvent, new object[] { statueViewId, revive });
 
-    /// <summary>A fresh relic was bound: the host raises a blood moon (or, with blood moons off, everyone gets the Scoutmaster hunt).</summary>
-    public static void RelicTaken(float huntSeconds, string binder, RelicGem gem) =>
-        Send(HuntEvent, new object[] { huntSeconds, binder, (int)gem, Me });
+    /// <summary>
+    /// A relic was taken. moon: the host raises a blood moon (or, with blood moons off, everyone gets
+    /// the Scoutmaster hunt). share: it was bound - the host offers the other scouts that colour.
+    /// </summary>
+    public static void RelicTaken(float huntSeconds, string binder, RelicGem gem, bool share, bool moon) =>
+        Send(HuntEvent, new object[] { huntSeconds, binder, (int)gem, Me, share, moon });
 
     /// <summary>Host (testing): everyone but the binder gets this colour's relic choice.</summary>
     public static void SharedRelic(RelicGem gem, int binderActor) => Send(SharedRelicEvent, new object[] { (int)gem, binderActor });
@@ -241,10 +244,13 @@ internal class Net : MonoBehaviourPunCallbacks, IOnEventCallback
                     Blessing.FromStatue((int)a[0], a.Length > 1 && a[1] is bool r && r);
                     break;
                 case HuntEvent when e.CustomData is object[] a:
-                    if (a.Length > 3) BloodMoon.ShareRelic((RelicGem)(int)a[2], (int)a[3]);
-                    if (ModConfig.BloodMoon.Value) BloodMoon.RelicTaken((string)a[1]);
-                    else if ((float)a[0] > 0f) ScoutmasterHunt.Begin((float)a[0], (string)a[1]);
+                {
+                    bool share = a.Length <= 4 || (bool)a[4], moon = a.Length <= 5 || (bool)a[5];
+                    if (a.Length > 3 && share) BloodMoon.ShareRelic((RelicGem)(int)a[2], (int)a[3], wait: moon);
+                    if (moon && ModConfig.BloodMoon.Value) BloodMoon.RelicTaken((string)a[1]);
+                    else if (moon && (float)a[0] > 0f) ScoutmasterHunt.Begin((float)a[0], (string)a[1]);
                     break;
+                }
                 case TornadoTargetEvent when e.CustomData is object[] a:
                     BloodTornado.SetTarget((int)a[0], (Vector3)a[1]);
                     break;

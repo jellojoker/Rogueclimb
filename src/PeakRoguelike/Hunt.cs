@@ -309,12 +309,27 @@ internal class ScoutmasterHunt : MonoBehaviour
     private void Recover(Scoutmaster sm, string why)
     {
         standIn = null;
+        HuntPatches.EndCloseLunge();
         float s = BloodMoon.ScoutmasterTier <= 2 ? ModConfig.BmHunterRecover.Value : ModConfig.BmScoutmasterRecover.Value;
         if (s <= 0f) return;
         sm.chillForSeconds = s;
         TargetForcedUntil(sm) = Time.time; // free to pick someone new once he's recovered
         restUntil = Time.time + s;
         Plugin.Log.LogInfo($"Scoutmaster {why} - recovering for {s:0}s.");
+    }
+
+    /// <summary>Host: he's had his throws at this scout this moon (he only watches them).</summary>
+    internal static bool IsSpent(Character c) => instance != null && instance.spent.Contains(c);
+
+    /// <summary>Host: switch his hunt onto this scout now (a close stare). False = he can't.</summary>
+    internal static bool TurnOn(Scoutmaster sm, Character c)
+    {
+        if (instance == null || c.photonView == null || Busy(sm)) return false;
+        instance.last = c;
+        instance.standIn = null;
+        sm.view.RPC("RPCA_SetCurrentTarget", Photon.Pun.RpcTarget.All, c.photonView.ViewID, instance.until - Time.time);
+        HuntPatches.Target(sm) = c;
+        return true;
     }
 
     /// <summary>Host: a lunge (grab attempt) caught nobody.</summary>
@@ -561,6 +576,37 @@ internal static class HuntPatches
 
     private static Character? sightOf;
 
+    private static Character? closeStarer, closeLungeAt;
+    private static float closeStare, closeLungeUntil, closeCooldownUntil;
+
+    /// <summary>He threw someone or missed: any close lunge is over.</summary>
+    internal static void EndCloseLunge() => closeLungeAt = null;
+
+    /// <summary>
+    /// Hunting, frozen: a scout within CloseStareDistance who stares straight at him for
+    /// CloseStareSeconds draws a short lunge (he turns on them if they weren't his prey).
+    /// </summary>
+    private static void CloseStare(Scoutmaster sm, Character me, Character prey)
+    {
+        if (Time.time < closeCooldownUntil) { closeStare = 0f; return; }
+        float range = Mathf.Max(0f, ModConfig.BmCloseStareDistance.Value) * Squad.M;
+        var starer = Squad.Alive()
+            .Where(c => !c.data.fullyPassedOut && !ScoutmasterHunt.IsSpent(c) && !Sanctuary.Safe(c) && !BloodTornado.Carrying(c)
+                        && Vector3.Distance(c.Center, me.Center) <= range && Level(me, c) && ScoutmasterHunt.StaringAt(c, me))
+            .OrderBy(c => c == prey ? 0 : 1)
+            .FirstOrDefault();
+        if (starer == null || starer != closeStarer) { closeStarer = starer; closeStare = 0f; return; }
+        closeStare += Time.deltaTime;
+        if (closeStare < ModConfig.BmCloseStareSeconds.Value) return;
+        closeStare = 0f;
+        closeStarer = null;
+        if (starer != prey && !ScoutmasterHunt.TurnOn(sm, starer)) return;
+        closeLungeAt = starer;
+        closeLungeUntil = Time.time + Mathf.Max(0.5f, ModConfig.BmCloseLungeTime.Value);
+        closeCooldownUntil = closeLungeUntil + Mathf.Max(0f, ModConfig.BmCloseLungeCooldown.Value);
+        Plugin.Log.LogInfo($"Scoutmaster: {starer.characterName} stared too close ({Vector3.Distance(starer.Center, me.Center) / Squad.M:0.0}m) - he lunges.");
+    }
+
     /// <summary>He just stepped in from out of sight (the grab clock starts over).</summary>
     internal static void Appeared()
     {
@@ -592,12 +638,28 @@ internal static class HuntPatches
         {
             case ScoutmasterHunt.HuntMode.Observer:
                 Stand(); // Chase already turned him to face them
+                closeStare = 0f;
                 return;
             case ScoutmasterHunt.HuntMode.Lunge:
                 input.sprintIsPressed = true;
                 if (BloodTornado.Carrying(prey) || !Level(me, prey)) input.useSecondaryIsPressed = false;
                 return;
         }
+
+        // Stared down from up close he doesn't stay frozen: he lunges at whoever is staring.
+        if (closeLungeAt != null)
+        {
+            if (Time.time < closeLungeUntil && prey == closeLungeAt && !closeLungeAt.data.dead && !Sanctuary.Safe(prey))
+            {
+                input.sprintIsPressed = true;
+                input.useSecondaryIsPressed = Vector3.Distance(me.Center, prey.Center) < Reach && Level(me, prey) && !BloodTornado.Carrying(prey);
+                return;
+            }
+            Plugin.Log.LogInfo($"Scoutmaster: close lunge at {closeLungeAt.characterName} ran out.");
+            closeLungeAt = null;
+        }
+        CloseStare(__instance, me, prey);
+        if (closeLungeAt != null) return;
 
         // Hunting: while ANY scout looks at him he freezes. Unwatched, he sprints in from afar and
         // walks the last SprintDistance. Right on his prey he stares a moment, then grabs once

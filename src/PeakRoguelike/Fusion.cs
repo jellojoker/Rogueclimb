@@ -197,9 +197,11 @@ internal class Fusion : MonoBehaviour
     };
 
     private static Fusion? instance;
-    private string snoozed = "";
+    private string snoozed = "", skipped = "";
     private float nextScan;
     public static bool Ready { get; private set; }
+    /// <summary>Ready, and not skipped for these pockets: the HUD pill shows (the fusion key opens it either way).</summary>
+    public static bool Prompt { get; private set; }
 
     internal static void Install()
     {
@@ -255,9 +257,9 @@ internal class Fusion : MonoBehaviour
 
     private void Update()
     {
-        if (!ModConfig.Fusion.Value) { Ready = false; return; }
+        if (!ModConfig.Fusion.Value) { Ready = Prompt = false; return; }
         Character me = Character.localCharacter;
-        if (me == null || me.data.dead || me.data.passedOut) { Ready = false; return; }
+        if (me == null || me.data.dead || me.data.passedOut) { Ready = Prompt = false; return; }
 
         bool keyPressed = Keyboard.current != null && Keyboard.current[ModConfig.FusionKey.Value].wasPressedThisFrame;
         if (!keyPressed && Time.time < nextScan) return;
@@ -266,9 +268,11 @@ internal class Fusion : MonoBehaviour
 
         var available = Available();
         Ready = available.Count > 0;
+        if (!Ready) Prompt = false;
         if (!Ready || ChoiceScreen.IsOpen) return;
 
         string key = PocketKey();
+        Prompt = key != skipped;
         bool calm = me.data.isGrounded && !me.data.isClimbing && !me.data.isRopeClimbing;
         if (keyPressed || (key != snoozed && calm)) Show(available, key);
     }
@@ -287,12 +291,15 @@ internal class Fusion : MonoBehaviour
         ChoiceScreen.Show(new ScreenSpec
         {
             Title = "FUSION",
+            TitleColor = ChoiceScreen.FusionGlow,
             Subtitle = available.Count == 1 ? "A recipe is ready" : $"{available.Count} recipes are ready",
             Confirm = "FUSE",
-            BackHint = $"Not now ({ModConfig.FusionKey.Value} to reopen)",
             Cards = available.Select(a => Card(a.recipe, a.slots)).ToList(),
             OnConfirm = i => Fuse(available[i].recipe, available[i].slots),
+            // Saved for later: the fusion key and its pill bring it back. Skipped: no pill until the pockets change.
             OnBack = () => snoozed = key,
+            OnSkip = () => snoozed = skipped = key,
+            SkipFree = true, // the ingredients stay in your pockets
         });
     }
 

@@ -402,16 +402,20 @@ internal class BloodMoon : MonoBehaviour
 
     /// <summary>
     /// Host (testing option): a scout bound a relic from an amulet - everyone else gets that
-    /// colour's choice, and the pickup's moon waits until they've all chosen (or the wait runs out).
+    /// colour's choice. wait: the bind raises the moon too (amulets read on pickup), and it waits
+    /// until they've all chosen (or the wait runs out).
     /// </summary>
-    internal static void ShareRelic(RelicGem gem, int binderActor)
+    internal static void ShareRelic(RelicGem gem, int binderActor, bool wait = true)
     {
         if (instance == null || !PhotonNetwork.IsMasterClient || !ModConfig.DevShareRelics.Value || !ModConfig.Relics.Value) return;
         if (PhotonNetwork.PlayerList.All(p => p.ActorNumber == binderActor)) return; // solo: nobody to share with
-        foreach (var p in PhotonNetwork.PlayerList)
-            if (p.ActorNumber != binderActor && Modless.HasMod(p)) instance.sharedWaiting.Add(p.ActorNumber);
-        instance.sharedUntil = Time.time + Mathf.Max(5f, ModConfig.DevShareWait.Value);
-        Plugin.Log.LogInfo($"Shared relics: {gem} offered to {instance.sharedWaiting.Count} scout(s).");
+        if (wait)
+        {
+            foreach (var p in PhotonNetwork.PlayerList)
+                if (p.ActorNumber != binderActor && Modless.HasMod(p)) instance.sharedWaiting.Add(p.ActorNumber);
+            instance.sharedUntil = Time.time + Mathf.Max(5f, ModConfig.DevShareWait.Value);
+        }
+        Plugin.Log.LogInfo($"Shared relics: {gem} offered to the other scouts{(wait ? $" - the moon waits for {instance.sharedWaiting.Count}" : "")}.");
         Net.SharedRelic(gem, binderActor);
     }
 

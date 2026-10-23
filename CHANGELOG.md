@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.12.79
+- Level-ups, trade-ups and fusions each have their own look. **Level up** is gold: the heading, the glow, the rim and the sparkles. **Trade up** is silver: the crate's trade-up card and the stack pop-up. **Fusion** is purple: the heading and each card's name.
+- Level-up and trade-up cards have arrows rising up through their sparkles.
+
+## 0.12.78
+- **Meteor showers** rain from the sky above the section, streaking down onto the scouts (they used to be fired from the mountain). In the Citadel they fall from high over the tower; in the **Kiln** the lava erupts them - they arc up out of it and down onto their marks.
+- **Cover** only helps when it's real: a rock blocked overhead comes in at a slant (up to 35° off straight down) if any such path is open. A boulder lip or a small ledge won't save you; a cave or a deep overhang will. [BloodMoon] MeteorCoverAngle.
+- **Scenery meteors** on every shower: harmless rocks crashing 30-150m from everyone - 2 a second, +1.5 for each extra scout out in the open. No mark, no shake, can't hit. [BloodMoon] MeteorSceneryBase / MeteorSceneryPerScout.
+- The host logs each shower's rocks when it ends (fell, scenery, stopped by cover / a campfire / no ground).
+
+## 0.12.77
+- **Save for later / Skip** on every card that doesn't come from a crate: level-ups, statue and campfire blessings, badge picks, shared relics, cursed relics, the statue's dark gift, The Mountain Provides, the late starting relic, fusions and stack trade-ups. Save for later keeps it however often you put it off; **L** reopens saved picks one at a time ("SAVED [L]" under the tray). Skip asks "Skip this?" first, with a "Don't ask again" box ([Choices] ConfirmSkip). Fusions and stack trade-ups skip without asking (nothing is lost) and keep their own keys. Crate cards and the Ritual Dagger's pick are unchanged.
+- These screens use mouse buttons (Skip / Save for later / the pick) instead of the key hints. Esc still saves for later.
+- Level-ups no longer pop up again by themselves once saved - L brings them back. The Mountain Provides moved from the fusion key to L; its "Pass on" is now Skip.
+- **Shared relics** wait until the amulet is read and bound - other scouts no longer get their cards the moment it's picked up.
+- [Relics] AmuletCards = OnPickup brings back the pre-0.12.68 amulets: the cards open as soon as it's in your pockets, and the moon rises when it's bound. Also on the F8 panel.
+- **Level-ups** always deal at least one item you're not carrying (when you have one), the one you've levelled furthest first.
+- Any tree item that reaches your pockets (off the ground, from a scout) puts its tree at level 1 if it was lower, whatever the item's own level - so level-ups keep offering it after it's gone. [Xp] PickupsCount.
+- Green sun: sunscreen or an open parasol with shade left lets you stack again, as it spares you every other sun.
+- Glider relics: every glide fires them again (no landing needed between glides). [Relics] GlideRelicLandSeconds (0 = off).
+- Card sparkles now drift over the cards instead of hiding behind them, bigger and brighter. Level-up cards glow gold all the time, with a thicker shimmering gold edge.
+
+## 0.12.76
+- Fixed: placing a Scout Cannon (or flag / effigy) from a stack used up the whole stack - it now takes one copy.
+- Supply drops no longer copy the Citadel's sleep-gas trap by default. Now and then (12%) a drop is trapped with the level's own crate trap, where the level has one. [Supply] TrappedChance.
+- Scoutmaster: stare at him from up close (8m, 2s) while he's frozen and he lunges at you (2s, then 10s before another). [BloodMoon] CloseStareDistance / CloseStareSeconds / CloseLungeTime / CloseLungeCooldown.
+- Late joiners earn double XP until they reach the lowest level of the others ("x2" on the XP bar). [Xp] CatchUpMultiplier.
+- Glider relics: after a glide fires your relics, the next glide only counts once you've landed. [Relics] GlideLandSeconds.
+- Badges halve the glass on their tools' relics instead of making them free (Naturalist's packaged-food double is unchanged). [Relics] BadgeGlassScale.
+- Bugle: also marks the nearest scout (anyone down first), 10-250m. Helping hand nerfed from 2x to 1.5x (reach 6m, pull x1.5).
+- F8: "Fill statue" fills the nearest Scout's Honor statue. Statue inserts are logged.
+
 ## 0.12.69
 - Fixed: the level-4 Holy Health Pack cured all of your poison - it now cures half, as its card says.
 - The Cure-All's Radiant dose includes the Radiant pack's hunger and glass too (each sip).

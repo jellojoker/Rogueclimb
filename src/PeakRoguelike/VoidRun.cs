@@ -131,6 +131,36 @@ internal class VoidRun : MonoBehaviour
         GameUtils.instance.InstantiateAndGrab(honor, me);
     }
 
+    /// <summary>F8: fill every slot of the nearest Scout's Honor statue (the game makes the Scout's Honor).</summary>
+    internal static void DevFillStatue()
+    {
+        var me = Character.localCharacter;
+        var statue = me == null ? null : FindObjectsByType<ScoutStatue>(FindObjectsSortMode.None)
+            .OrderBy(s => Vector3.Distance(s.transform.position, me.Center)).FirstOrDefault();
+        var view = statue != null ? statue.GetComponent<PhotonView>() : null;
+        if (me == null || statue == null || view == null) { Hud.Toast("No Scout's Honor statue here", ChoiceScreen.Muted); return; }
+        for (int i = 0; i < 4; i++) view.RPC("RPC_InsertAmulet", RpcTarget.MasterClient, i);
+        Plugin.Log.LogInfo($"Statue: F8 filled all slots ({Vector3.Distance(statue.transform.position, me.Center):0}u away).");
+        Hud.Toast("Statue filled", ChoiceScreen.Cream);
+    }
+
+    private static readonly AccessTools.FieldRef<ScoutStatue, int[]> StatueSlots = AccessTools.FieldRefAccess<ScoutStatue, int[]>("hasAmulets");
+
+    [HarmonyPrefix, HarmonyPatch(typeof(ScoutStatue), "RPC_InsertAmulet")]
+    private static void LogInsert(int amuletType)
+    {
+        if (amuletType == -1) Plugin.Log.LogInfo("Statue: all four in - the Scout's Honor forms.");
+        else if (amuletType == -2) Plugin.Log.LogInfo("Statue: Scout's Honor made.");
+    }
+
+    [HarmonyPostfix, HarmonyPatch(typeof(ScoutStatue), "RPC_InsertAmulet")]
+    private static void LogFilled(ScoutStatue __instance, int amuletType)
+    {
+        if (amuletType < 0 || amuletType >= 4 || !PhotonNetwork.IsMasterClient) return;
+        var slots = StatueSlots(__instance);
+        Plugin.Log.LogInfo($"Statue: host got amulet {amuletType} - {slots.Count(x => x != -1)}/4 filled [{string.Join(",", slots)}].");
+    }
+
     // --- the statue: give a relic back -------------------------------------------------------------
 
     /// <summary>The statue's slot for a relic's amulet (-1 = none).</summary>
@@ -170,7 +200,15 @@ internal class VoidRun : MonoBehaviour
     [HarmonyPrefix, HarmonyPatch(typeof(ScoutStatue), nameof(ScoutStatue.Interact_CastFinished))]
     private static bool Return(ScoutStatue __instance, Character interactor)
     {
-        if (interactor == null || !interactor.IsLocal || HoldingAmulet(interactor)) return true;
+        if (interactor != null && interactor.IsLocal && HoldingAmulet(interactor))
+        {
+            var held = interactor.data.currentItem;
+            var b = held.GetComponent<AmuletBase>();
+            Plugin.Log.LogInfo($"Statue: {interactor.characterName} puts in {held.gameObject.name.Replace("(Clone)", "").Trim()} "
+                + $"(amulet {(b != null ? b.amuletIndex : -99)}, x{Stacks.Count(held.data)}).");
+            return true;
+        }
+        if (interactor == null || !interactor.IsLocal) return true;
         if (Returnable() is not { } gem) return true;
         var view = __instance.GetComponent<PhotonView>();
         if (view == null) return true;
