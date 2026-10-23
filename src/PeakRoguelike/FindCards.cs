@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using HarmonyLib;
 using UnityEngine;
 using UnityEngine.SceneManagement;
@@ -61,6 +62,8 @@ internal static class FindCards
             }
 
             if (!ModConfig.FindCards.Value || KindOf(__instance) is not { } kind || seen.Contains(kind)) return true;
+            // A lantern tree already started (a crate's Lantern, a gift...): the find is spent.
+            if (kind == "Lantern" && Trees.Get(Trees.Classify(__instance)) is { } tree && RunState.Level(tree.Id) > 0) { seen.Add(kind); return true; }
             if (!interactor.player.HasEmptySlot(__instance.itemID)) return true; // vanilla says "pockets full"
             Show(__instance, interactor, kind);
             return false;
@@ -70,6 +73,15 @@ internal static class FindCards
             Plugin.Log.LogWarning($"Find card failed: {e.Message}");
             return true;
         }
+    }
+
+    /// <summary>A lantern or flare in your pockets however it got there (crate, level-up, a scout): no find card for it this run.</summary>
+    internal static void NoteHeld(Player p)
+    {
+        NewRunCheck();
+        foreach (var s in p.itemSlots.Append(p.tempFullSlot))
+            if (s != null && !s.IsEmpty() && KindOf(s.prefab) is { } kind && seen.Add(kind))
+                Plugin.Log.LogInfo($"Find card: carrying a {kind} - no find card for it this run.");
     }
 
     /// <summary>The flare's card - found on the Shore or dealt by a crate, it says the same thing.</summary>

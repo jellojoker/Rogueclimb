@@ -345,7 +345,7 @@ internal static class ModConfig
         StackKey = cfg.Bind("Storage", "StackLevelUpKey", Key.K, "Re-open the stack level-up pop-up (3 copies in one pocket) after choosing 'Later'.");
         RelicKey = cfg.Bind("Relics", "SharedRelicKey", Key.L, "Re-open anything saved for later (level-ups, relics, statue gifts...), one at a time, and read an unread amulet.");
         ConfirmSkip = cfg.Bind("Choices", "ConfirmSkip", true, "'Skip' on a card that didn't come from a crate asks 'are you sure?' first. The pop-up's 'Don't ask again' box turns this off.");
-        AmuletCardsWhen = cfg.Bind("Relics", "AmuletCards", AmuletCards.OnRead, "When a statue amulet's relic cards open. OnRead: taking it raises the moon, its cards wait until you click it in your hand or press the relic key. OnPickup: its cards open as soon as it's in your pockets, and the moon rises when you bind it (the pre-0.12.68 way). Either way, other scouts' shared cards wait until it's bound.");
+        AmuletCardsWhen = cfg.Bind("Relics", "AmuletCards", AmuletCards.OnPickup, "When a statue amulet's relic cards open. OnPickup: once it's in your pockets and you're standing on flat ground, and the moon rises when you bind it. OnRead: taking it raises the moon, its cards wait until you click it in your hand or press the relic key (0.12.68-0.12.79). Either way, other scouts' shared cards wait until it's bound.");
         DevPanelKey = cfg.Bind("Dev", "BuildPanelKey", Key.F8, "Show which build of the mod every player in the lobby is running.");
         BugReportKey = cfg.Bind("BugReports", "Key", Key.F7, "Save a bug report (screenshot, recent log, run state, config) on every modded player's PC. Saved in BepInEx/BugReports.");
         BugReportOnError = cfg.Bind("BugReports", "AutoOnError", true, "Save a report by itself the first time the mod hits an error in a run.");
@@ -521,6 +521,12 @@ internal static class ModConfig
             BmRelay.Value = true;
             defaults.Value = 12;
             Plugin.Log.LogInfo("Config: blood moons are relays - one hazard at a time (new default; Stacked on the airport ticket).");
+        }
+        if (defaults.Value < 13)
+        {
+            AmuletCardsWhen.Value = AmuletCards.OnPickup;
+            defaults.Value = 13;
+            Plugin.Log.LogInfo("Config: amulets open their relic cards on pickup again (new default).");
         }
     }
 }

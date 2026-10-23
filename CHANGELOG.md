@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.12.80
+- **Amulets** open their relic cards as soon as you pick them up again, once you're standing on flat ground. They never open on a wall. The moon rises when you bind one. Your config is switched over too. [Relics] AmuletCards = OnRead brings back read-first amulets.
+- The amulet screen has **Save for later**. Click the amulet in your hand or press L to open it again.
+- When several pop-ups are waiting, **relics open first, then fusions, then level-ups**. L opens unread amulets and saved relics first, then saved level-ups, then everything else.
+- The **Lantern and Flare** "Something found" cards show once a run. A lantern or flare you got any other way (a crate, a level-up, a gift, from a scout) counts, so dropping it and picking it up again no longer brings the card back.
+
 ## 0.12.79
 - Level-ups, trade-ups and fusions each have their own look. **Level up** is gold: the heading, the glow, the rim and the sparkles. **Trade up** is silver: the crate's trade-up card and the stack pop-up. **Fusion** is purple: the heading and each card's name.
 - Level-up and trade-up cards have arrows rising up through their sparkles.

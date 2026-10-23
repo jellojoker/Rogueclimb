@@ -471,11 +471,11 @@ internal class DevPanel : MonoBehaviour
             Toggle("Moon on pickup", ModConfig.DevMoonOnPickup));
         Row(B($"Relic order: {RelicShuffle.Label(ModConfig.StatueOrder.Value)}", () => { RelicShuffle.Cycle(1); Rebuild(); },
             ModConfig.StatueOrder.Value == StatueOrder.Off ? ButtonColor : RedColor));
-        Row(B($"Amulet cards: {(ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup ? "on pickup (old)" : "on read")}", () =>
+        Row(B($"Amulet cards: {(ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup ? "on pickup" : "on read (not default)")}", () =>
             {
                 ModConfig.AmuletCardsWhen.Value = ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup ? AmuletCards.OnRead : AmuletCards.OnPickup;
                 Rebuild();
-            }, ModConfig.AmuletCardsWhen.Value == AmuletCards.OnPickup ? RedColor : ButtonColor),
+            }, ModConfig.AmuletCardsWhen.Value == AmuletCards.OnRead ? RedColor : ButtonColor),
             Toggle("Skip asks first", ModConfig.ConfirmSkip),
             Toggle("Pickups start trees", ModConfig.XpPickupsCount));
         Label("<color=#FFD86A>XP (gold bar)</color>", 26f);

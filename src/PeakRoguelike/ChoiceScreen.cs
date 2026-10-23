@@ -87,6 +87,8 @@ public class ScreenSpec
     public string SkipName = "";
     /// <summary>Skipping loses nothing (a fusion or stack the pockets still hold): no "are you sure?".</summary>
     public bool SkipFree;
+    /// <summary>The Save for later button without a Skip (an amulet: nothing to throw away - drop it instead).</summary>
+    public bool SaveForLater;
 }
 
 /// <summary>
@@ -259,16 +261,20 @@ public class ChoiceScreen : MonoBehaviour
         bar.anchoredPosition = new Vector2(0, 112);
 
         bool extra = !string.IsNullOrEmpty(spec.Extra);
-        if (spec.OnSkip != null)
+        if (spec.OnSkip != null || spec.SaveForLater)
         {
             // Saved-for-later picks: mouse buttons only - Skip, Save for later, the pick (and its extra).
             var blank = UiArt.Embedded("button_blank");
-            var skip = MenuButtonView.Create(bar, "Skip", blank, 1.35f, "SKIP", AskSkip, fullLabel: true);
-            skip.Rect.anchoredPosition = new Vector2(extra ? -400 : -256, 0);
+            bool skips = spec.OnSkip != null;
+            if (skips)
+            {
+                var skip = MenuButtonView.Create(bar, "Skip", blank, 1.35f, "SKIP", AskSkip, fullLabel: true);
+                skip.Rect.anchoredPosition = new Vector2(extra ? -400 : -256, 0);
+            }
             var save = MenuButtonView.Create(bar, "Save", blank, 1.35f, "SAVE FOR LATER", Back, fullLabel: true);
-            save.Rect.anchoredPosition = new Vector2(extra ? -175 : -31, 0);
+            save.Rect.anchoredPosition = new Vector2(skips ? (extra ? -175 : -31) : (extra ? -255 : -128), 0);
             confirmButton = MenuButtonView.Create(bar, "Confirm", UiArt.Embedded("button_confirm"), 1.35f, spec.Confirm, Confirm);
-            confirmButton.Rect.anchoredPosition = new Vector2(extra ? 80 : 224, 0);
+            confirmButton.Rect.anchoredPosition = new Vector2(skips ? (extra ? 80 : 224) : (extra ? 0 : 128), 0);
             confirmButton.Interactable = false;
             if (extra)
             {

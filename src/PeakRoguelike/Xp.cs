@@ -497,7 +497,8 @@ internal class Xp : MonoBehaviour
             Hud.PickChime();
             Plugin.Log.LogInfo($"XP: level {announced} earned ({Pending} waiting for flat ground).");
         }
-        if (Pending == 0 || saved || ChoiceScreen.IsOpen || Time.time < deferUntil) { flatSince = -1f; return; }
+        // Relics open first, then fusions, then level-ups.
+        if (Pending == 0 || saved || ChoiceScreen.IsOpen || Time.time < deferUntil || Relics.Waiting || Fusion.Waiting) { flatSince = -1f; return; }
         if (!OnFlatGround(me)) { flatSince = -1f; return; }
         if (flatSince < 0f) flatSince = Time.time;
         if (Time.time - flatSince < 1f) return;

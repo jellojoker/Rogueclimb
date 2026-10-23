@@ -61,13 +61,17 @@ internal static class SavedPicks
         if (me == null || me.data.dead || me.data.passedOut) return false;
         Prune();
         if (list.Count == 0) return false;
-        var e = list[0];
-        list.RemoveAt(0);
+        var e = list.OrderBy(Rank).First(); // stable: oldest first within a rank
+        list.Remove(e);
         Plugin.Log.LogInfo($"Reopened saved pick: {e.Name} ({list.Count} still waiting).");
         try { e.Open(); }
         catch (Exception ex) { Plugin.Log.LogError($"Saved pick {e.Name} failed to open: {ex}"); }
         return true;
     }
+
+    /// <summary>Relics first, then level-ups, then the rest (fusions keep their own key).</summary>
+    private static int Rank(Entry e) =>
+        e.Id.StartsWith("shared:") || e.Id.StartsWith("random:") ? 0 : e.Id == "xp" ? 1 : 2;
 
     /// <summary>Gone stale (a relic of that colour bound since, the run moved on...): dropped quietly.</summary>
     private static void Prune() => list.RemoveAll(e =>

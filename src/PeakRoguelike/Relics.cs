@@ -97,8 +97,10 @@ internal class Relics : MonoBehaviour
 
     private void Update()
     {
-        // The relic key reopens anything saved for later first (relics on or off), then reads an amulet.
+        // The relic key reads an unread amulet first (relics come first), then reopens anything saved for later.
+        if (ReadByKey()) return;
         if (SavedPicks.Tick()) return;
+        if (Time.time >= nextHeldNote && Player.localPlayer is { } holder) { nextHeldNote = Time.time + 0.5f; FindCards.NoteHeld(holder); }
         if (!ModConfig.Relics.Value) return;
         Character me = Character.localCharacter;
         Player p = Player.localPlayer;
@@ -114,14 +116,12 @@ internal class Relics : MonoBehaviour
             return;
         }
 
-        // Reading a statue amulet: click with it in hand, or the relic key for the first one carried.
+        // Reading a statue amulet: click with it in hand (the relic key: ReadByKey).
         if (!ChoiceScreen.IsOpen && !me.data.dead && !me.data.passedOut)
         {
             ItemSlot? toRead = null;
             if (IsStatueAmulet(me.data.currentItem) && me.input.usePrimaryWasPressed && me.refs.items.currentSelectedSlot.IsSome)
                 toRead = p.GetItemSlot(me.refs.items.currentSelectedSlot.Value);
-            else if (unread.Count > 0 && Keyboard.current != null && Keyboard.current[ModConfig.RelicKey.Value].wasPressedThisFrame)
-                toRead = StatueAmulets(p).FirstOrDefault(s => Teaches(Items.AmuletGem(s.prefab)!.Value).Count > 0);
             if (toRead != null && !toRead.IsEmpty() && IsStatueAmulet(toRead.prefab))
             {
                 Read(toRead);
@@ -171,13 +171,39 @@ internal class Relics : MonoBehaviour
             return;
         }
 
-        // Read on pickup: a fresh amulet's cards open as soon as it's in the pockets ("Not yet" keeps it unread).
+        // Read on pickup: a fresh amulet's cards open once it's in the pockets and you've stood on flat
+        // ground for 1s - never mid-climb ("Save for later" keeps it unread).
         if (pickupFresh is { } fresh && !fresh.IsEmpty() && IsStatueAmulet(fresh.prefab))
         {
+            if (!Xp.OnFlatGround(me)) { pickupFlatSince = -1f; return; }
+            if (pickupFlatSince < 0f) pickupFlatSince = Time.time;
+            if (Time.time - pickupFlatSince < 1f) return;
+            pickupFlatSince = -1f;
             pickupOpened.Add(fresh.data?.guid ?? System.Guid.Empty);
             pickupFresh = null;
             Read(fresh);
         }
+        else pickupFlatSince = -1f;
+    }
+
+    private static float pickupFlatSince = -1f, nextHeldNote;
+
+    /// <summary>A relic pop-up is waiting to open (fusions and level-ups hold off until it has).</summary>
+    internal static bool Waiting => ModConfig.Relics.Value && !VoidRun.Active
+        && (pickupFresh != null || sharedOffers.Count > 0 || randomOffers.Count > 0);
+
+    /// <summary>The relic key: the first unread amulet carried. True = it opened one.</summary>
+    private static bool ReadByKey()
+    {
+        if (!ModConfig.Relics.Value || VoidRun.Active || unread.Count == 0 || ChoiceScreen.IsOpen
+            || Keyboard.current is not { } kb || !kb[ModConfig.RelicKey.Value].wasPressedThisFrame) return false;
+        Character me = Character.localCharacter;
+        Player p = Player.localPlayer;
+        if (me == null || p == null || me.data.dead || me.data.passedOut) return false;
+        var slot = StatueAmulets(p).FirstOrDefault(s => Teaches(Items.AmuletGem(s.prefab)!.Value).Count > 0);
+        if (slot == null) return false;
+        Read(slot);
+        return true;
     }
 
     // --- unread amulets: taken (the moon rises), read later ------------------------------------
@@ -314,7 +340,7 @@ internal class Relics : MonoBehaviour
             Subtitle = GemName(gem),
             Warning = ModConfig.BloodMoon.Value && ModConfig.BmWarning.Value ? "The moon remembers who takes it." : "",
             Confirm = "BIND",
-            BackHint = "Not yet",
+            SaveForLater = true,
             Cards = options.Select(o => new CardSpec
             {
                 Style = CardStyle.Relic,
@@ -327,7 +353,7 @@ internal class Relics : MonoBehaviour
             }).ToList(),
             StillValid = () => Player.localPlayer != null && !slot.IsEmpty() && slot.prefab != null && slot.prefab.itemID == amuletId,
             OnConfirm = i => Bind(slotId, amuletId, options[i], recovered: false),
-            // Not yet: it stays unread, the click or the relic key opens it again.
+            // Save for later: it stays unread, the click or the relic key opens it again.
             OnBack = () => { },
             OnCancelled = () => { },
         });

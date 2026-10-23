@@ -202,6 +202,8 @@ internal class Fusion : MonoBehaviour
     public static bool Ready { get; private set; }
     /// <summary>Ready, and not skipped for these pockets: the HUD pill shows (the fusion key opens it either way).</summary>
     public static bool Prompt { get; private set; }
+    /// <summary>Ready and not put off for these pockets: it opens by itself once you're calm (level-ups wait for it).</summary>
+    public static bool Waiting { get; private set; }
 
     internal static void Install()
     {
@@ -257,9 +259,9 @@ internal class Fusion : MonoBehaviour
 
     private void Update()
     {
-        if (!ModConfig.Fusion.Value) { Ready = Prompt = false; return; }
+        if (!ModConfig.Fusion.Value) { Ready = Prompt = Waiting = false; return; }
         Character me = Character.localCharacter;
-        if (me == null || me.data.dead || me.data.passedOut) { Ready = Prompt = false; return; }
+        if (me == null || me.data.dead || me.data.passedOut) { Ready = Prompt = Waiting = false; return; }
 
         bool keyPressed = Keyboard.current != null && Keyboard.current[ModConfig.FusionKey.Value].wasPressedThisFrame;
         if (!keyPressed && Time.time < nextScan) return;
@@ -268,13 +270,15 @@ internal class Fusion : MonoBehaviour
 
         var available = Available();
         Ready = available.Count > 0;
-        if (!Ready) Prompt = false;
+        if (!Ready) Prompt = Waiting = false;
         if (!Ready || ChoiceScreen.IsOpen) return;
 
         string key = PocketKey();
         Prompt = key != skipped;
+        Waiting = key != snoozed;
         bool calm = me.data.isGrounded && !me.data.isClimbing && !me.data.isRopeClimbing;
-        if (keyPressed || (key != snoozed && calm)) Show(available, key);
+        // Relic pop-ups open first.
+        if (keyPressed || (Waiting && calm && !Relics.Waiting)) Show(available, key);
     }
 
     /// <summary>Dev panel: open the fusion screen now (if anything in your pockets can fuse).</summary>
