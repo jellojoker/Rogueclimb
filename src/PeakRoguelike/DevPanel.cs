@@ -454,6 +454,10 @@ internal class DevPanel : MonoBehaviour
 
     private void WorldTab()
     {
+        // Squad jumps first: the World tab runs past the bottom of the screen.
+        Label("<color=#D9C9A3>Squad</color>", 26f);
+        Row(B("Jump squad to next biome", () => { if (InGame(true)) DevCheats.NextBiome(); }),
+            B("Jump squad to the Kiln", () => { if (InGame(true)) DevCheats.JumpTo(Segment.TheKiln); }));
         Label("<color=#D9C9A3>Time of day</color>", 26f);
         Row(B("Morning", () => { if (InGame(true)) DevCheats.SetTime(8f); }),
             B("Dusk (night in ~10s)", () => { if (InGame(true)) DevCheats.SetTime(DayNightManager.instance.dayEnd - 0.4f); }),
@@ -502,8 +506,6 @@ internal class DevPanel : MonoBehaviour
         Row(B("Next blessing: fusion", () => { Blessing.DevJackpot = false; Hud.Toast("Next blessing: fusion jackpot", ChoiceScreen.Muted); }),
             B("Next blessing: dark", () => { Blessing.DevJackpot = true; Hud.Toast("Next blessing: dark jackpot", ChoiceScreen.Muted); }),
             B("Next revive: dark offer", () => { if (InGame(true)) { Blessing.DevForceRevive(); Hud.Toast("Next revive offers the dark items", ChoiceScreen.Muted); } }));
-        Label("<color=#D9C9A3>Squad</color>", 26f);
-        Row(B("Jump squad to next biome", () => { if (InGame(true)) DevCheats.NextBiome(); }));
         Label($"<color=#F2DB9E>Badge relics ({Badges.Owned.Count} owned)</color>", 26f);
         Row(B("Badge pick (statue)", () => { if (InGame()) Badges.OfferPick("Dev", UnityEngine.Random.Range(1, int.MaxValue), () => Rebuild(), () => { }); }),
             B("Random badge", () => { if (InGame()) { Badges.GiveRandom(); Rebuild(); } }));

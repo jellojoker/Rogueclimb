@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.0
+- **Plays nicer with other mods.** Each part of Rogue Climb hooks in on its own, so if another mod breaks one piece the rest keeps working (the log counts any that failed). Tested alongside True Final Ascent.
+- **Meteor showers** come from the sky toward the peak, spread out, all at one speed. A distant shower falls down the mountain too. Fire meteors look like the game's hot rocks, glass ones like its petrifying stones. In the Kiln and Citadel, rocks aimed at scouts under cover break out of thin air instead of erupting from the lava.
+- **Blood moon zombies** are quicker: they wake faster, sprint from further away, lunge more often and get back up sooner. Your config is switched over.
+- **The Scoutmaster** keeps walking toward you even while watched, and you hear him when he's close, staring, or holding someone.
+- **Card text uses numbers** instead of fractions ("+50% bonus stamina", "2.5s"). Badge cards say how much less glass they cost.
+- Campfire and Level Up cards only glow gold when they raise an item you carry.
+- Fusions count an ingredient you're holding in your hand.
+- Fix: compass/binoculars error when a scout is removed at the end of a run.
+
 ## 0.12.80
 - **Amulets** open their relic cards as soon as you pick them up again, once you're standing on flat ground. They never open on a wall. The moon rises when you bind one. Your config is switched over too. [Relics] AmuletCards = OnRead brings back read-first amulets.
 - The amulet screen has **Save for later**. Click the amulet in your hand or press L to open it again.

@@ -435,11 +435,12 @@ internal class RunReportPage : MonoBehaviour
         }
         Unit = u;
 
-        // The writing area: clear of the binding (left), the banner (top) and the buttons (bottom).
+        // The writing area: clear of the binding (left), the banner (top) and the buttons (bottom),
+        // sitting high under the banner.
         var area = Ui.Rect(rt, "Area");
         Ui.Stretch(area);
-        area.offsetMin = new Vector2(52f * u, 30f * u);
-        area.offsetMax = new Vector2(-36f * u, -140f * u);
+        area.offsetMin = new Vector2(52f * u, 70f * u);
+        area.offsetMax = new Vector2(-36f * u, -100f * u);
 
         cards = Character.AllCharacters
             .Where(c => c != null && !c.isBot && c.photonView != null && c.photonView.IsOwnerActive && PlayerHandler.TryGetPlayer(c.photonView.OwnerActorNr, out _))

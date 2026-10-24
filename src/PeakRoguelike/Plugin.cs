@@ -9,9 +9,9 @@ public class Plugin : BaseUnityPlugin
 {
     public const string Id = "rey.PeakRoguelike";
     public const string Name = "Rogue Climb";
-    public const string Version = "0.13.0";
+    public const string Version = "1.0.0";
     /// <summary>Compat branch builds; empty on a release.</summary>
-    public const string Build = "test6";
+    public const string Build = "";
 
     internal static ManualLogSource Log = null!;
     internal static string ConfigPath = "";

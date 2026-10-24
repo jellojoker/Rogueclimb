@@ -118,7 +118,7 @@ public static class Trees
             new[] { L("Frayed Gauze", "Heals a little.", "Bandage") },
             new[] { L("Field Gauze", "Heals some.", "Bandage") },
             new[] { L("Bandages", "Full healing.\nThe path forks next.", "Bandage") },
-            new[] { L("Blessed Health Pack", "Evolves! Heals half of\neverything wrong with you.", "FirstAidKit", 1),
+            new[] { L("Blessed Health Pack", "Evolves! Heals 50% of\neverything wrong with you.", "FirstAidKit", 1),
                     L("Murky Medkit", "Evolves! Half your wounds\nand glass turn to poison.", "FirstAidKit", 2) },
             new[] { L("Holy Health Pack", "Heals everything\nwrong with you.", "FirstAidKit", 1),
                     L("Dark Medkit", "Your wounds and glass\nturn to poison.", "FirstAidKit", 2) },

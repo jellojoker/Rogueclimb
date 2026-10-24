@@ -88,7 +88,7 @@ internal class CurioRelics : MonoBehaviour
 
     internal static string Desc(Curio c) => c switch
     {
-        Curio.Bugle => "Your helping hand reaches half again as far and pulls half again as hard.\nHelping hands pull you up half again as hard.\nScouts you carry weigh half as much.\nYou always sense the nearest scout.\nMore healing in your crates.",
+        Curio.Bugle => "Helping hand: 1.5x reach and pull.\nHelping hands pull you up 1.5x harder.\nScouts you carry weigh 0.5x.\nYou always sense the nearest scout.\nMore healing in your crates.",
         Curio.Binoculars => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest useful thing lying out in the world.\nMore food in your crates.",
         Curio.Compass => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest unopened crate.\nMore tools in your crates.",
         Curio.Frisbee => "Everything you throw knocks back whatever it hits.",

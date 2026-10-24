@@ -79,7 +79,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> BmMusicLoop = null!, BmRelayTornadoFromBase = null!;
     public static ConfigEntry<float> BmScoutmasterSpawnMin = null!, BmScoutmasterSpawnMax = null!, BmScoutmasterSpawnHeight = null!,
         BmScoutmasterStuck = null!, BmScoutmasterRecover = null!;
-    public static ConfigEntry<float> BmZombieNear = null!;
+    public static ConfigEntry<float> BmZombieNear = null!, BmZombieWake = null!, BmZombieSprintAfter = null!, BmZombieSprintDistance = null!, BmZombieLungeDistance = null!, BmZombieLungeRest = null!, BmZombieKnockdown = null!, BmScoutmasterWarn = null!;
     public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmZombiesSoloCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
@@ -129,7 +129,7 @@ internal static class ModConfig
     public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!,
         XpLandingXp = null!, XpLandingSpacing = null!, XpLandingCap = null!, XpLandingFloor = null!;
     public static ConfigEntry<int> XpLevelCards = null!;
-    public static ConfigEntry<float> XpCatchUp = null!, BmCloseStareDistance = null!, BmCloseStareSeconds = null!, BmCloseLungeTime = null!, BmCloseLungeCooldown = null!;
+    public static ConfigEntry<float> XpCatchUp = null!, BmCloseStareDistance = null!, BmCloseStareSeconds = null!, BmCloseLungeTime = null!, BmCloseLungeCooldown = null!, BmWatchedWalk = null!;
     public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckCampfireFusion = null!;
     public static ConfigEntry<int> LuckLateFrom = null!;
     public static ConfigEntry<bool> LuckGuarantee = null!;
@@ -153,6 +153,12 @@ internal static class ModConfig
         BmScoutmaster = cfg.Bind("BloodMoon", "Scoutmaster", true, "From tier 2: the Scoutmaster hunts (tiers 2-3), then only watches (tier 4).");
         BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: zombies rise beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
         BmZombieNear = cfg.Bind("BloodMoon", "ZombieDistance", 4f, "How far (m, +-25%) from its scout each blood moon zombie rises.");
+        BmZombieWake = cfg.Bind("BloodMoon", "ZombieWakeSeconds", 1f, "Blood moon zombies: seconds lying there after they rise before they get up (game: 2).");
+        BmZombieSprintAfter = cfg.Bind("BloodMoon", "ZombieSprintAfter", 1f, "Blood moon zombies: seconds of chasing before they may sprint (game: 3).");
+        BmZombieSprintDistance = cfg.Bind("BloodMoon", "ZombieSprintDistance", 30f, "Blood moon zombies: they sprint at a scout they can see within this many game units (game: 10).");
+        BmZombieLungeDistance = cfg.Bind("BloodMoon", "ZombieLungeDistance", 6f, "Blood moon zombies: they lunge from this many game units away (game: 4).");
+        BmZombieLungeRest = cfg.Bind("BloodMoon", "ZombieLungeRest", 1.9f, "Blood moon zombies: seconds of rest after a lunge (game: 5).");
+        BmZombieKnockdown = cfg.Bind("BloodMoon", "ZombieKnockdown", 0.75f, "Blood moon zombies: share of the game's knockdown (3s after a lunge, 8s after a bite) they lie there for.");
         BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 1, "How many zombies rise beside every scout in the open, from tier 1 (spread evenly around them).");
         BmZombiesPerCarrier = cfg.Bind("BloodMoon", "ZombiesPerCarrier", 1, "This many more beside each scout carrying a relic, the Cursed Skull or the Ritual Dagger (every tier).");
         BmZombiesSoloCarrier = cfg.Bind("BloodMoon", "ZombiesSoloCarrier", 3, "Solo runs, tier 1: how many zombies rise beside you when you carry a relic, the skull or the dagger (later tiers use the normal counts).");
@@ -202,6 +208,8 @@ internal static class ModConfig
         BmStareStatic = cfg.Bind("BloodMoon", "StareStatic", 0.9f, "Tier 2: how strong his static gets as your stare runs out (0 = none).");
         BmLungeTime = cfg.Bind("BloodMoon", "LungeTime", 8f, "Tier 2: how long a charge lasts before he gives up (it still counts as his one try).");
         BmCloseStareDistance = cfg.Bind("BloodMoon", "CloseStareDistance", 8f, "Hunting: a scout this close (m) who stares straight at him while he's frozen draws a lunge.");
+        BmScoutmasterWarn = cfg.Bind("BloodMoon", "ScoutmasterWarnDistance", 12f, "Blood moon: his fear screech (the sound under his static, never the static) rises for a scout he hunts within this many metres, one staring at him close, or one he holds.");
+        BmWatchedWalk = cfg.Bind("BloodMoon", "ScoutmasterWatchedWalk", 1f, "Hunting: while anyone looks at him he keeps walking toward his prey at this share of a walk (never sprints, never grabs while watched). 0 = he freezes.");
         BmCloseStareSeconds = cfg.Bind("BloodMoon", "CloseStareSeconds", 2f, "Hunting: seconds of staring from up close before he lunges.");
         BmCloseLungeTime = cfg.Bind("BloodMoon", "CloseLungeTime", 2f, "Hunting: how long a close-stare lunge lasts before he gives up.");
         BmCloseLungeCooldown = cfg.Bind("BloodMoon", "CloseLungeCooldown", 10f, "Hunting: seconds after a close-stare lunge before staring can draw another.");
@@ -530,6 +538,14 @@ internal static class ModConfig
             AmuletCardsWhen.Value = AmuletCards.OnPickup;
             defaults.Value = 13;
             Plugin.Log.LogInfo("Config: amulets open their relic cards on pickup again (new default).");
+        }
+        if (defaults.Value < 14)
+        {
+            BmWatchedWalk.Value = 1f;
+            BmZombieSprintDistance.Value = 30f;
+            BmZombieLungeRest.Value = 1.9f;
+            defaults.Value = 14;
+            Plugin.Log.LogInfo("Config: the Scoutmaster walks at full pace when watched, zombies sprint from 30 and rest 1.9s (new defaults).");
         }
     }
 }
