@@ -184,16 +184,17 @@ internal static class BloodZombies
     /// on the way up; scouts carrying a relic (copies included), the Cursed Skull or the Ritual
     /// Dagger get ZombiesPerCarrier more. Solo, a carrier gets ZombiesSoloCarrier on the zombies'
     /// first tier (later tiers bring the Scoutmaster, tornado and meteors instead). A scout who gets
-    /// ZombieLeash metres from all of their pack finds it rising right beside them again.
+    /// ZombieLeash metres from all of their pack finds it rising right beside them again. A scout
+    /// on safe ground when they rise is owed their pack: it rises beside them once they step off.
     /// </summary>
     public static void Spawn(float seconds)
     {
-        var marked = Squad.Alive().Where(c => !Sanctuary.Safe(c) && Modless.HasMod(c)).ToList();
+        var marked = Squad.Alive().Where(c => Modless.HasMod(c)).ToList();
         if (marked.Count == 0) return;
         until = Time.time + seconds;
         owed.Clear();
         nextRise.Clear();
-        int made = 0;
+        int made = 0, waiting = 0;
         foreach (var scout in marked)
         {
             int each = Mathf.Max(0, ModConfig.BmZombiesPerScout.Value);
@@ -207,11 +208,17 @@ internal static class BloodZombies
                        : BloodMoon.TierOf(BloodMoon.Hazard.Zombies) <= 1 ? solo : squad;
             }
             if (each <= 0) continue;
+            if (Sanctuary.Safe(scout))
+            {
+                int actor = ActorOf(scout);
+                if (actor != 0) { owed[actor] = each; waiting += each; }
+                continue;
+            }
             int got = RiseFor(scout, each, beside: false);
             if (got < 0) break;
             made += got;
         }
-        Plugin.Log.LogInfo($"Blood moon: {made} zombie(s) rose ahead of {marked.Count} marked scout(s) ({seconds:0}s).");
+        Plugin.Log.LogInfo($"Blood moon: {made} zombie(s) rose ahead of {marked.Count} marked scout(s){(waiting > 0 ? $", {waiting} wait for scouts on safe ground" : "")} ({seconds:0}s).");
     }
 
     /// <summary>
@@ -250,6 +257,7 @@ internal static class BloodZombies
                 var go = PhotonNetwork.Instantiate(Prefab(), pos.Value, Quaternion.Euler(0f, Random.Range(0f, 360f), 0f), 0);
                 var z = go.GetComponent<MushroomZombie>();
                 if (z == null) continue;
+                Quicken(z);
                 spawned.Add(z);
                 ownerOf[z] = ActorOf(scout);
                 z.StartCoroutine(Wake(z));
@@ -295,6 +303,23 @@ internal static class BloodZombies
             int got = RiseFor(scout, count, beside: true);
             Plugin.Log.LogInfo($"Blood moon: {scout.characterName}'s {count} zombie(s) {(lost ? "were left behind" : "come back off safe ground")} - {got} rose beside them.");
         }
+    }
+
+    private static bool loggedVanillaZombie;
+
+    /// <summary>Blood moon zombies are quicker than the Roots' own: up sooner, sprinting sooner and from further, lunging further and again sooner.</summary>
+    private static void Quicken(MushroomZombie z)
+    {
+        if (!loggedVanillaZombie)
+        {
+            loggedVanillaZombie = true;
+            Plugin.Log.LogInfo($"Zombie (game values): wake {z.initialWakeUpTime}s, sprint after {z.chaseTimeBeforeSprint}s within {z.zombieSprintDistance}, lunge from {z.zombieLungeDistance} for {z.lungeTime}s, rest {z.lungeRecoveryTime}s, bite stun {z.biteStunTime}s.");
+        }
+        z.initialWakeUpTime = Mathf.Max(0f, ModConfig.BmZombieWake.Value);
+        z.chaseTimeBeforeSprint = Mathf.Max(0f, ModConfig.BmZombieSprintAfter.Value);
+        z.zombieSprintDistance = Mathf.Max(0f, ModConfig.BmZombieSprintDistance.Value);
+        z.zombieLungeDistance = Mathf.Max(0f, ModConfig.BmZombieLungeDistance.Value);
+        z.lungeRecoveryTime = Mathf.Max(0f, ModConfig.BmZombieLungeRest.Value);
     }
 
     /// <summary>NPC zombies sleep until looked at - blood moon zombies get up and come for you.</summary>
@@ -1171,5 +1196,14 @@ internal static class BloodZombiePatches
     {
         if (!__result || target == null || !BloodZombies.IsOurs(__instance)) return;
         if (Sanctuary.Safe(target) || Squad.Veiled(target)) __result = false;
+    }
+
+    /// <summary>Blood moon zombies get back up sooner after a lunge or a bite (ZombieKnockdown share of the game's fall).</summary>
+    [HarmonyPrefix, HarmonyPatch(typeof(Character), "Fall")]
+    private static void QuickerUp(Character __instance, ref float seconds)
+    {
+        if (!__instance.isZombie) return;
+        var z = __instance.GetComponent<MushroomZombie>();
+        if (z != null && BloodZombies.IsOurs(z)) seconds *= Mathf.Clamp01(ModConfig.BmZombieKnockdown.Value);
     }
 }

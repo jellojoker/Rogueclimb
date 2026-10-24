@@ -528,7 +528,8 @@ internal static class HuntPatches
     private static bool OnlyRealGrips(Scoutmaster __instance)
     {
         var me = __instance.character;
-        if (me == null) return true;
+        // Outside our hunts his grips are vanilla's (or another mod's Scoutmasters).
+        if (me == null || (!ScoutmasterHunt.Hunting && !ScoutmasterHunt.Busy(__instance))) return true;
         var held = me.data.grabbedPlayer;
         if (held != null && me.data.grabJoint != null && held == __instance.currentTarget) return true;
         // During a hunt he may catch someone next to his prey: they become the one he throws.
@@ -548,16 +549,35 @@ internal static class HuntPatches
     /// <summary>
     /// His static filter and fear music both come from here (the music follows the "Myers
     /// distance" this sets on his target). The static is gone for good - vanilla's can stick on
-    /// screen. Under a blood moon our song plays alone: the distance is never set, so his music
-    /// fades; otherwise his music is vanilla.
+    /// screen. Under a blood moon our song plays, and his screech only rises as a warning: for the
+    /// scout he hunts within ScoutmasterWarnDistance, one staring at him within CloseStareDistance,
+    /// or one he holds. Otherwise his music is vanilla.
     /// </summary>
     [HarmonyLib.HarmonyPrefix, HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "DoVisuals")]
     private static bool QuietUnderBloodMoon(Scoutmaster __instance)
     {
         if (!BloodMoon.Active) return true;
         NoStatic(__instance);
+        try
+        {
+            var me = Character.localCharacter;
+            var him = SmCharacter(__instance);
+            if (me != null && me.data != null && !me.data.dead && him != null && him != me)
+            {
+                float d = Vector3.Distance(me.Center, him.Center);
+                bool warn = (__instance.currentTarget == me && d <= Mathf.Max(0f, ModConfig.BmScoutmasterWarn.Value) * Squad.M)
+                            || (d <= Mathf.Max(0f, ModConfig.BmCloseStareDistance.Value) * Squad.M && ScoutmasterHunt.StaringAt(me, him))
+                            || him.data.grabbedPlayer == me;
+                // His fear music follows this "Myers distance" (vanilla: loudest under 25).
+                if (warn) me.data.myersDistance = 20f;
+            }
+        }
+        catch (System.Exception e) { Plugin.Log.LogWarning($"Scoutmaster screech: {e.Message}"); }
         return false;
     }
+
+    private static readonly HarmonyLib.AccessTools.FieldRef<Scoutmaster, Character> SmCharacter =
+        HarmonyLib.AccessTools.FieldRefAccess<Scoutmaster, Character>("character");
 
     [HarmonyLib.HarmonyPostfix, HarmonyLib.HarmonyPatch(typeof(Scoutmaster), "DoVisuals")]
     private static void NoStatic(Scoutmaster __instance)
@@ -661,7 +681,7 @@ internal static class HuntPatches
         CloseStare(__instance, me, prey);
         if (closeLungeAt != null) return;
 
-        // Hunting: while ANY scout looks at him he freezes. Unwatched, he sprints in from afar and
+        // Hunting: while ANY scout looks at him he only creeps (ScoutmasterWatchedWalk). Unwatched, he sprints in from afar and
         // walks the last SprintDistance. Right on his prey he stares a moment, then grabs once
         // nobody has looked at him for a second - turn to run and that's your second.
         if (prey != sightOf) { sightOf = prey; reachSince = -1f; }
@@ -673,7 +693,13 @@ internal static class HuntPatches
         if (!atReach) reachSince = -1f;
         else if (reachSince < 0f) reachSince = Time.time;
 
-        if (atReach || watched) Stand();
+        if (atReach) Stand();
+        else if (watched)
+        {
+            // Watched, he doesn't stop: he creeps on toward his prey.
+            Stand();
+            input.movementInput = new Vector2(0f, Mathf.Clamp01(ModConfig.BmWatchedWalk.Value));
+        }
         else input.sprintIsPressed = d > Mathf.Max(0f, ModConfig.BmScoutmasterSprintDistance.Value) * Squad.M;
 
         bool grab = atReach && !watched

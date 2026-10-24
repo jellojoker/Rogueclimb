@@ -1,10 +1,10 @@
-# Installs a saved build of the mod into the "Rogue like mod" profile (close PEAK first).
+# Installs a saved build of the mod into the "Rogue like mod dev" profile (close PEAK first).
 # Usage:  powershell -File install.ps1            -> newest build in backups\
 #         powershell -File install.ps1 v0.3.0     -> roll back to that build
 param([string]$Version = "")
 
 $root = Split-Path $PSScriptRoot -Parent
-$plug = "$env:APPDATA\Thunderstore Mod Manager\DataFolder\PEAK\profiles\Rogue like mod\BepInEx\plugins\PeakRoguelike"
+$plug = "$env:APPDATA\Thunderstore Mod Manager\DataFolder\PEAK\profiles\Rogue like mod dev\BepInEx\plugins\PeakRoguelike"
 
 if ($Version -eq "") {
     $Version = (Get-ChildItem "$root\backups" -Directory | Sort-Object { [version]($_.Name.TrimStart('v')) } | Select-Object -Last 1).Name

@@ -5,7 +5,7 @@ param([Parameter(Mandatory = $true)][string]$Version)
 Add-Type -AssemblyName System.Drawing
 $root = Split-Path $PSScriptRoot -Parent
 $dll = "$root\backups\v$Version\PeakRoguelike.dll"
-$plug = "$env:APPDATA\Thunderstore Mod Manager\DataFolder\PEAK\profiles\Rogue like mod\BepInEx\plugins\PeakRoguelike"
+$plug = "$env:APPDATA\Thunderstore Mod Manager\DataFolder\PEAK\profiles\Rogue like mod dev\BepInEx\plugins\PeakRoguelike"
 $song = "$plug\It's In The Fog.mp3"
 $art = "$env:USERPROFILE\OneDrive\Documents\Peak Rogue like assets and mock ups\Thunderstore mod image.jpg"
 foreach ($f in $dll, $song, $art) { if (-not (Test-Path -LiteralPath $f)) { Write-Host "Missing: $f"; exit 1 } }
@@ -18,7 +18,7 @@ $manifest = [ordered]@{
     name           = "Rogue_Climb"
     version_number = $Version
     website_url    = "https://github.com/jellojoker/Rogueclimb"
-    description    = "A roguelike for PEAK: crate picks, item trees that evolve and fuse, relics, coloured suns and blood moons. Beta."
+    description    = "A roguelike for PEAK: crate picks, item trees that evolve and fuse, relics, coloured suns and blood moons."
     dependencies   = @("BepInEx-BepInExPack_PEAK-5.4.75301")
 }
 [IO.File]::WriteAllText("$stage\manifest.json", ($manifest | ConvertTo-Json), (New-Object Text.UTF8Encoding $false))

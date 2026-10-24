@@ -226,8 +226,8 @@ internal class Fusion : MonoBehaviour
         var result = new List<(Recipe, byte[])>();
         Player p = Player.localPlayer;
         if (p == null) return result;
-        // The finished cocktail is never an ingredient.
-        var pockets = p.itemSlots.Where(s => s != null && !s.IsEmpty() && s.prefab != null && !SugarRush.IsMarked(s.data)).ToList();
+        // The finished cocktail is never an ingredient. Pockets full? The one riding in your hand counts too.
+        var pockets = Slots(p).Where(s => s != null && !s.IsEmpty() && s.prefab != null && !SugarRush.IsMarked(s.data)).ToList();
         foreach (var recipe in Recipes)
         {
             // Made once this run: from now on it comes from crates, never from crafting again.
@@ -247,12 +247,16 @@ internal class Fusion : MonoBehaviour
         return result;
     }
 
-    /// <summary>A fingerprint of what's in your pockets; "Not now" lasts until it changes.</summary>
+    /// <summary>Your pockets, plus the item in your hand when the pockets are full (tempFullSlot, id 250).</summary>
+    private static IEnumerable<ItemSlot> Slots(Player p) =>
+        p.tempFullSlot != null ? p.itemSlots.Append(p.tempFullSlot) : p.itemSlots;
+
+    /// <summary>A fingerprint of what's in your pockets (and hand); "Not now" lasts until it changes.</summary>
     private static string PocketKey()
     {
         Player p = Player.localPlayer;
         if (p == null) return "";
-        return string.Join(",", p.itemSlots.Select(s => s == null || s.IsEmpty() ? "-"
+        return string.Join(",", Slots(p).Select(s => s == null || s.IsEmpty() ? "-"
                 : (s.data?.guid.ToString() ?? s.prefab.itemID.ToString()) + ":" + ItemLevels.LevelOf(s)))
             + "|" + string.Join(",", Recipes.Select(r => r.Unlocked() ? "1" : "0"));
     }

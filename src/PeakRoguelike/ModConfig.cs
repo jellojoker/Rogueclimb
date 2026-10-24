@@ -73,13 +73,13 @@ internal static class ModConfig
     public static ConfigEntry<bool> BloodMoon = null!, BmDarkRites = null!, BmWarning = null!, BmRelay = null!;
     public static ConfigEntry<float> BmRelaySeconds = null!, BmRelayTornadoBack = null!, BmZombieAhead = null!, BmZombieLeash = null!;
     public static ConfigEntry<bool> BmScoutmaster = null!, BmZombies = null!, BmTornado = null!, BmGlassMeteors = null!, BmMeteors = null!;
-    public static ConfigEntry<float> BmMeteorRate = null!, BmMeteorSceneryBase = null!, BmMeteorSceneryPerScout = null!, BmMeteorCoverAngle = null!;
+    public static ConfigEntry<float> BmMeteorRate = null!, BmMeteorSceneryBase = null!, BmMeteorSceneryPerScout = null!, BmMeteorCoverAngle = null!, BmMeteorLean = null!, BmMeteorSceneryFar = null!, BmMeteorSpread = null!;
     public static ConfigEntry<float> BmMoonLight = null!, BmNightDarkness = null!, BmEclipseDarkness = null!, BmMeteorHitGrace = null!;
     public static ConfigEntry<float> BmMusicVolume = null!;
     public static ConfigEntry<bool> BmMusicLoop = null!, BmRelayTornadoFromBase = null!;
     public static ConfigEntry<float> BmScoutmasterSpawnMin = null!, BmScoutmasterSpawnMax = null!, BmScoutmasterSpawnHeight = null!,
         BmScoutmasterStuck = null!, BmScoutmasterRecover = null!;
-    public static ConfigEntry<float> BmZombieNear = null!;
+    public static ConfigEntry<float> BmZombieNear = null!, BmZombieWake = null!, BmZombieSprintAfter = null!, BmZombieSprintDistance = null!, BmZombieLungeDistance = null!, BmZombieLungeRest = null!, BmZombieKnockdown = null!, BmScoutmasterWarn = null!;
     public static ConfigEntry<int> BmZombiesPerScout = null!, BmZombiesPerCarrier = null!, BmZombiesSoloCarrier = null!, BmGrabsTier1 = null!, BmGrabsTier2 = null!;
     public static ConfigEntry<float> BmWaveGap = null!, BmWaveLength = null!, BmRelicAura = null!, BmTornadoGrouped = null!;
     public static ConfigEntry<float> BmScoutmasterSpeed = null!, BmTornadoApproach = null!, BmTornadoChase = null!, BmTornadoNear = null!;
@@ -129,7 +129,7 @@ internal static class ModConfig
     public static ConfigEntry<float> XpBiomeMinutes = null!, XpClimbLevels = null!, XpFastClearLevels = null!, XpBarScale = null!, XpBarX = null!, XpBarY = null!, XpKilnClimb = null!,
         XpLandingXp = null!, XpLandingSpacing = null!, XpLandingCap = null!, XpLandingFloor = null!;
     public static ConfigEntry<int> XpLevelCards = null!;
-    public static ConfigEntry<float> XpCatchUp = null!, BmCloseStareDistance = null!, BmCloseStareSeconds = null!, BmCloseLungeTime = null!, BmCloseLungeCooldown = null!;
+    public static ConfigEntry<float> XpCatchUp = null!, BmCloseStareDistance = null!, BmCloseStareSeconds = null!, BmCloseLungeTime = null!, BmCloseLungeCooldown = null!, BmWatchedWalk = null!;
     public static ConfigEntry<float> LuckPullEarly = null!, LuckPullLate = null!, LuckStatueIngredientLate = null!, LuckCampfireFusion = null!;
     public static ConfigEntry<int> LuckLateFrom = null!;
     public static ConfigEntry<bool> LuckGuarantee = null!;
@@ -153,6 +153,12 @@ internal static class ModConfig
         BmScoutmaster = cfg.Bind("BloodMoon", "Scoutmaster", true, "From tier 2: the Scoutmaster hunts (tiers 2-3), then only watches (tier 4).");
         BmZombies = cfg.Bind("BloodMoon", "Zombies", true, "2 relics: zombies rise beside every scout carrying a relic, the Cursed Skull or the Ritual Dagger.");
         BmZombieNear = cfg.Bind("BloodMoon", "ZombieDistance", 4f, "How far (m, +-25%) from its scout each blood moon zombie rises.");
+        BmZombieWake = cfg.Bind("BloodMoon", "ZombieWakeSeconds", 1f, "Blood moon zombies: seconds lying there after they rise before they get up (game: 2).");
+        BmZombieSprintAfter = cfg.Bind("BloodMoon", "ZombieSprintAfter", 1f, "Blood moon zombies: seconds of chasing before they may sprint (game: 3).");
+        BmZombieSprintDistance = cfg.Bind("BloodMoon", "ZombieSprintDistance", 30f, "Blood moon zombies: they sprint at a scout they can see within this many game units (game: 10).");
+        BmZombieLungeDistance = cfg.Bind("BloodMoon", "ZombieLungeDistance", 6f, "Blood moon zombies: they lunge from this many game units away (game: 4).");
+        BmZombieLungeRest = cfg.Bind("BloodMoon", "ZombieLungeRest", 1.9f, "Blood moon zombies: seconds of rest after a lunge (game: 5).");
+        BmZombieKnockdown = cfg.Bind("BloodMoon", "ZombieKnockdown", 0.75f, "Blood moon zombies: share of the game's knockdown (3s after a lunge, 8s after a bite) they lie there for.");
         BmZombiesPerScout = cfg.Bind("BloodMoon", "ZombiesPerScout", 1, "How many zombies rise beside every scout in the open, from tier 1 (spread evenly around them).");
         BmZombiesPerCarrier = cfg.Bind("BloodMoon", "ZombiesPerCarrier", 1, "This many more beside each scout carrying a relic, the Cursed Skull or the Ritual Dagger (every tier).");
         BmZombiesSoloCarrier = cfg.Bind("BloodMoon", "ZombiesSoloCarrier", 3, "Solo runs, tier 1: how many zombies rise beside you when you carry a relic, the skull or the dagger (later tiers use the normal counts).");
@@ -162,9 +168,12 @@ internal static class ModConfig
         BmGlassMeteors = cfg.Bind("BloodMoon", "GlassMeteors", true, "4 relics, Gloom runs (Gloom + Citadel): a shower of purple glass - a direct hit adds glass.");
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
         BmMeteorRate = cfg.Bind("BloodMoon", "MeteorRate", 1f, "Meteors per second around each scout.");
-        BmMeteorSceneryBase = cfg.Bind("BloodMoon", "MeteorSceneryBase", 2f, "Meteor showers: harmless scenery rocks a second, crashing 30-150m from every scout (no mark, can't hit). 0 = none.");
+        BmMeteorSceneryBase = cfg.Bind("BloodMoon", "MeteorSceneryBase", 2f, "Meteor showers: harmless scenery rocks a second, crashing 30-150m (or far off, see MeteorSceneryFar) from every scout (no mark, can't hit). 0 = none.");
         BmMeteorSceneryPerScout = cfg.Bind("BloodMoon", "MeteorSceneryPerScout", 1.5f, "Meteor showers: more scenery rocks a second for each scout beyond the first out in the open.");
         BmMeteorCoverAngle = cfg.Bind("BloodMoon", "MeteorCoverAngle", 35f, "Meteor showers: a rock blocked overhead still comes in at a slant up to this many degrees off straight down, if any such path is open - only cover on every side (a cave, a deep overhang) stops it. 0 = any roof stops it.");
+        BmMeteorLean = cfg.Bind("BloodMoon", "MeteorLean", 30f, "Meteor showers (not the Kiln or Citadel): rocks come down from the sky this many degrees off straight down, leaning toward the peak. 0 = straight down.");
+        BmMeteorSpread = cfg.Bind("BloodMoon", "MeteorSpread", 35f, "Meteor showers (not the Kiln or Citadel): each rock comes in up to this many degrees left or right of the peak, and leans 10 degrees more or less than MeteorLean - a spread-out shower instead of one stream. 0 = all parallel.");
+        BmMeteorSceneryFar = cfg.Bind("BloodMoon", "MeteorSceneryFar", 0.5f, "Meteor showers (not the Kiln or Citadel): share of scenery rocks that crash far off (150-500m) down the mountain, bigger and brighter - a shower in the distance.");
         BmMoonLight = cfg.Bind("BloodMoon", "MoonLight", 1.6f, "Brightness of the red moonlight (a blood moon night is lit like a red-sun day; never darker than the vanilla moon).");
         BmNightDarkness = cfg.Bind("BloodMoon", "NightDarkness", 0.6f, "How dark a blood moon night is: 0 = the old bright red-day look (MoonLight), 1 = vanilla moonlight in red, a deep crimson sky and much darker shade. Tune live in F8 > World.");
         BmEclipseDarkness = cfg.Bind("BloodMoon", "EclipseDarkness", 0.6f, "How dark a blood eclipse (a blood moon by day) is: 0 = the old look (sun at 70%), 1 = sun at 20%, a near-black sky and much darker shade. Tune live in F8 > World.");
@@ -199,6 +208,8 @@ internal static class ModConfig
         BmStareStatic = cfg.Bind("BloodMoon", "StareStatic", 0.9f, "Tier 2: how strong his static gets as your stare runs out (0 = none).");
         BmLungeTime = cfg.Bind("BloodMoon", "LungeTime", 8f, "Tier 2: how long a charge lasts before he gives up (it still counts as his one try).");
         BmCloseStareDistance = cfg.Bind("BloodMoon", "CloseStareDistance", 8f, "Hunting: a scout this close (m) who stares straight at him while he's frozen draws a lunge.");
+        BmScoutmasterWarn = cfg.Bind("BloodMoon", "ScoutmasterWarnDistance", 12f, "Blood moon: his fear screech (the sound under his static, never the static) rises for a scout he hunts within this many metres, one staring at him close, or one he holds.");
+        BmWatchedWalk = cfg.Bind("BloodMoon", "ScoutmasterWatchedWalk", 1f, "Hunting: while anyone looks at him he keeps walking toward his prey at this share of a walk (never sprints, never grabs while watched). 0 = he freezes.");
         BmCloseStareSeconds = cfg.Bind("BloodMoon", "CloseStareSeconds", 2f, "Hunting: seconds of staring from up close before he lunges.");
         BmCloseLungeTime = cfg.Bind("BloodMoon", "CloseLungeTime", 2f, "Hunting: how long a close-stare lunge lasts before he gives up.");
         BmCloseLungeCooldown = cfg.Bind("BloodMoon", "CloseLungeCooldown", 10f, "Hunting: seconds after a close-stare lunge before staring can draw another.");
@@ -527,6 +538,14 @@ internal static class ModConfig
             AmuletCardsWhen.Value = AmuletCards.OnPickup;
             defaults.Value = 13;
             Plugin.Log.LogInfo("Config: amulets open their relic cards on pickup again (new default).");
+        }
+        if (defaults.Value < 14)
+        {
+            BmWatchedWalk.Value = 1f;
+            BmZombieSprintDistance.Value = 30f;
+            BmZombieLungeRest.Value = 1.9f;
+            defaults.Value = 14;
+            Plugin.Log.LogInfo("Config: the Scoutmaster walks at full pace when watched, zombies sprint from 30 and rest 1.9s (new defaults).");
         }
     }
 }

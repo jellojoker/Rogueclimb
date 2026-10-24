@@ -7,9 +7,9 @@ using UnityEngine;
 namespace PeakRoguelike;
 
 /// <summary>
-/// How much of a status bar, in words a scout reads at a glance: easy fractions (¼ ⅓ ½ ⅔ ¾),
-/// an exact percentage for small amounts, halves past a full bar. Levelled values are snapped to these
-/// (Snap) so a card is exactly true; vanilla values that sit between them say "almost" / "over".
+/// How much of a status bar, as a percentage a scout reads at a glance (a full bar = 100%).
+/// Levelled values are snapped to easy steps (Snap: 25/33/50/67/75/100%, halves past a full bar)
+/// so a card is exactly true; vanilla values show their own rounded percentage.
 /// </summary>
 internal static class Amount
 {
@@ -31,68 +31,35 @@ internal static class Amount
     public static float SnapSeconds(float s) => s < 10f ? Mathf.Max(0.5f, Mathf.Round(s * 2f) / 2f) : Mathf.Round(s);
 
     // --- words ---------------------------------------------------------------------------------
+    // Numbers, never fractions: a full bar is 100%, so "25% of your stamina bar" reads at a glance.
 
-    private static readonly Dictionary<string, bool> hasGlyph = new();
-
-    /// <summary>The fraction glyph if the game's font has it, else "1/3".</summary>
-    private static string Glyph(string fancy, string plain)
+    /// <summary>A share as a percentage: whole numbers, one decimal under 10% ("2.5%").</summary>
+    public static string Percent(float a)
     {
-        if (hasGlyph.TryGetValue(fancy, out bool ok)) return ok ? fancy : plain;
-        var font = UiArt.BodyFont;
-        if (font == null) return plain; // not in a scene yet - ask again later
-        try { ok = fancy.All(c => font.HasCharacter(c, true, true)); }
-        catch { ok = false; }
-        hasGlyph[fancy] = ok;
-        if (!ok) Plugin.Log.LogInfo($"Card text: the game's font has no '{fancy}', writing '{plain}'.");
-        return ok ? fancy : plain;
+        float p = a * 100f;
+        return p < 10f ? $"{p:0.#}%" : $"{Mathf.RoundToInt(p)}%";
     }
 
-    private static string Frac(float a)
-    {
-        if (Mathf.Abs(a - 0.25f) < 0.01f) return Glyph("¼", "1/4");
-        if (Mathf.Abs(a - 1f / 3f) < 0.01f) return Glyph("⅓", "1/3");
-        if (Mathf.Abs(a - 0.5f) < 0.01f) return Glyph("½", "1/2");
-        if (Mathf.Abs(a - 2f / 3f) < 0.01f) return Glyph("⅔", "2/3");
-        if (Mathf.Abs(a - 0.75f) < 0.01f) return Glyph("¾", "3/4");
-        int whole = Mathf.FloorToInt(a + 0.01f);
-        return Mathf.Abs(a - whole) < 0.01f ? whole.ToString() : whole + Glyph("½", ".5");
-    }
-
-    /// <summary>The nearest easy share, with "almost" / "over" when it isn't exact.</summary>
-    private static string Near(float a, out float shown)
-    {
-        shown = Mathf.Abs(Snap(a));
-        if (Mathf.Abs(shown - a) <= Close) return Frac(shown);
-        return (a < shown ? "almost " : "over ") + Frac(shown);
-    }
-
-    /// <summary>A small share as an exact percentage ("10%", "2.5%") - too small for an easy fraction.</summary>
-    public static string Percent(float a) => $"{a * 100f:0.#}%";
-
-    /// <summary>"⅓ of your injury" / "10% of your hunger" / "all of your heat".</summary>
+    /// <summary>"33% of your injury" / "10% of your hunger" / "all of your heat".</summary>
     public static string Of(float v, string noun)
     {
         float a = Mathf.Abs(v);
-        if (a < Sliver) return $"{Percent(a)} of {noun}";
         if (a >= 1f - Close) return $"all of {noun}";
-        return $"{Near(a, out _)} of {noun}";
+        return $"{Percent(a)} of {noun}";
     }
 
-    /// <summary>"⅓ bar of bonus stamina" / "a full bar of ..." / "1½ bars of ..." / "10% of a bar of ...".</summary>
+    /// <summary>"50% bonus stamina" / "25% drowsiness" - every bar is 100%.</summary>
     public static string Bars(float v, string noun)
     {
         float a = Mathf.Abs(v);
-        if (a < Sliver) return $"{Percent(a)} of a bar of {noun}";
-        string n = Near(a, out float shown);
-        if (Mathf.Abs(shown - 1f) < 0.01f)
-            return $"{(n.StartsWith("almost") ? "almost " : n.StartsWith("over") ? "over " : "")}a full bar of {noun}";
-        return shown > 1f ? $"{n} bars of {noun}" : $"{n} bar of {noun}";
+        return $"{(Mathf.Abs(a - 1f) <= Close ? "100%" : Percent(a))} {noun}";
     }
 
+    /// <summary>"2.5s" / "12s" / "1.5 min".</summary>
     public static string Seconds(float s)
     {
-        if (s >= 60f && Mathf.Abs(s / 30f - Mathf.Round(s / 30f)) < 0.02f) return $"{Frac(Mathf.Round(s / 30f) / 2f)} min";
-        return $"{Frac(SnapSeconds(s))}s";
+        if (s >= 60f && Mathf.Abs(s / 30f - Mathf.Round(s / 30f)) < 0.02f) return $"{Mathf.Round(s / 30f) / 2f:0.#} min";
+        return $"{SnapSeconds(s):0.#}s";
     }
 
     public static string Metres(float m) => $"{Mathf.RoundToInt(m)}m";

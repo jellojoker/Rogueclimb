@@ -5,8 +5,7 @@ A roguelike mod for PEAK. Crates, statues and amulets turn every climb into a ru
 Something survived the crash. The suns aren't the colour they should be. And the moon remembers
 who takes the relics.
 
-> **Beta.** The core run is in place; numbers are still being tuned. Every player in the lobby
-> needs the mod (same version). Something broke? Press **F7** to save a bug report.
+> Every player in the lobby needs the mod (same version). Something broke? Press **F7** to save a bug report.
 
 ## What's in it
 
@@ -30,7 +29,7 @@ is this mod. If you'd rather know how it all works, read on.
 
 ## Behind the curtain (spoilers)
 
-Everything below explains the mechanics. Numbers are beta values and may change.
+Everything below explains the mechanics. Numbers may change between versions.
 
 ### Crates and item trees
 

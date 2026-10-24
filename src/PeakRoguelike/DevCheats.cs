@@ -144,6 +144,14 @@ internal static class DevCheats
         Hud.Toast($"Squad jumps to {(Segment)next}", ChoiceScreen.Cream);
     }
 
+    /// <summary>Host: the whole squad jumps straight to a biome (the game's own debug jump).</summary>
+    internal static void JumpTo(Segment segment)
+    {
+        if (!MapHandler.Exists) return;
+        MapHandler.JumpToSegment(segment);
+        Hud.Toast($"Squad jumps to {segment}", ChoiceScreen.Cream);
+    }
+
     /// <summary>Set the clock (and sync it to everyone).</summary>
     internal static void SetTime(float hour)
     {

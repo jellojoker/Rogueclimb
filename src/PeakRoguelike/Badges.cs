@@ -59,10 +59,11 @@ internal class Badges : MonoBehaviour
     /// <summary>Disaster Response: ailments the Rescue Claw heals (0-1 of the bar, shared out).</summary>
     internal const float RescueHeal = 0.25f;
     private static int RescueHealPct => Mathf.RoundToInt(RescueHeal * 100f);
+    private static int GlassCutPct => Mathf.RoundToInt((1f - Mathf.Clamp01(ModConfig.BadgeGlassScale.Value)) * 100f);
 
     private static void Define()
     {
-        string noGlass(string what) => $"{what} add half the glass when they fire your relics.";
+        string noGlass(string what) => $"{what} add {GlassCutPct}% less glass when they fire your relics.";
         void D(BadgeId id, ACHIEVEMENTTYPE badge, string name, string desc, Curio curio = Curio.None) =>
             defs.Add(new Def { Id = id, Badge = badge, Name = name, Desc = desc, Curio = curio });
         string copy(Curio c) => $"The {CurioRelics.Name(c)} starting relic, on top of your own:\n{CurioRelics.Desc(c)}";
@@ -76,7 +77,7 @@ internal class Badges : MonoBehaviour
         D(BadgeId.LeaveNoTrace, ACHIEVEMENTTYPE.LeaveNoTraceBadge, "Leave No Trace", $"You climb {Pct}% faster.\nEvery item you use adds {ModConfig.GlassPerTrigger.Value} glass.");
         D(BadgeId.Hasty, ACHIEVEMENTTYPE.SpeedClimberBadge, "Hasty", $"You move {Pct}% faster on foot.");
         D(BadgeId.BingBong, ACHIEVEMENTTYPE.BingBongBadge, "Bing Bong", copy(Curio.BingBong), Curio.BingBong);
-        D(BadgeId.Naturalist, ACHIEVEMENTTYPE.NaturalistBadge, "Naturalist", "Natural food (berries, mushrooms, fruit, eggs, honey, hot dogs, marshmallows) adds half the glass when it fires your relics.\nPackaged food adds double glass.");
+        D(BadgeId.Naturalist, ACHIEVEMENTTYPE.NaturalistBadge, "Naturalist", $"Natural food (berries, mushrooms, fruit, eggs, honey, hot dogs, marshmallows) adds {GlassCutPct}% less glass when it fires your relics.\nPackaged food adds double glass.");
         D(BadgeId.FirstAid, ACHIEVEMENTTYPE.FirstAidBadge, "First Aid", $"Healing heals you {Pct}% more.\nFalls hurt {Pct}% less with a scout within 24m.");
         D(BadgeId.AnimalSerenading, ACHIEVEMENTTYPE.AnimalSerenadingBadge, "Animal Serenading", copy(Curio.Bugle), Curio.Bugle);
         D(BadgeId.KnotTying, ACHIEVEMENTTYPE.KnotTyingBadge, "Knot Tying", $"{noGlass("Ropes")}\nYour ropes are {Pct}% longer.");
@@ -90,7 +91,7 @@ internal class Badges : MonoBehaviour
         D(BadgeId.TreadLightly, ACHIEVEMENTTYPE.TreadLightlyBadge, "Tread Lightly", $"You take {Pct}% less spores.");
         D(BadgeId.Nomad, ACHIEVEMENTTYPE.NomadBadge, "Nomad", $"You take {Pct}% less heat.");
         D(BadgeId.DisasterResponse, ACHIEVEMENTTYPE.DisasterResponseBadge, "Disaster Response", $"Your Rescue Claw heals the scout it pulls: up to {RescueHealPct} points of ailments (not curse or hunger) - enough to wake a passed-out scout.");
-        D(BadgeId.CalciumIntake, ACHIEVEMENTTYPE.CalciumIntakeBadge, "Calcium Intake", $"Milk adds half the glass when it fires your relics.\nMilk's invincibility lasts {Pct}% longer.");
+        D(BadgeId.CalciumIntake, ACHIEVEMENTTYPE.CalciumIntakeBadge, "Calcium Intake", $"Milk adds {GlassCutPct}% less glass when it fires your relics.\nMilk's invincibility lasts {Pct}% longer.");
         D(BadgeId.Wanderer, ACHIEVEMENTTYPE.WandererBadge, "Wanderer", $"You take {Pct}% less drowsiness.");
         D(BadgeId.HangGliding, ACHIEVEMENTTYPE.HangGlidingBadge, "Hang Gliding", $"{noGlass("Gliders")}\nYou glide down {Pct}% slower.");
     }
@@ -219,15 +220,15 @@ internal class Badges : MonoBehaviour
         var lines = new List<string>();
         void If(BadgeId id, bool applies, string what) { if (applies && Has(id)) lines.Add($"{Get(id).Name}: {what}"); }
         var spool = item.GetComponent<RopeSpool>();
-        If(BadgeId.KnotTying, spool != null && !spool.isAntiRope, $"{Pct}% longer, half relic glass.");
-        If(BadgeId.KnotTying, item.GetComponent<RopeShooter>() != null || spool is { isAntiRope: true }, "half relic glass.");
-        If(BadgeId.Bouldering, item.GetComponent<ClimbingSpikeComponent>() != null, "goes in instantly, half relic glass.");
-        If(BadgeId.HangGliding, item.GetComponentInChildren<Glider>(true) != null, $"falls {Pct}% slower, half relic glass.");
-        If(BadgeId.Balloon, item.GetComponent<Balloon>() != null, $"flies {Pct}% higher, half relic glass.");
-        If(BadgeId.Aeronautics, item.GetComponent<JetpackItem>() != null, $"{Pct}% more fuel, half relic glass.");
-        If(BadgeId.Aeronautics, Items.IsScoutCannon(item), $"launches you {Pct}% harder, half relic glass.");
-        If(BadgeId.CalciumIntake, Items.IsMilk(item), $"invincible {Pct}% longer, half relic glass.");
-        If(BadgeId.Foraging, IsBerry(item), $"feeds {Pct}% more, half relic glass.");
+        If(BadgeId.KnotTying, spool != null && !spool.isAntiRope, $"{Pct}% longer, {GlassCutPct}% less relic glass.");
+        If(BadgeId.KnotTying, item.GetComponent<RopeShooter>() != null || spool is { isAntiRope: true }, $"{GlassCutPct}% less relic glass.");
+        If(BadgeId.Bouldering, item.GetComponent<ClimbingSpikeComponent>() != null, $"goes in instantly, {GlassCutPct}% less relic glass.");
+        If(BadgeId.HangGliding, item.GetComponentInChildren<Glider>(true) != null, $"falls {Pct}% slower, {GlassCutPct}% less relic glass.");
+        If(BadgeId.Balloon, item.GetComponent<Balloon>() != null, $"flies {Pct}% higher, {GlassCutPct}% less relic glass.");
+        If(BadgeId.Aeronautics, item.GetComponent<JetpackItem>() != null, $"{Pct}% more fuel, {GlassCutPct}% less relic glass.");
+        If(BadgeId.Aeronautics, Items.IsScoutCannon(item), $"launches you {Pct}% harder, {GlassCutPct}% less relic glass.");
+        If(BadgeId.CalciumIntake, Items.IsMilk(item), $"invincible {Pct}% longer, {GlassCutPct}% less relic glass.");
+        If(BadgeId.Foraging, IsBerry(item), $"feeds {Pct}% more, {GlassCutPct}% less relic glass.");
         If(BadgeId.Naturalist, Relics.IsFood(item), IsPackaged(item) ? "double relic glass." : "no relic glass.");
         If(BadgeId.FirstAid, Relics.IsHealing(item), $"heals you {Pct}% more.");
         If(BadgeId.DisasterResponse, Items.IsRescueClaw(item), $"heals the scout it pulls ({RescueHealPct} points).");

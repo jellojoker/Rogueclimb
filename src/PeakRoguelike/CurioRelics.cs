@@ -88,7 +88,7 @@ internal class CurioRelics : MonoBehaviour
 
     internal static string Desc(Curio c) => c switch
     {
-        Curio.Bugle => "Your helping hand reaches half again as far and pulls half again as hard.\nHelping hands pull you up half again as hard.\nScouts you carry weigh half as much.\nYou always sense the nearest scout.\nMore healing in your crates.",
+        Curio.Bugle => "Helping hand: 1.5x reach and pull.\nHelping hands pull you up 1.5x harder.\nScouts you carry weigh 0.5x.\nYou always sense the nearest scout.\nMore healing in your crates.",
         Curio.Binoculars => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest useful thing lying out in the world.\nMore food in your crates.",
         Curio.Compass => $"Every {ModConfig.CurioPingSeconds.Value:0} seconds, you sense the nearest unopened crate.\nMore tools in your crates.",
         Curio.Frisbee => "Everything you throw knocks back whatever it hits.",
@@ -311,12 +311,12 @@ internal class CurioRelics : MonoBehaviour
         catch (System.Exception e) { wakeNoticed = true; Plugin.Log.LogError($"Wake notice failed: {e}"); }
         try { LatePick(Character.localCharacter); }
         catch (System.Exception e) { sawShore = true; Plugin.Log.LogError($"Late relic pick failed: {e}"); }
-        if (Character.localCharacter is { } self)
+        if (Character.localCharacter is { } self && self != null) // Unity null: the scout can be destroyed (run ending) before the field clears
         {
             try { BingBongPranks.TickHidden(self); }
             catch (System.Exception e) { Plugin.Log.LogError($"Bing Bong hidden item failed: {e}"); }
         }
-        if (!ModConfig.CurioRelics.Value || !AnyActive || Character.localCharacter is not { } me || me.data.dead) { Marker.Hide(); return; }
+        if (!ModConfig.CurioRelics.Value || !AnyActive || Character.localCharacter is not { } me || me == null || me.data == null || me.data.dead) { Marker.Hide(); return; }
         try
         {
             // The Compass and the Binoculars each keep their own marker - both show if you have both.
