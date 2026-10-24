@@ -9,10 +9,13 @@ public class Plugin : BaseUnityPlugin
 {
     public const string Id = "rey.PeakRoguelike";
     public const string Name = "Rogue Climb";
-    public const string Version = "0.12.80";
+    public const string Version = "0.13.0";
+    /// <summary>Compat branch builds; empty on a release.</summary>
+    public const string Build = "test6";
 
     internal static ManualLogSource Log = null!;
     internal static string ConfigPath = "";
+    private static int failed;
 
     private void Awake()
     {
@@ -21,44 +24,54 @@ public class Plugin : BaseUnityPlugin
         ModConfig.Bind(Config);
         var harmony = new Harmony(Id);
         // One class at a time: a hook the game no longer has costs only that class, not the whole mod.
+        int hooked = 0, classes = 0;
         foreach (var type in AccessTools.GetTypesFromAssembly(typeof(Plugin).Assembly))
         {
-            try { harmony.CreateClassProcessor(type).Patch(); }
-            catch (System.Exception e) { Log.LogError($"Couldn't hook {type.Name}: {e.Message}"); }
+            var proc = harmony.CreateClassProcessor(type);
+            try { if (proc.Patch()?.Count > 0) { hooked++; classes++; } }
+            catch (System.Exception e) { classes++; failed++; Log.LogError($"Couldn't hook {type.Name}: {e.Message}"); }
         }
-        SunCaps.Install(harmony);
-        RunState.Install();
-        Net.Install();
-        SupplyDrop.Install();
-        DropClock.Install();
-        CurioRelics.Install();
-        Badges.Install();
-        VoidRun.Install();
-        Hud.Install();
-        ItemLevels.Install();
-        Fusion.Install();
-        Relics.Install();
-        RelicShuffle.Install();
-        Tickets.Install();
-        ToolRelics.Install();
-        Blessing.Install();
-        Storage.Install();
-        Stacks.Install();
-        StackMerge.Install();
-        Medicine.Install();
-        ScoutmasterHunt.Install();
-        Xp.Install();
-        Luck.Install();
-        ItemDump.Install();
-        BloodMoon.Install();
-        Suns.Install();
-        MovementCaps.Install();
-        Ambiance.Install();
-        DevPanel.Install();
-        Modless.Install();
-        DeathDrops.Install();
-        BugReports.Install();
-        RunReport.Install();
-        Log.LogInfo($"{Name} {Version} loaded - crates, item trees, fusions, relics and blood moons.");
+        // Same for every system: one that fails to start leaves the rest running.
+        Start("SunCaps", () => SunCaps.Install(harmony));
+        Start("RunState", RunState.Install);
+        Start("Net", Net.Install);
+        Start("SupplyDrop", SupplyDrop.Install);
+        Start("DropClock", DropClock.Install);
+        Start("CurioRelics", CurioRelics.Install);
+        Start("Badges", Badges.Install);
+        Start("VoidRun", VoidRun.Install);
+        Start("Hud", Hud.Install);
+        Start("ItemLevels", ItemLevels.Install);
+        Start("Fusion", Fusion.Install);
+        Start("Relics", Relics.Install);
+        Start("RelicShuffle", RelicShuffle.Install);
+        Start("Tickets", Tickets.Install);
+        Start("ToolRelics", ToolRelics.Install);
+        Start("Blessing", Blessing.Install);
+        Start("Storage", Storage.Install);
+        Start("Stacks", Stacks.Install);
+        Start("StackMerge", StackMerge.Install);
+        Start("Medicine", Medicine.Install);
+        Start("ScoutmasterHunt", ScoutmasterHunt.Install);
+        Start("Xp", Xp.Install);
+        Start("Luck", Luck.Install);
+        Start("ItemDump", ItemDump.Install);
+        Start("BloodMoon", BloodMoon.Install);
+        Start("Suns", Suns.Install);
+        Start("MovementCaps", MovementCaps.Install);
+        Start("Ambiance", Ambiance.Install);
+        Start("DevPanel", DevPanel.Install);
+        Start("Modless", Modless.Install);
+        Start("DeathDrops", DeathDrops.Install);
+        Start("BugReports", BugReports.Install);
+        Start("RunReport", RunReport.Install);
+        string build = Build.Length > 0 ? $"-{Build}" : "";
+        Log.LogInfo($"{Name} {Version}{build} loaded - {hooked}/{classes} hook classes, {failed} failed.");
+    }
+
+    private static void Start(string name, System.Action install)
+    {
+        try { install(); }
+        catch (System.Exception e) { failed++; Log.LogError($"Couldn't start {name}: {e}"); }
     }
 }

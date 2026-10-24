@@ -534,13 +534,15 @@ internal static class StoragePatches
         catch (Exception e) { Plugin.Log.LogWarning($"Storage: pack card failed: {e.Message}"); return true; }
     }
 
-    /// <summary>Extra pockets live at ids 4+ (3 is the back slot).</summary>
+    /// <summary>Extra pockets live at ids 4+ (3 is the back slot). Only pockets we made: another mod's slots answer for themselves.</summary>
     [HarmonyPrefix, HarmonyPatch(typeof(Player), nameof(Player.GetItemSlot))]
     private static bool ExtraPockets(Player __instance, byte slotID, ref ItemSlot __result)
     {
-        if (slotID < 4 || slotID >= 250) return true;
+        if (!ModConfig.Storage.Value || slotID < 4 || slotID >= 250) return true;
+        var slots = __instance.itemSlots;
         int i = slotID - 1;
-        __result = __instance.itemSlots != null && i < __instance.itemSlots.Length ? __instance.itemSlots[i] : null!;
+        if (slots == null || i >= slots.Length || slots[i] == null || slots[i].itemSlotID != slotID) return true;
+        __result = slots[i];
         return false;
     }
 

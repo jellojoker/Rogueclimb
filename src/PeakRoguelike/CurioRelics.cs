@@ -311,12 +311,12 @@ internal class CurioRelics : MonoBehaviour
         catch (System.Exception e) { wakeNoticed = true; Plugin.Log.LogError($"Wake notice failed: {e}"); }
         try { LatePick(Character.localCharacter); }
         catch (System.Exception e) { sawShore = true; Plugin.Log.LogError($"Late relic pick failed: {e}"); }
-        if (Character.localCharacter is { } self)
+        if (Character.localCharacter is { } self && self != null) // Unity null: the scout can be destroyed (run ending) before the field clears
         {
             try { BingBongPranks.TickHidden(self); }
             catch (System.Exception e) { Plugin.Log.LogError($"Bing Bong hidden item failed: {e}"); }
         }
-        if (!ModConfig.CurioRelics.Value || !AnyActive || Character.localCharacter is not { } me || me.data.dead) { Marker.Hide(); return; }
+        if (!ModConfig.CurioRelics.Value || !AnyActive || Character.localCharacter is not { } me || me == null || me.data == null || me.data.dead) { Marker.Hide(); return; }
         try
         {
             // The Compass and the Binoculars each keep their own marker - both show if you have both.

@@ -529,7 +529,14 @@ internal class Xp : MonoBehaviour
 
         var cards = new List<CardSpec>();
         var picks = new List<System.Action>();
-        foreach (var o in levels) { cards.Add(CrateCards.ForCarried(o)); picks.Add(() => PickedLevel(o)); }
+        // Only cards that raise something you carry wear the Level Up gold; rolled crate items are new (or spares).
+        foreach (var o in levels)
+        {
+            var card = CrateCards.ForCarried(o);
+            if (o.Level >= 2 && card.Style == CardStyle.Perk) card.LevelUp = true;
+            cards.Add(card);
+            picks.Add(() => PickedLevel(o));
+        }
         foreach (var item in rolled) { cards.Add(CrateCards.ForItem(item)); picks.Add(() => Picked(item)); }
         foreach (var r in levels.Count > 0 ? new List<Recipe>() : Offers.UnlockedFusions(rolled))
         {
@@ -543,7 +550,7 @@ internal class Xp : MonoBehaviour
             TitleColor = ChoiceScreen.LevelGold,
             Subtitle = $"Level {claimed + 1}",
             Confirm = "CLAIM",
-            Cards = LevelCards(cards),
+            Cards = cards,
             StillValid = Alive,
             OnConfirm = i => picks[i](),
             OnBack = SaveForLater,

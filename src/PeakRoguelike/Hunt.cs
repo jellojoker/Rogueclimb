@@ -528,7 +528,8 @@ internal static class HuntPatches
     private static bool OnlyRealGrips(Scoutmaster __instance)
     {
         var me = __instance.character;
-        if (me == null) return true;
+        // Outside our hunts his grips are vanilla's (or another mod's Scoutmasters).
+        if (me == null || (!ScoutmasterHunt.Hunting && !ScoutmasterHunt.Busy(__instance))) return true;
         var held = me.data.grabbedPlayer;
         if (held != null && me.data.grabJoint != null && held == __instance.currentTarget) return true;
         // During a hunt he may catch someone next to his prey: they become the one he throws.

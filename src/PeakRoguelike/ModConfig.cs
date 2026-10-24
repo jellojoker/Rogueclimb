@@ -73,7 +73,7 @@ internal static class ModConfig
     public static ConfigEntry<bool> BloodMoon = null!, BmDarkRites = null!, BmWarning = null!, BmRelay = null!;
     public static ConfigEntry<float> BmRelaySeconds = null!, BmRelayTornadoBack = null!, BmZombieAhead = null!, BmZombieLeash = null!;
     public static ConfigEntry<bool> BmScoutmaster = null!, BmZombies = null!, BmTornado = null!, BmGlassMeteors = null!, BmMeteors = null!;
-    public static ConfigEntry<float> BmMeteorRate = null!, BmMeteorSceneryBase = null!, BmMeteorSceneryPerScout = null!, BmMeteorCoverAngle = null!;
+    public static ConfigEntry<float> BmMeteorRate = null!, BmMeteorSceneryBase = null!, BmMeteorSceneryPerScout = null!, BmMeteorCoverAngle = null!, BmMeteorLean = null!, BmMeteorSceneryFar = null!, BmMeteorSpread = null!;
     public static ConfigEntry<float> BmMoonLight = null!, BmNightDarkness = null!, BmEclipseDarkness = null!, BmMeteorHitGrace = null!;
     public static ConfigEntry<float> BmMusicVolume = null!;
     public static ConfigEntry<bool> BmMusicLoop = null!, BmRelayTornadoFromBase = null!;
@@ -162,9 +162,12 @@ internal static class ModConfig
         BmGlassMeteors = cfg.Bind("BloodMoon", "GlassMeteors", true, "4 relics, Gloom runs (Gloom + Citadel): a shower of purple glass - a direct hit adds glass.");
         BmMeteors = cfg.Bind("BloodMoon", "Meteors", true, "4 relics, Caldera runs: a meteor shower.");
         BmMeteorRate = cfg.Bind("BloodMoon", "MeteorRate", 1f, "Meteors per second around each scout.");
-        BmMeteorSceneryBase = cfg.Bind("BloodMoon", "MeteorSceneryBase", 2f, "Meteor showers: harmless scenery rocks a second, crashing 30-150m from every scout (no mark, can't hit). 0 = none.");
+        BmMeteorSceneryBase = cfg.Bind("BloodMoon", "MeteorSceneryBase", 2f, "Meteor showers: harmless scenery rocks a second, crashing 30-150m (or far off, see MeteorSceneryFar) from every scout (no mark, can't hit). 0 = none.");
         BmMeteorSceneryPerScout = cfg.Bind("BloodMoon", "MeteorSceneryPerScout", 1.5f, "Meteor showers: more scenery rocks a second for each scout beyond the first out in the open.");
         BmMeteorCoverAngle = cfg.Bind("BloodMoon", "MeteorCoverAngle", 35f, "Meteor showers: a rock blocked overhead still comes in at a slant up to this many degrees off straight down, if any such path is open - only cover on every side (a cave, a deep overhang) stops it. 0 = any roof stops it.");
+        BmMeteorLean = cfg.Bind("BloodMoon", "MeteorLean", 30f, "Meteor showers (not the Kiln or Citadel): rocks come down from the sky this many degrees off straight down, leaning toward the peak. 0 = straight down.");
+        BmMeteorSpread = cfg.Bind("BloodMoon", "MeteorSpread", 35f, "Meteor showers (not the Kiln or Citadel): each rock comes in up to this many degrees left or right of the peak, and leans 10 degrees more or less than MeteorLean - a spread-out shower instead of one stream. 0 = all parallel.");
+        BmMeteorSceneryFar = cfg.Bind("BloodMoon", "MeteorSceneryFar", 0.5f, "Meteor showers (not the Kiln or Citadel): share of scenery rocks that crash far off (150-500m) down the mountain, bigger and brighter - a shower in the distance.");
         BmMoonLight = cfg.Bind("BloodMoon", "MoonLight", 1.6f, "Brightness of the red moonlight (a blood moon night is lit like a red-sun day; never darker than the vanilla moon).");
         BmNightDarkness = cfg.Bind("BloodMoon", "NightDarkness", 0.6f, "How dark a blood moon night is: 0 = the old bright red-day look (MoonLight), 1 = vanilla moonlight in red, a deep crimson sky and much darker shade. Tune live in F8 > World.");
         BmEclipseDarkness = cfg.Bind("BloodMoon", "EclipseDarkness", 0.6f, "How dark a blood eclipse (a blood moon by day) is: 0 = the old look (sun at 70%), 1 = sun at 20%, a near-black sky and much darker shade. Tune live in F8 > World.");

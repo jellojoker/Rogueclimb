@@ -244,6 +244,14 @@ internal class Blessing : MonoBehaviour
             .OrderBy(_ => UnityEngine.Random.value).FirstOrDefault();
     }
 
+    /// <summary>Campfire cards that raise an item you have wear the Level Up gold + rising arrows; everything else keeps its own look.</summary>
+    private static CardSpec FireCard(Option option, Source from)
+    {
+        var card = option.Card();
+        if (from == Source.Campfire && option is TreeOption { LevelsUp: true }) card.LevelUp = true;
+        return card;
+    }
+
     private static bool Show(string subtitle, int source, Action onTaken, Action onBack, Func<bool>? stillValid, Source from = Source.Statue, Action? onSkip = null)
     {
         building = from;
@@ -263,7 +271,7 @@ internal class Blessing : MonoBehaviour
             Subtitle = subtitle,
             Confirm = "ACCEPT",
             BackHint = "Decide later",
-            Cards = options.Select(o => o.Card()).ToList(),
+            Cards = options.Select(o => FireCard(o, from)).ToList(),
             StillValid = stillValid,
             OnConfirm = i => options[i].Take(ok =>
             {
@@ -459,6 +467,8 @@ internal class Blessing : MonoBehaviour
         private readonly int from, branch, add;
         private readonly string role;
         public string Role => role;
+        /// <summary>Raises an item you already have (a new path starts one at level 1 - not a level up).</summary>
+        public bool LevelsUp => from > 0;
 
         public TreeOption(TreeDef tree, int from, int branch, int add, string role)
         {

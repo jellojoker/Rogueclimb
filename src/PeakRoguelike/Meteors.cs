@@ -8,13 +8,16 @@ namespace PeakRoguelike;
 
 /// <summary>
 /// Blood moon meteor shower (4 relics, Caldera runs). Inspired by CptPICHU's True Final Ascent
-/// eruption (go play it): glowing rocks streak down from the sky above the section, a red mark
-/// shows where each lands 4 seconds ahead, and a direct hit knocks you down, injures and burns you.
+/// eruption (go play it): glowing rocks streak down from the sky toward the peak (MeteorLean off
+/// straight down), a red mark shows where each lands 4 seconds ahead, and a direct hit knocks you
+/// down, injures and burns you. Every rock falls at one speed: aimed rocks start close enough to
+/// land in 4s, scenery starts higher and takes longer.
 /// In the Kiln the lava erupts them instead: they arc up out of it and down onto their marks.
+/// The Citadel keeps its own sky: right over the tower.
 /// Cover only helps when it's real: a rock blocked overhead comes in at a slant (up to
-/// [BloodMoon] MeteorCoverAngle off straight down) if any such path is open.
-/// Harmless scenery rocks crash 30-150m from everyone, more with every extra scout, so the
-/// sky stays busy.
+/// [BloodMoon] MeteorCoverAngle off straight down, never from straight behind) if any such path is open.
+/// Harmless scenery rocks crash 30-150m from everyone, more with every extra scout, and some far
+/// off down the mountain (MeteorSceneryFar), so the sky stays busy.
 /// On Gloom runs (Gloom, then Citadel) it rains purple glass instead: crystal shards in the
 /// game's petrify-glass material, purple marks and trails, glass sounds, and a direct hit adds
 /// glass instead of heat.
@@ -33,17 +36,21 @@ internal class Meteors : MonoBehaviour
     private const float AroundUnits = 55f * U;
     /// <summary>Floats per rock: land xyz, start xyz, size, delay, seed, flags.</summary>
     private const int Stride = 10;
-    private const int FlagScenery = 1, FlagArc = 2;
+    private const int FlagScenery = 1, FlagArc = 2, FlagPeak = 4, FlagFar = 8;
+    /// <summary>How far an aimed rock starts from its mark: 4s at the one meteor speed.</summary>
+    private const float Reach = 150f * U;
+    /// <summary>The one meteor speed (units a second) for rocks from the peak's sky.</summary>
+    private const float Speed = Reach / FallSeconds;
 
     private class Rock
     {
         public Vector3 Land, Start, Normal = Vector3.up;
         /// <summary>Erupted from the Kiln's lava: it arcs up through this point and down onto its mark.</summary>
         public Vector3 Control;
-        public float Size, SpawnAt, LandAt;
+        public float Size, SpawnAt, LandAt, Fall = FallSeconds;
         public int Seed;
-        /// <summary>Scenery: far from everyone, no mark, can't hit.</summary>
-        public bool Spawned, Landed, Glass, Arc, Scenery;
+        /// <summary>Scenery: far from everyone, no mark, can't hit. Far: scenery crashing far off down the mountain.</summary>
+        public bool Spawned, Landed, Glass, Arc, Scenery, Peak, Far;
         public GameObject? Body, Mark;
         public Light? Glow;
         public Material? MarkMat;
@@ -82,7 +89,7 @@ internal class Meteors : MonoBehaviour
         fell = sceneryFell = covered = campfire = noGround = 0;
         sceneryDebt = 0f;
         if (instance != null) { instance.rolledTo = Time.time; instance.next.Clear(); instance.aimedNext.Clear(); instance.quietUntil.Clear(); }
-        Plugin.Log.LogInfo($"Blood moon meteors for {seconds:0}s ({(alone ? "alone" : "sharing the moon")}: a rock at each scout every ~{AimedEvery:0.#}s, {NearShare:P0} land close; from {(Kiln ? "the Kiln's lava" : Citadel ? "above the Citadel" : "the sky above the section")}).");
+        Plugin.Log.LogInfo($"Blood moon meteors for {seconds:0}s ({(alone ? "alone" : "sharing the moon")}: a rock at each scout every ~{AimedEvery:0.#}s, {NearShare:P0} land close; from {(Kiln ? "the Kiln's lava" : Citadel ? "above the Citadel" : "the sky toward the peak")}).");
     }
 
     private static float AimedEvery => Mathf.Max(0.5f, alone ? ModConfig.BmMeteorAimedEvery.Value : ModConfig.BmMeteorAimedEveryShared.Value);
@@ -159,6 +166,46 @@ internal class Meteors : MonoBehaviour
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Host, every biome but the Kiln and the Citadel: a rock comes down from the sky toward the
+    /// peak (MeteorLean off straight down, each rock spread up to MeteorSpread either side and 10
+    /// degrees steeper or flatter), `reach` out along that line. Something in the way: it
+    /// cheats - straight down, then up to MeteorCoverAngle off it, nearest the peak's side first and
+    /// never from straight behind. Null = real cover on every side.
+    /// </summary>
+    private static Vector3? PeakStart(Vector3 land, float reach)
+    {
+        Vector3 toward = TowardPeak(land);
+        float spread = Mathf.Clamp(ModConfig.BmMeteorSpread.Value, 0f, 90f);
+        Vector3 heading = Quaternion.Euler(0f, Random.Range(-spread, spread), 0f) * toward;
+        float jitter = spread > 0f ? Random.Range(-10f, 10f) : 0f;
+        float lean = Mathf.Clamp(ModConfig.BmMeteorLean.Value + jitter, 0f, 60f) * Mathf.Deg2Rad;
+        Vector3 sky = land + (Vector3.up * Mathf.Cos(lean) + heading * Mathf.Sin(lean)) * reach;
+        if (Open(sky, land)) return sky;
+
+        float max = Mathf.Clamp(ModConfig.BmMeteorCoverAngle.Value, 0f, 60f);
+        foreach (float tilt in new[] { 0f, max * 0.5f, max })
+        {
+            float rad = tilt * Mathf.Deg2Rad;
+            foreach (float yaw in new[] { 0f, 45f, -45f, 90f, -90f, 135f, -135f })
+            {
+                Vector3 side = Quaternion.Euler(0f, yaw, 0f) * toward;
+                Vector3 from = land + (Vector3.up * Mathf.Cos(rad) + side * Mathf.Sin(rad)) * reach;
+                if (Open(from, land)) return from;
+                if (tilt == 0f) break; // straight down is one path
+            }
+        }
+        return null;
+    }
+
+    /// <summary>Flat direction from here to the peak (the current campfire when there's no peak).</summary>
+    private static Vector3 TowardPeak(Vector3 from)
+    {
+        Vector3 toward = (Squad.UpMountain(summit: true) ?? from) - from;
+        toward.y = 0f;
+        return toward.sqrMagnitude < 0.01f ? Vector3.forward : toward.normalized;
     }
 
     private static LavaRising? lava;
@@ -280,27 +327,43 @@ internal class Meteors : MonoBehaviour
         float perSecond = Mathf.Max(0f, ModConfig.BmMeteorSceneryBase.Value) + Mathf.Max(0f, ModConfig.BmMeteorSceneryPerScout.Value) * (open.Count - 1);
         sceneryDebt += perSecond * 0.5f;
         float clear = 30f * U;
+        float farShare = Kiln || Citadel ? 0f : Mathf.Clamp01(ModConfig.BmMeteorSceneryFar.Value);
         while (sceneryDebt >= 1f)
         {
             sceneryDebt -= 1f;
             var c = open[Random.Range(0, open.Count)].Center;
-            Vector2 off = Random.insideUnitCircle.normalized * Random.Range(clear, 150f * U);
-            float probe = 220f * U;
-            if (!Physics.Raycast(new Vector3(c.x + off.x, c.y + probe, c.z + off.y), Vector3.down, out var hit, probe * 2f,
+            // Far ones crash down the mountain (within 90 degrees of straight away from the peak): a shower in the distance.
+            bool far = Random.value < farShare;
+            Vector2 off;
+            if (far)
+            {
+                Vector3 away = Quaternion.Euler(0f, Random.Range(-90f, 90f), 0f) * -TowardPeak(c);
+                off = new Vector2(away.x, away.z) * Random.Range(150f * U, 500f * U);
+            }
+            else off = Random.insideUnitCircle.normalized * Random.Range(clear, 150f * U);
+            float probe = 220f * U, depth = probe + (far ? 600f * U : probe);
+            if (!Physics.Raycast(new Vector3(c.x + off.x, c.y + probe, c.z + off.y), Vector3.down, out var hit, depth,
                     HelperFunctions.terrainMapMask, QueryTriggerInteraction.Ignore)) continue;
             Vector3 land = hit.point;
             if (open.Any(s => Vector3.Distance(s.Center, land) < clear) || Sanctuary.Safe(land)) continue;
-            Launch(land, Random.Range(3f, 8f) * U, Random.Range(0f, 0.5f), scenery: true);
+            Launch(land, Random.Range(3f, 8f) * U * (far ? 1.5f : 1f), Random.Range(0f, 0.5f), scenery: true, far: far);
         }
     }
 
     /// <summary>Host: where the rock starts (the Kiln's lava, else the sky), packed for everyone - unless real cover stops it.</summary>
-    private void Launch(Vector3 land, float size, float delay, bool scenery)
+    private void Launch(Vector3 land, float size, float delay, bool scenery, bool far = false)
     {
         int seed = Random.Range(0, 1 << 20);
-        int flags = scenery ? FlagScenery : 0;
+        int flags = (scenery ? FlagScenery : 0) | (far ? FlagFar : 0);
         Vector3? start = null;
         if (Kiln && LavaStart(land, seed) is { } erupted) { start = erupted; flags |= FlagArc; }
+        else if (!Kiln && !Citadel)
+        {
+            // Aimed rocks land in 4s; scenery starts higher in the sky and takes longer at the same speed.
+            start = PeakStart(land, scenery ? Random.Range(250f, 400f) * U : Reach);
+            if (start == null) { if (!scenery) covered++; return; }
+            flags |= FlagPeak;
+        }
         start ??= SkyStart(land);
         if (start is not { } s)
         {
@@ -339,14 +402,18 @@ internal class Meteors : MonoBehaviour
             {
                 Land = new Vector3(data[i], data[i + 1], data[i + 2]),
                 Start = new Vector3(data[i + 3], data[i + 4], data[i + 5]),
-                Size = Mathf.Clamp(data[i + 6], 1f, 6f),
+                Size = Mathf.Clamp(data[i + 6], 1f, 8f),
                 SpawnAt = now + Mathf.Clamp(data[i + 7], 0f, 1.5f),
                 Seed = (int)data[i + 8],
             };
             int flags = (int)data[i + 9];
             r.Scenery = (flags & FlagScenery) != 0;
             r.Arc = (flags & FlagArc) != 0;
-            r.LandAt = r.SpawnAt + FallSeconds;
+            r.Peak = (flags & FlagPeak) != 0;
+            r.Far = (flags & FlagFar) != 0;
+            // From the peak's sky every rock flies at one speed: scenery from higher up takes longer.
+            if (r.Peak && r.Scenery) r.Fall = Mathf.Clamp(Vector3.Distance(r.Start, r.Land) / Speed, FallSeconds, 20f);
+            r.LandAt = r.SpawnAt + r.Fall;
             if (r.Arc) r.Control = Control(r.Start, r.Land, r.Seed);
             instance.rocks.Add(r);
         }
@@ -362,7 +429,7 @@ internal class Meteors : MonoBehaviour
             if (!r.Spawned) Spawn(r);
             if (!r.Landed)
             {
-                float t = Mathf.Clamp01((now - r.SpawnAt) / FallSeconds);
+                float t = Mathf.Clamp01((now - r.SpawnAt) / r.Fall);
                 float e = t * t;                                         // falling: speeds up
                 if (r.Body != null)
                 {
@@ -404,9 +471,25 @@ internal class Meteors : MonoBehaviour
         r.Body = new GameObject(r.Glass ? "Blood Glass Meteor" : "Blood Meteor");
         r.Body.transform.position = r.Start;
         r.Body.transform.localScale = Vector3.one * r.Size;
-        r.Body.AddComponent<MeshFilter>().sharedMesh = r.Glass ? CrystalMesh(r.Seed % RockVariants) : RockMesh(r.Seed % RockVariants);
-        var mr = r.Body.AddComponent<MeshRenderer>();
-        mr.sharedMaterial = r.Glass ? GlassMaterial() : RockMaterial();
+        MeshRenderer mr;
+        if (GameLook(r.Glass) is { Count: > 0 } looks)
+        {
+            // The game's own hot rock / petrify stone (recentred inside the body, sized like our rocks), with our glow.
+            var look = looks[r.Seed % looks.Count];
+            var shape = new GameObject("Shape");
+            shape.transform.SetParent(r.Body.transform, false);
+            shape.transform.localScale = Vector3.one * look.Scale;
+            shape.transform.localPosition = -look.Centre * look.Scale;
+            shape.AddComponent<MeshFilter>().sharedMesh = look.Mesh;
+            mr = shape.AddComponent<MeshRenderer>();
+            mr.sharedMaterials = look.Materials;
+        }
+        else
+        {
+            r.Body.AddComponent<MeshFilter>().sharedMesh = r.Glass ? CrystalMesh(r.Seed % RockVariants) : RockMesh(r.Seed % RockVariants);
+            mr = r.Body.AddComponent<MeshRenderer>();
+            mr.sharedMaterial = r.Glass ? GlassMaterial() : RockMaterial();
+        }
         mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
         r.Glow = new GameObject("Glow").AddComponent<Light>();
@@ -414,13 +497,13 @@ internal class Meteors : MonoBehaviour
         r.Glow.type = LightType.Point;
         r.Glow.color = r.Glass ? GlassGlow : new Color(1f, 0.38f, 0.12f);
         r.Glow.range = r.Size * (r.Scenery ? 4f : 7f);
-        r.Glow.intensity = r.Scenery ? 2.5f : 4f;
+        r.Glow.intensity = r.Far ? 4f : r.Scenery ? 2.5f : 4f;
 
         if (TrailMaterial() is { } tm)
         {
             var trail = r.Body.AddComponent<TrailRenderer>();
             trail.sharedMaterial = tm;
-            trail.time = 0.7f;
+            trail.time = r.Peak ? 1.2f : 0.7f; // slower rocks from the peak's sky: a longer tail keeps the streak
             trail.widthMultiplier = r.Size * 0.9f;
             trail.widthCurve = AnimationCurve.Linear(0f, 1f, 1f, 0f);
             var g = new Gradient();
@@ -461,11 +544,11 @@ internal class Meteors : MonoBehaviour
         r.GoneAt = Time.time + 1.2f;
         if (r.Body != null)
         {
-            r.Body.GetComponent<MeshRenderer>().enabled = false;
+            if (r.Body.GetComponentInChildren<MeshRenderer>() is { } body) body.enabled = false;
             if (r.Body.GetComponent<TrailRenderer>() is { } tr) tr.emitting = false;
             r.Body.transform.position = r.Land + Vector3.up * 0.5f;
         }
-        if (r.Glow != null) { r.Glow.intensity = r.Scenery ? 9f : 14f; r.Glow.range = r.Size * (r.Scenery ? 7f : 10f); }
+        if (r.Glow != null) { r.Glow.intensity = r.Scenery && !r.Far ? 9f : 14f; r.Glow.range = r.Size * (r.Scenery ? 7f : 10f); }
         if (r.Mark != null) r.Mark.SetActive(false);
 
         float big = Mathf.InverseLerp(3f * U, 8f * U, r.Size);
@@ -493,7 +576,9 @@ internal class Meteors : MonoBehaviour
             chunk.transform.position = r.Land + Vector3.up * (r.Size * 0.4f) + Random.insideUnitSphere * r.Size * 0.3f;
             chunk.transform.localScale = Vector3.one * r.Size * (r.Glass ? Random.Range(0.1f, 0.22f) : Random.Range(0.15f, 0.3f));
             chunk.AddComponent<MeshFilter>().sharedMesh = mesh;
-            chunk.AddComponent<MeshRenderer>().sharedMaterial = r.Glass ? GlassMaterial() : RockMaterial();
+            chunk.AddComponent<MeshRenderer>().sharedMaterial = GameLook(r.Glass) is { Count: > 0 } looks
+                ? looks[r.Seed % looks.Count].Materials[0]
+                : r.Glass ? GlassMaterial() : RockMaterial();
             var col = chunk.AddComponent<SphereCollider>();
             col.radius = 0.4f;
             var rb = chunk.AddComponent<Rigidbody>();
@@ -566,6 +651,89 @@ internal class Meteors : MonoBehaviour
         m.RecalculateBounds();
         return rockMeshes[variant] = m;
     }
+
+    // --- the game's own rocks -----------------------------------------------------------------
+
+    /// <summary>One borrowed rock: the game's mesh and textures (with our glow), recentred and sized like our rocks.</summary>
+    private sealed class Look
+    {
+        public Mesh Mesh = null!;
+        public Material[] Materials = null!;
+        public Vector3 Centre;
+        public float Scale;
+    }
+
+    private static List<Look>? fireLooks, glassLooks;
+    private static int lookScene = int.MinValue;
+    private static float fireTried = -999f, glassTried = -999f;
+
+    /// <summary>
+    /// The game's hot rocks (climbing them burns: Caldera, Kiln) for fire showers, its petrifying
+    /// stones (Citadel) for glass ones - up to 4 shapes, textures kept, glow added. Empty = none in
+    /// this level (our own rocks then); asked again at most every 30s.
+    /// </summary>
+    private static List<Look>? GameLook(bool glass)
+    {
+        int scene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().handle;
+        if (scene != lookScene)
+        {
+            lookScene = scene;
+            fireLooks = glassLooks = null;
+            fireTried = glassTried = -999f;
+        }
+        var have = glass ? glassLooks : fireLooks;
+        if (have is { Count: > 0 } || Time.time - (glass ? glassTried : fireTried) < 30f) return have;
+        if (glass) glassTried = Time.time; else fireTried = Time.time;
+
+        var sources = new List<Component>();
+        foreach (var s in FindObjectsByType<ClimbModifierSurface>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            if (s != null && (glass ? s.applyPetrify : s.applyStatus && !s.applyPetrify && s.statusType == CharacterAfflictions.STATUSTYPE.Hot)) sources.Add(s);
+        foreach (var c in FindObjectsByType<CollisionModifier>(FindObjectsInactive.Include, FindObjectsSortMode.None))
+            if (c != null && (glass ? c.applyPetrify : c.applyEffects && !c.applyPetrify && c.statusType == CharacterAfflictions.STATUSTYPE.Hot)) sources.Add(c);
+
+        // Rock-shaped pieces only (no bridges, cliffs, slabs or ground - a bridge chunk flew as a triangle), roundest first.
+        var picks = sources
+            .Select(s => s.GetComponent<MeshFilter>() ?? s.GetComponentInChildren<MeshFilter>(true))
+            .Where(f => f != null && f.sharedMesh != null && f.GetComponent<MeshRenderer>() is { } mr && mr.sharedMaterials.Length > 0 && mr.sharedMaterials[0] != null)
+            .GroupBy(f => f.sharedMesh).Select(g => g.First())
+            .Where(f => f.sharedMesh.vertexCount is >= 24 and <= 20000 && !NotARock.IsMatch(f.sharedMesh.name + " " + f.gameObject.name))
+            .Select(f => (f, round: Roundness(f.sharedMesh.bounds.size)))
+            .Where(p => p.round > 0.35f)
+            .OrderByDescending(p => p.round).Take(4).Select(p => p.f).ToList();
+
+        Color glow = glass ? GlassGlow * 0.9f : new Color(1f, 0.28f, 0.06f) * 1.2f;
+        var looks = new List<Look>();
+        foreach (var f in picks)
+        {
+            var b = f.sharedMesh.bounds;
+            var mats = f.GetComponent<MeshRenderer>().sharedMaterials.Where(m => m != null).Select(m =>
+            {
+                var copy = new Material(m) { name = "Blood Meteor (" + m.name + ")" };
+                copy.EnableKeyword("_EMISSION");
+                copy.globalIlluminationFlags = MaterialGlobalIlluminationFlags.RealtimeEmissive;
+                if (copy.HasProperty("_EmissionColor")) copy.SetColor("_EmissionColor", glow);
+                return copy;
+            }).ToArray();
+            looks.Add(new Look { Mesh = f.sharedMesh, Materials = mats, Centre = b.center, Scale = 1.4f / Mathf.Max(0.01f, Mathf.Max(b.size.x, Mathf.Max(b.size.y, b.size.z))) });
+        }
+        string what = glass ? "petrify stones" : "hot rocks";
+        Plugin.Log.LogInfo(looks.Count == 0
+            ? $"Meteors: no {what} in this level ({sources.Count} {what} surfaces, none rock-shaped) - our own rocks."
+            : $"Meteors look like the game's {what}: " + string.Join(", ", picks.Select(f =>
+            {
+                var m = f.GetComponent<MeshRenderer>().sharedMaterials[0];
+                return $"{f.sharedMesh.name} ({f.sharedMesh.vertexCount}v, '{m.name}' / {m.shader.name}{(m.HasProperty("_EmissionColor") ? "" : ", no emission")}) on '{f.gameObject.name}'";
+            })));
+        if (glass) glassLooks = looks; else fireLooks = looks;
+        return looks;
+    }
+
+    private static readonly System.Text.RegularExpressions.Regex NotARock =
+        new("bridge|cliff|wall|floor|ground|terrain|plank", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+    /// <summary>Smallest side over largest: 1 = as wide as tall as deep, near 0 = a flat slab.</summary>
+    private static float Roundness(Vector3 s) =>
+        Mathf.Min(s.x, Mathf.Min(s.y, s.z)) / Mathf.Max(0.0001f, Mathf.Max(s.x, Mathf.Max(s.y, s.z)));
 
     // --- glass ---------------------------------------------------------------------------------
 
